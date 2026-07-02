@@ -1,0 +1,35 @@
+[package]
+name = "ekko-client"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[features]
+default = ["builtins", "keycast", "lua"]
+builtins = ["dep:ekko-builtins"]
+keycast = ["dep:ekko-keycast"]
+lua = ["dep:ekko-lua"]
+
+[dependencies]
+anyhow.workspace = true
+interprocess.workspace = true
+libc.workspace = true
+log.workspace = true
+ekko-builtins = { workspace = true, optional = true }
+ekko-keycast = { workspace = true, optional = true }
+ekko-lua = { workspace = true, optional = true }
+ekko-config.workspace = true
+ekko-event.workspace = true
+ekko-ext.workspace = true
+ekko-grid.workspace = true
+ekko-proto.workspace = true
+ekko-tui.workspace = true
+serde_json.workspace = true
+signal-hook.workspace = true
+unicode-width.workspace = true
+
+[dev-dependencies]
+ekko-builtins.workspace = true
+
+[lints]
+workspace = true

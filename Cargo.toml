@@ -1,0 +1,56 @@
+[workspace]
+members = ["crates/*"]
+resolver = "2"
+
+[workspace.package]
+edition = "2024"
+license = "MIT"
+version = "0.1.0"
+
+[workspace.dependencies]
+anyhow = "1.0"
+bincode = "1.3"
+clap = { version = "4.5", features = ["derive"] }
+close_fds = "0.3"
+crossbeam-channel = "0.5"
+daemonize = { version = "0.5", default-features = false }
+directories = "6.0"
+interprocess = { version = "2.2", default-features = false }
+libc = "0.2"
+log = "0.4"
+nix = { version = "0.29", default-features = false, features = ["term", "process", "signal", "fs"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+signal-hook = { version = "0.3", default-features = false, features = ["iterator"] }
+tempfile = "3"
+thiserror = "2.0"
+tokio = { version = "1.45", features = ["rt-multi-thread", "macros", "io-util", "sync", "time", "net"] }
+toml = "0.8"
+unicode-segmentation = "1.12"
+unicode-width = "0.2"
+vt100 = "0.16"
+
+ekko-builtins = { path = "crates/ekko-builtins" }
+ekko-client = { path = "crates/ekko-client", default-features = false }
+ekko-config = { path = "crates/ekko-config" }
+ekko-event = { path = "crates/ekko-event" }
+ekko-ext = { path = "crates/ekko-ext" }
+ekko-grid = { path = "crates/ekko-grid" }
+ekko-keycast = { path = "crates/ekko-keycast" }
+ekko-lua = { path = "crates/ekko-lua" }
+ekko-proto = { path = "crates/ekko-proto" }
+ekko-pty = { path = "crates/ekko-pty" }
+ekko-resurrection = { path = "crates/ekko-resurrection" }
+ekko-server = { path = "crates/ekko-server", default-features = false }
+ekko-tui = { path = "crates/ekko-tui" }
+
+[profile.dev]
+debug = 0
+incremental = true
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+
+[workspace.lints.rust]
+unreachable_patterns = "warn"

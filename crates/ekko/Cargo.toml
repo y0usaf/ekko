@@ -1,0 +1,36 @@
+[package]
+name = "ekko"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "ekko"
+path = "src/main.rs"
+
+[features]
+default = ["builtins", "keycast", "lua"]
+# The stock feature set. Building without it yields the bare harness:
+# attach, raw key passthrough, full-screen grid — nothing else.
+builtins = ["ekko-client/builtins", "ekko-server/builtins"]
+# The keycast extension (WS8): a non-builtin extension compiled in from its
+# own crate, registered through the same public API.
+keycast = ["ekko-client/keycast"]
+# The Lua scripting bridge (WS9): user extensions loaded from
+# ~/.config/ekko/extensions/*.lua.
+lua = ["ekko-client/lua"]
+
+[dependencies]
+anyhow.workspace = true
+clap.workspace = true
+log.workspace = true
+ekko-client.workspace = true
+ekko-config.workspace = true
+ekko-proto.workspace = true
+ekko-server.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+
+[lints]
+workspace = true

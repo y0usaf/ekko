@@ -1,0 +1,35 @@
+[package]
+name = "ekko-server"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[features]
+default = ["builtins"]
+builtins = ["dep:ekko-builtins"]
+
+[dependencies]
+anyhow.workspace = true
+crossbeam-channel.workspace = true
+daemonize.workspace = true
+directories.workspace = true
+interprocess.workspace = true
+log = { workspace = true, features = ["std"] }
+ekko-builtins = { workspace = true, optional = true }
+ekko-config.workspace = true
+ekko-event.workspace = true
+ekko-ext.workspace = true
+ekko-proto.workspace = true
+ekko-pty.workspace = true
+ekko-resurrection.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+signal-hook.workspace = true
+vt100.workspace = true
+
+[dev-dependencies]
+ekko-builtins.workspace = true
+tempfile.workspace = true
+
+[lints]
+workspace = true
