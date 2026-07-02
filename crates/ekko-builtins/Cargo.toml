@@ -1,0 +1,20 @@
+[package]
+name = "ekko-builtins"
+edition.workspace = true
+license.workspace = true
+version.workspace = true
+
+[dependencies]
+anyhow = { workspace = true }
+log = { workspace = true }
+ekko-config = { workspace = true }
+ekko-event = { workspace = true }
+ekko-ext = { workspace = true }
+ekko-resurrection = { workspace = true }
+ekko-tui = { workspace = true }
+
+[dev-dependencies]
+toml = { workspace = true }
+
+[lints]
+workspace = true

@@ -1,0 +1,14 @@
+[package]
+name = "ekko-ext"
+edition.workspace = true
+license.workspace = true
+version.workspace = true
+
+[dependencies]
+anyhow = { workspace = true }
+log = { workspace = true }
+ekko-event = { workspace = true }
+serde = { workspace = true }
+
+[lints]
+workspace = true
