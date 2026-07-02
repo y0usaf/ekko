@@ -13,7 +13,7 @@
 
 use std::sync::{Arc, Mutex};
 
-use ekko_ext::{Color, DrawContext, Rect, ThemePalette};
+use ekko_ext::{Color, DrawContext, Rect, TextStyle, ThemePalette};
 use mlua::{Lua, Table};
 
 use crate::convert::resolve_color;
@@ -71,7 +71,18 @@ pub fn replay(ops: &[DrawOp], ctx: &mut dyn DrawContext) {
                 value,
                 reverse,
                 bold,
-            } => ctx.put_text_styled(*col, *row, *max_cols, *fg, *bg, value, *reverse, *bold),
+            } => ctx.put_text_styled(
+                *col,
+                *row,
+                *max_cols,
+                value,
+                TextStyle {
+                    fg: *fg,
+                    bg: *bg,
+                    reverse: *reverse,
+                    bold: *bold,
+                },
+            ),
             DrawOp::DrawBox {
                 rect,
                 fill_fg,

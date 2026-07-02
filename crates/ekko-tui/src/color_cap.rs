@@ -34,7 +34,7 @@ pub fn force_color_capability(cap: ColorCapability) {
 
 fn detect() -> ColorCapability {
     // Explicit user override beats all heuristics.
-    if let Ok(raw) = std::env::var("PHI_COLOR") {
+    if let Ok(raw) = std::env::var("EKKO_COLOR") {
         match raw.trim().to_ascii_lowercase().as_str() {
             "truecolor" | "24bit" => return ColorCapability::TrueColor,
             "256" | "256color" => return ColorCapability::Color256,
@@ -43,10 +43,10 @@ fn detect() -> ColorCapability {
     }
     let raw = detect_from_env();
     // Some macOS terminal renderers key their GPU glyph atlas on the full
-    // 24-bit cell color; phi's continuous color animations (shimmer,
-    // gradients) then generate an unbounded set of atlas entries and the
-    // cache corrupts (garbled glyphs). Quantizing to the 256 palette
-    // bounds the distinct-color space for exactly those terminals.
+    // 24-bit cell color; continuous color animations then generate an
+    // unbounded set of atlas entries and the cache corrupts (garbled
+    // glyphs). Quantizing to the 256 palette bounds the distinct-color
+    // space for exactly those terminals.
     if raw == ColorCapability::TrueColor
         && cfg!(target_os = "macos")
         && matches!(

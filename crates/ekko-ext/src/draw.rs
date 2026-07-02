@@ -40,6 +40,46 @@ impl Rect {
     }
 }
 
+/// Colors and style flags for [`DrawContext::put_text_styled`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct TextStyle {
+    pub fg: Color,
+    pub bg: Color,
+    pub reverse: bool,
+    pub bold: bool,
+}
+
+impl TextStyle {
+    /// Plain text in the given colors (no reverse, no bold).
+    pub fn plain(fg: Color, bg: Color) -> Self {
+        Self {
+            fg,
+            bg,
+            reverse: false,
+            bold: false,
+        }
+    }
+}
+
+/// Scroll geometry for [`DrawContext::render_scrollbar`]: what the bar
+/// represents, independent of how it is painted.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ScrollbarModel {
+    pub visible_items: usize,
+    pub total_items: usize,
+    pub scroll_from_top: usize,
+}
+
+/// Visual parameters for [`DrawContext::render_scrollbar`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ScrollbarStyle<'a> {
+    pub fg: Color,
+    pub bg: Color,
+    pub track_glyph: &'a str,
+    pub thumb_fg: Color,
+    pub thumb_glyph: &'a str,
+}
+
 /// The drawing surface exposed to extensions. Coordinates are 0-based and
 /// local to the context's region; the host clips out-of-bounds writes.
 pub trait DrawContext {
@@ -66,37 +106,19 @@ pub trait DrawContext {
         value: &str,
     );
 
-    /// Write text with explicit reverse/bold style flags.
-    #[allow(clippy::too_many_arguments)]
-    fn put_text_styled(
-        &mut self,
-        col: i32,
-        row: i32,
-        max_cols: i32,
-        fg: Color,
-        bg: Color,
-        value: &str,
-        reverse: bool,
-        bold: bool,
-    );
+    /// Write text with explicit colors and reverse/bold style flags.
+    fn put_text_styled(&mut self, col: i32, row: i32, max_cols: i32, value: &str, style: TextStyle);
 
     /// Draw a box border around `rect`, filling the interior.
     fn draw_box(&mut self, rect: Rect, fill_fg: Color, bg: Color, border: Color);
 
     /// Render a vertical scrollbar at `col` spanning `rows`.
-    #[allow(clippy::too_many_arguments)]
     fn render_scrollbar(
         &mut self,
         col: i32,
         row: i32,
         rows: i32,
-        visible_items: usize,
-        total_items: usize,
-        scroll_from_top: usize,
-        fg: Color,
-        bg: Color,
-        track_glyph: &str,
-        thumb_fg: Color,
-        thumb_glyph: &str,
+        model: ScrollbarModel,
+        style: ScrollbarStyle<'_>,
     );
 }

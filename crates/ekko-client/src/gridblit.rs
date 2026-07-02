@@ -125,7 +125,11 @@ pub fn blit_grid(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ekko_builtins::theme::pantera;
+    use ekko_builtins::theme::terminal_palette;
+
+    fn palette() -> ThemePalette {
+        terminal_palette(&ekko_tui::default_terminal_colors())
+    }
 
     fn cell(fg: WireColor, bg: WireColor, attrs: u8) -> GridCell {
         GridCell {
@@ -139,7 +143,7 @@ mod tests {
 
     #[test]
     fn default_colors_use_theme_term_fg_bg() {
-        let palette = pantera();
+        let palette = palette();
         let (fg, bg) =
             resolve_cell_colors(&cell(WireColor::Default, WireColor::Default, 0), &palette);
         assert_eq!(fg, gc(palette.term_fg));
@@ -148,7 +152,7 @@ mod tests {
 
     #[test]
     fn indexed_low_uses_theme_ansi_palette() {
-        let palette = pantera();
+        let palette = palette();
         let (fg, _) = resolve_cell_colors(
             &cell(WireColor::Indexed(3), WireColor::Default, 0),
             &palette,
@@ -158,7 +162,7 @@ mod tests {
 
     #[test]
     fn indexed_high_uses_256_color_cube() {
-        let palette = pantera();
+        let palette = palette();
         let (fg, _) = resolve_cell_colors(
             &cell(WireColor::Indexed(200), WireColor::Default, 0),
             &palette,
@@ -168,7 +172,7 @@ mod tests {
 
     #[test]
     fn rgb_passes_through() {
-        let palette = pantera();
+        let palette = palette();
         let (fg, _) = resolve_cell_colors(
             &cell(WireColor::Rgb(1, 2, 3), WireColor::Default, 0),
             &palette,
@@ -178,7 +182,7 @@ mod tests {
 
     #[test]
     fn inverse_swaps_fg_and_bg() {
-        let palette = pantera();
+        let palette = palette();
         let (fg, bg) = resolve_cell_colors(
             &cell(
                 WireColor::Rgb(1, 2, 3),
@@ -193,7 +197,7 @@ mod tests {
 
     #[test]
     fn bold_brightens_fg() {
-        let palette = pantera();
+        let palette = palette();
         let (fg, _) = resolve_cell_colors(
             &cell(
                 WireColor::Rgb(10, 10, 10),
@@ -207,7 +211,7 @@ mod tests {
 
     #[test]
     fn dim_fades_fg_toward_bg() {
-        let palette = pantera();
+        let palette = palette();
         let (fg, bg) = resolve_cell_colors(
             &cell(
                 WireColor::Rgb(200, 200, 200),
@@ -221,7 +225,7 @@ mod tests {
 
     #[test]
     fn blit_fills_beyond_grid_bounds_with_term_bg() {
-        let palette = pantera();
+        let palette = palette();
         let mut surface = CellSurface::new(10, 4, gc(palette.term_fg), gc(palette.term_bg));
         let rows = vec![GridRow {
             cells: vec![cell(WireColor::Rgb(9, 9, 9), WireColor::Default, 0)],
@@ -245,7 +249,7 @@ mod tests {
 
     #[test]
     fn selection_swaps_cell_colors() {
-        let palette = pantera();
+        let palette = palette();
         let mut surface = CellSurface::new(4, 2, gc(palette.term_fg), gc(palette.term_bg));
         let rows = vec![GridRow {
             cells: vec![
@@ -275,7 +279,7 @@ mod tests {
 
     #[test]
     fn wide_cells_blit_as_spans_with_continuation() {
-        let palette = pantera();
+        let palette = palette();
         let mut surface = CellSurface::new(4, 1, gc(palette.term_fg), gc(palette.term_bg));
         let rows = vec![GridRow {
             cells: vec![

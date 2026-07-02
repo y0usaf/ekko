@@ -3,7 +3,7 @@
 //! Extension colors share the renderer's packed representation, so
 //! conversion is a bit copy.
 
-use ekko_ext::{Color as ExtColor, DrawContext, Rect};
+use ekko_ext::{Color as ExtColor, DrawContext, Rect, ScrollbarModel, ScrollbarStyle, TextStyle};
 use ekko_grid::cell_surface::{CellSurface, draw_box, render_cell_scrollbar};
 use ekko_grid::layout::CellRect;
 
@@ -95,7 +95,7 @@ impl DrawContext for RegionDrawContext<'_> {
         bg: ExtColor,
         value: &str,
     ) {
-        self.put_text_styled(col, row, max_cols, fg, bg, value, false, false);
+        self.put_text_styled(col, row, max_cols, value, TextStyle::plain(fg, bg));
     }
 
     fn put_text_bold(
@@ -107,7 +107,16 @@ impl DrawContext for RegionDrawContext<'_> {
         bg: ExtColor,
         value: &str,
     ) {
-        self.put_text_styled(col, row, max_cols, fg, bg, value, false, true);
+        self.put_text_styled(
+            col,
+            row,
+            max_cols,
+            value,
+            TextStyle {
+                bold: true,
+                ..TextStyle::plain(fg, bg)
+            },
+        );
     }
 
     fn put_text_styled(
@@ -115,11 +124,8 @@ impl DrawContext for RegionDrawContext<'_> {
         col: i32,
         row: i32,
         max_cols: i32,
-        fg: ExtColor,
-        bg: ExtColor,
         value: &str,
-        reverse: bool,
-        bold: bool,
+        style: TextStyle,
     ) {
         if !self.in_bounds(col.max(0), row) {
             return;
@@ -129,11 +135,11 @@ impl DrawContext for RegionDrawContext<'_> {
             self.region.col + col,
             self.region.row + row,
             max_cols,
-            gc(fg),
-            gc(bg),
+            gc(style.fg),
+            gc(style.bg),
             value,
-            reverse,
-            bold,
+            style.reverse,
+            style.bold,
         );
     }
 
@@ -148,14 +154,8 @@ impl DrawContext for RegionDrawContext<'_> {
         col: i32,
         row: i32,
         rows: i32,
-        visible_items: usize,
-        total_items: usize,
-        scroll_from_top: usize,
-        fg: ExtColor,
-        bg: ExtColor,
-        track_glyph: &str,
-        thumb_fg: ExtColor,
-        thumb_glyph: &str,
+        model: ScrollbarModel,
+        style: ScrollbarStyle<'_>,
     ) {
         if !self.in_bounds(col, row.max(0)) {
             return;
@@ -166,14 +166,14 @@ impl DrawContext for RegionDrawContext<'_> {
             self.region.col + col,
             self.region.row + row,
             rows,
-            visible_items,
-            total_items,
-            scroll_from_top,
-            gc(fg),
-            gc(bg),
-            track_glyph,
-            gc(thumb_fg),
-            thumb_glyph,
+            model.visible_items,
+            model.total_items,
+            model.scroll_from_top,
+            gc(style.fg),
+            gc(style.bg),
+            style.track_glyph,
+            gc(style.thumb_fg),
+            style.thumb_glyph,
         );
     }
 }

@@ -14,8 +14,8 @@ use std::sync::Arc;
 use anyhow::Result;
 use ekko_config::Config;
 use ekko_ext::{
-    ClientSnapshot, Extension, ExtensionHost, ExtensionManifest, KeybindingSpec, NoteKind,
-    OVERLAY_HELP, UiAction, parse_key_chords,
+    ClientSnapshot, Extension, ExtensionHost, ExtensionManifest, KeybindingHandler, KeybindingSpec,
+    NoteKind, OVERLAY_HELP, UiAction, resolve_chords,
 };
 
 use crate::command_mode::COMMAND_MODE;
@@ -58,8 +58,6 @@ impl KeybindingsExtension {
     }
 }
 
-type Handler = Arc<dyn Fn(&ClientSnapshot) -> Vec<UiAction> + Send + Sync>;
-
 impl Extension for KeybindingsExtension {
     fn manifest(&self) -> ExtensionManifest {
         ExtensionManifest {
@@ -71,7 +69,7 @@ impl Extension for KeybindingsExtension {
     }
 
     fn register(&self, host: &mut dyn ExtensionHost) -> Result<()> {
-        let entries: Vec<(&str, &str, Handler)> = vec![
+        let entries: Vec<(&str, &str, KeybindingHandler)> = vec![
             (
                 "session_next",
                 "next session",
@@ -174,18 +172,12 @@ impl Extension for KeybindingsExtension {
         ];
 
         for (action, description, handler) in entries {
-            let strings = self.binding_strings(action);
-            let chords: Vec<Vec<u8>> = strings
-                .iter()
-                .filter_map(|s| parse_key_chords(s))
-                .flatten()
-                .collect();
-            if chords.is_empty() {
+            let Some((chords, chord_text)) = resolve_chords(self.binding_strings(action)) else {
                 continue;
-            }
+            };
             host.register_keybinding(KeybindingSpec {
                 chords,
-                chord_text: strings.join(" / "),
+                chord_text,
                 mode: None,
                 description: description.to_string(),
                 handler,

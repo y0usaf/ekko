@@ -49,6 +49,21 @@ impl ExtensionHost for RegistryHost {
     }
 
     fn register_keybinding(&mut self, binding: KeybindingSpec) -> Result<()> {
+        // Duplicate chords are hard errors, like duplicate names everywhere
+        // else: a silent first-registered-wins would hide a builtin/user
+        // collision. Replacing a binding means disabling its extension.
+        for existing in &self.keybindings {
+            if existing.mode == binding.mode
+                && existing.chords.iter().any(|c| binding.chords.contains(c))
+            {
+                bail!(
+                    "keybinding '{}' (mode '{}') is already registered as '{}'",
+                    binding.chord_text,
+                    binding.mode.as_deref().unwrap_or("normal"),
+                    existing.chord_text
+                );
+            }
+        }
         self.keybindings.push(binding);
         Ok(())
     }

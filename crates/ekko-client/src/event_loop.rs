@@ -19,7 +19,7 @@ use ekko_ext::{
 };
 use ekko_grid::ansi::AnsiRenderer;
 use ekko_grid::cell_surface::CellSurface;
-use ekko_proto::{ClientCommand, ClientToServer, ExitReason, ServerToClient};
+use ekko_proto::{ClientToServer, ExitReason, ServerToClient};
 use ekko_tui::terminal_size;
 
 use crate::ClientOutcome;
@@ -481,11 +481,6 @@ impl App<'_> {
                 let _ = stdout.flush();
                 None
             }
-            ServerToClient::Sessions(_) => {
-                // The sidebar is built from the local scan; a server-pushed
-                // list (if ever sent) doesn't currently override it.
-                None
-            }
             ServerToClient::Bell => {
                 // Flush explicitly: a bell no longer triggers a frame, so
                 // nothing else would push the byte out of the stdout buffer.
@@ -929,8 +924,7 @@ impl App<'_> {
                 }))
             }
             UiAction::KillCurrentSession => {
-                let _ =
-                    self.send_message(ClientToServer::Command(ClientCommand::KillCurrentSession));
+                let _ = self.send_message(ClientToServer::KillCurrentSession);
                 Ok(None)
             }
             UiAction::EnterMode { name } => {

@@ -17,7 +17,7 @@ use anyhow::Result;
 use ekko_config::Config;
 use ekko_ext::{
     ClientSnapshot, DrawContext, Extension, ExtensionHost, ExtensionManifest, KeybindingSpec,
-    ModeOutcome, ModeSpec, ModeState, NoteKind, OVERLAY_HELP, Rect, UiAction, parse_key_chords,
+    ModeOutcome, ModeSpec, ModeState, NoteKind, OVERLAY_HELP, Rect, UiAction, resolve_chords,
 };
 use ekko_tui::display_cell_width;
 
@@ -106,16 +106,10 @@ impl Extension for LeaderExtension {
     }
 
     fn register(&self, host: &mut dyn ExtensionHost) -> Result<()> {
-        let leader_chords: Vec<Vec<u8>> = self
-            .leader
-            .iter()
-            .filter_map(|s| parse_key_chords(s))
-            .flatten()
-            .collect();
-        if !leader_chords.is_empty() {
+        if let Some((chords, chord_text)) = resolve_chords(&self.leader) {
             host.register_keybinding(KeybindingSpec {
-                chords: leader_chords,
-                chord_text: self.leader.join(" / "),
+                chords,
+                chord_text,
                 mode: None,
                 description: "leader".into(),
                 handler: Arc::new(|_| {
@@ -134,18 +128,13 @@ impl Extension for LeaderExtension {
         })?;
 
         for (strings, description, actions) in &self.map {
-            let chords: Vec<Vec<u8>> = strings
-                .iter()
-                .filter_map(|s| parse_key_chords(s))
-                .flatten()
-                .collect();
-            if chords.is_empty() {
+            let Some((chords, chord_text)) = resolve_chords(strings) else {
                 continue;
-            }
+            };
             let actions = actions.clone();
             host.register_keybinding(KeybindingSpec {
                 chords,
-                chord_text: strings.join(" / "),
+                chord_text,
                 mode: Some(LEADER_MODE.into()),
                 description: description.clone(),
                 handler: Arc::new(move |_| actions.clone()),

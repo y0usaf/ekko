@@ -25,9 +25,12 @@ mod traits;
 mod visual;
 
 pub use builder::RuntimeBuilder;
-pub use command::{CommandInfo, CommandInvocation, CommandOutput, CommandSpec};
-pub use draw::{DrawContext, Rect};
-pub use keybinding::{KeybindingInfo, KeybindingSpec, parse_key_binding, parse_key_chords};
+pub use command::{CommandHandler, CommandInfo, CommandInvocation, CommandOutput, CommandSpec};
+pub use draw::{DrawContext, Rect, ScrollbarModel, ScrollbarStyle, TextStyle};
+pub use keybinding::{
+    KeybindingHandler, KeybindingInfo, KeybindingSpec, parse_key_binding, parse_key_chords,
+    resolve_chords,
+};
 pub use layout::{ResolvedLayout, ResolvedRegion, resolve_layout};
 pub use manifest::ExtensionManifest;
 pub use mode::{ModeInitFn, ModeKeyFn, ModeOutcome, ModeRenderFn, ModeSpec, ModeState};

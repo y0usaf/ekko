@@ -43,7 +43,9 @@ fn main() -> Result<()> {
     }
 
     match cli.command {
-        None => attach(DEFAULT_SESSION.to_string(), true, false),
+        // Bare `ekko` starts a fresh session per terminal (like zellij);
+        // joining an existing one is an explicit `ekko attach`.
+        None => attach(ekko_client::generate_session_name(), true, false),
         Some(Command::Attach { name, force }) => attach(
             name.unwrap_or_else(|| DEFAULT_SESSION.to_string()),
             true,

@@ -23,12 +23,19 @@ pub mod theme;
 
 use ekko_config::Config;
 use ekko_ext::Extension;
+use ekko_tui::TerminalColors;
 
 /// The stock client-side extension set, in registration order. Built-ins
 /// register first so a user extension reusing a name fails loudly.
-pub fn client_extensions(config: &Config) -> Vec<Box<dyn Extension>> {
+///
+/// `terminal_colors` is the host's OSC probe result; `None` (no answer)
+/// falls back to the standard ANSI palette.
+pub fn client_extensions(
+    config: &Config,
+    terminal_colors: Option<TerminalColors>,
+) -> Vec<Box<dyn Extension>> {
     vec![
-        Box::new(theme::ThemeExtension),
+        Box::new(theme::ThemeExtension::new(terminal_colors)),
         Box::new(sidebar::SidebarExtension::new(config.sidebar_width())),
         Box::new(statusbar::StatusbarExtension),
         Box::new(command_mode::CommandModeExtension),

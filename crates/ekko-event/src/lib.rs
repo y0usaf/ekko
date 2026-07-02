@@ -80,6 +80,68 @@ pub enum EventKind {
     Heartbeat,
 }
 
+impl EventKind {
+    /// Every variant, for iteration — the Lua bridge resolves subscription
+    /// strings against this. Keep in sync with [`EventKind::name`], whose
+    /// exhaustive match is the compile-time reminder when a variant is added
+    /// (a test pins that every variant's name resolves back through `ALL`).
+    pub const ALL: [EventKind; 21] = [
+        EventKind::ClientReady,
+        EventKind::SessionAttached,
+        EventKind::BeforeSessionDetach,
+        EventKind::SessionDetached,
+        EventKind::BeforeSessionSwitch,
+        EventKind::SessionSwitched,
+        EventKind::SessionListRefreshed,
+        EventKind::GridUpdated,
+        EventKind::Bell,
+        EventKind::Resize,
+        EventKind::Tick,
+        EventKind::KeyInput,
+        EventKind::ModeChanged,
+        EventKind::CommandInvoked,
+        EventKind::BeforePtySpawn,
+        EventKind::SessionCreated,
+        EventKind::ClientAttached,
+        EventKind::ClientDetached,
+        EventKind::SessionExited,
+        EventKind::PtyResized,
+        EventKind::Heartbeat,
+    ];
+
+    /// Canonical snake_case name, used for Lua subscription strings.
+    pub const fn name(self) -> &'static str {
+        match self {
+            EventKind::ClientReady => "client_ready",
+            EventKind::SessionAttached => "session_attached",
+            EventKind::BeforeSessionDetach => "before_session_detach",
+            EventKind::SessionDetached => "session_detached",
+            EventKind::BeforeSessionSwitch => "before_session_switch",
+            EventKind::SessionSwitched => "session_switched",
+            EventKind::SessionListRefreshed => "session_list_refreshed",
+            EventKind::GridUpdated => "grid_updated",
+            EventKind::Bell => "bell",
+            EventKind::Resize => "resize",
+            EventKind::Tick => "tick",
+            EventKind::KeyInput => "key_input",
+            EventKind::ModeChanged => "mode_changed",
+            EventKind::CommandInvoked => "command_invoked",
+            EventKind::BeforePtySpawn => "before_pty_spawn",
+            EventKind::SessionCreated => "session_created",
+            EventKind::ClientAttached => "client_attached",
+            EventKind::ClientDetached => "client_detached",
+            EventKind::SessionExited => "session_exited",
+            EventKind::PtyResized => "pty_resized",
+            EventKind::Heartbeat => "heartbeat",
+        }
+    }
+
+    /// Inverse of [`EventKind::name`].
+    pub fn from_name(name: &str) -> Option<EventKind> {
+        EventKind::ALL.into_iter().find(|kind| kind.name() == name)
+    }
+}
+
 /// The payload accompanying a lifecycle event.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum EventPayload {
@@ -293,4 +355,19 @@ pub struct EventHandlerRegistration {
     /// Shown in logs when the handler errors or times out.
     pub label: String,
     pub handler: EventHandler,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn event_kind_names_are_unique_and_round_trip() {
+        let mut seen = std::collections::HashSet::new();
+        for kind in EventKind::ALL {
+            assert!(seen.insert(kind.name()), "duplicate name {}", kind.name());
+            assert_eq!(EventKind::from_name(kind.name()), Some(kind));
+        }
+        assert_eq!(EventKind::from_name("no_such_event"), None);
+    }
 }

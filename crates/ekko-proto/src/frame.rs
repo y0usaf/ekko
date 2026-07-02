@@ -118,8 +118,6 @@ mod tests {
     fn roundtrip_client_to_server_variants() {
         roundtrip(ClientToServer::Attach {
             wire_version: 1,
-            session_name: "main".into(),
-            create_if_missing: true,
             cols: 80,
             rows: 24,
             cwd: "/home/user".into(),
@@ -135,18 +133,7 @@ mod tests {
         roundtrip(ClientToServer::Paste(b"hello world".to_vec()));
         roundtrip(ClientToServer::Scroll { delta: -3 });
         roundtrip(ClientToServer::ScrollReset);
-        roundtrip(ClientToServer::Command(ClientCommand::NewSession {
-            name: Some("work".into()),
-            cwd: None,
-        }));
-        roundtrip(ClientToServer::Command(ClientCommand::SwitchSession(
-            "other".into(),
-        )));
-        roundtrip(ClientToServer::Command(ClientCommand::RenameSession(
-            "renamed".into(),
-        )));
-        roundtrip(ClientToServer::Command(ClientCommand::KillCurrentSession));
-        roundtrip(ClientToServer::ListSessions);
+        roundtrip(ClientToServer::KillCurrentSession);
         roundtrip(ClientToServer::KillSession("main".into()));
         roundtrip(ClientToServer::Ping);
     }
@@ -159,9 +146,6 @@ mod tests {
         });
         roundtrip(ServerToClient::AttachRejected(
             AttachRejectReason::WrongWireVersion,
-        ));
-        roundtrip(ServerToClient::AttachRejected(
-            AttachRejectReason::SessionNotFound,
         ));
         roundtrip(ServerToClient::AttachRejected(
             AttachRejectReason::SpawnFailed("boom".into()),
@@ -214,14 +198,6 @@ mod tests {
                 },
             )]),
         }));
-        roundtrip(ServerToClient::Sessions(vec![SessionSummary {
-            name: "main".into(),
-            cwd: "/tmp".into(),
-            attached: true,
-            alive: true,
-            created_at_secs: 1234,
-            status: SessionStatus::Running,
-        }]));
         roundtrip(ServerToClient::Bell);
         roundtrip(ServerToClient::Exit(ExitReason::Normal));
         roundtrip(ServerToClient::Exit(ExitReason::Detached));

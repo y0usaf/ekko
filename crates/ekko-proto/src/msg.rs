@@ -7,11 +7,10 @@ use serde::{Deserialize, Serialize};
 /// Messages sent from a client to the server.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum ClientToServer {
-    /// Ask to attach to (and optionally create) a session.
+    /// Ask to attach to the daemon's session. The daemon is per-session
+    /// (one socket per session name), so the message doesn't carry a name.
     Attach {
         wire_version: u32,
-        session_name: String,
-        create_if_missing: bool,
         cols: u16,
         rows: u16,
         cwd: PathBuf,
@@ -32,26 +31,12 @@ pub enum ClientToServer {
     Scroll { delta: i32 },
     /// Jump the scrollback view back to the live screen.
     ScrollReset,
-    /// A higher-level client command (session management, etc).
-    Command(ClientCommand),
-    /// Ask the server for a list of known sessions.
-    ListSessions,
+    /// Ask the server to kill its own (current) session.
+    KillCurrentSession,
     /// Ask the server to kill a named session.
     KillSession(String),
     /// Liveness check.
     Ping,
-}
-
-/// Session-management commands issued by the client.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub enum ClientCommand {
-    NewSession {
-        name: Option<String>,
-        cwd: Option<PathBuf>,
-    },
-    SwitchSession(String),
-    RenameSession(String),
-    KillCurrentSession,
 }
 
 /// Messages sent from the server to a client.
@@ -66,8 +51,6 @@ pub enum ServerToClient {
     AttachRejected(AttachRejectReason),
     /// A grid update to render.
     Grid(GridUpdate),
-    /// Response to `ListSessions`.
-    Sessions(Vec<SessionSummary>),
     /// Terminal bell.
     Bell,
     /// The client should disconnect.
@@ -104,7 +87,6 @@ pub enum NoticeLevel {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum AttachRejectReason {
     WrongWireVersion,
-    SessionNotFound,
     SpawnFailed(String),
 }
 
@@ -118,7 +100,8 @@ pub enum ExitReason {
     ServerError(String),
 }
 
-/// Summary information about a session, as returned by `ListSessions`.
+/// Summary information about a session. Not a wire message: built locally
+/// from resurrection manifests and live sockets (`ekko ls`, the sidebar).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SessionSummary {
     pub name: String,

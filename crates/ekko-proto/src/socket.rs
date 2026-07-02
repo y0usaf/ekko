@@ -26,7 +26,13 @@ use interprocess::local_socket::{
 /// (grapheme clusters), `CursorState` gained `shape`; added
 /// `ClientToServer::{Scroll, ScrollReset}` and
 /// `ServerToClient::{Title, ClipboardCopy}`.
-pub const WIRE_VERSION: u32 = 4;
+///
+/// v5: pruned never-produced surface — removed `ClientToServer::ListSessions`,
+/// `ServerToClient::Sessions`, `AttachRejectReason::SessionNotFound`, and the
+/// `ClientCommand` wrapper (its only live variant is now
+/// `ClientToServer::KillCurrentSession`); `Attach` lost `session_name` /
+/// `create_if_missing` (the daemon is per-session; creation is client-side).
+pub const WIRE_VERSION: u32 = 5;
 
 fn wire_dir_name() -> String {
     format!("wire_v{WIRE_VERSION}")

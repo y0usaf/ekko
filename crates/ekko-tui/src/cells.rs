@@ -50,35 +50,7 @@ pub fn truncate_to_cells(value: &str, max_cols: usize) -> String {
 // truncation never drops colors or attributes.
 // ---------------------------------------------------------------------------
 
-/// Byte length of an ANSI escape-sequence body (the part after `ESC`).
-fn ansi_escape_len(after_esc: &str) -> usize {
-    let mut chars = after_esc.char_indices();
-    match chars.next() {
-        Some((_, '[')) => {
-            for (i, c) in chars {
-                if ('\u{40}'..='\u{7e}').contains(&c) {
-                    return i + c.len_utf8();
-                }
-            }
-            after_esc.len()
-        }
-        Some((_, ']')) => {
-            let mut prev_esc = false;
-            for (i, c) in chars {
-                if c == '\x07' {
-                    return i + 1;
-                }
-                if prev_esc && c == '\\' {
-                    return i + 1;
-                }
-                prev_esc = c == '\x1b';
-            }
-            after_esc.len()
-        }
-        Some((_, c)) => c.len_utf8(),
-        None => 0,
-    }
-}
+use crate::terminal::escape_len as ansi_escape_len;
 
 /// Track whether any SGR (color/attribute) escape is currently active.
 /// We only need to know *whether* style is open at the truncation point so we
