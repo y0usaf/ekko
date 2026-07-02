@@ -6,7 +6,10 @@
 //! - lifecycle hooks fire in the expected order,
 //! - `BeforePtySpawn` overrides reach the spawned shell,
 //! - a blocked handler cannot wedge the hub (never-block regression),
-//! - the bare harness (zero extensions) works and writes no manifests.
+//! - the bare harness (zero extensions) works and writes no manifests,
+//!
+//! plus end-to-end input checks that need the same real daemon + PTY:
+//! - cursor keys are re-encoded to match the child's DECCKM state.
 
 use std::path::PathBuf;
 use std::sync::mpsc;
@@ -478,6 +481,49 @@ fn blocked_handler_does_not_wedge_the_hub() {
     assert!(
         started.elapsed() < Duration::from_secs(15),
         "hub stalled on a blocked handler"
+    );
+
+    kill_and_join(client, daemon, &env.session_name);
+}
+
+#[test]
+fn cursor_keys_are_reencoded_for_the_childs_decckm_state() {
+    let env = TestEnv::new("t-decckm");
+    let daemon = spawn_daemon_with(env.session_name.clone(), AppRuntime::empty());
+
+    let mut client = TestClient::connect(&env.session_name);
+    client.attach(env.cwd());
+    assert!(
+        client
+            .wait_for(Duration::from_secs(5), |m| matches!(
+                m,
+                ServerToClient::Attached { .. }
+            ))
+            .is_some()
+    );
+
+    // The child enables application cursor keys (DECCKM), then echoes its
+    // stdin with escapes made visible — the role cmus/vim/less play.
+    client.send(&ClientToServer::Key(
+        b"printf '\\033[?1h'; cat -v\n".to_vec(),
+    ));
+    assert!(
+        client
+            .wait_for(Duration::from_secs(10), |m| {
+                matches!(m, ServerToClient::Grid(update) if update.modes.app_cursor)
+            })
+            .is_some(),
+        "the child's DECCKM set must reach the server parser"
+    );
+
+    // The host terminal sends the CSI form; the child must receive the SS3
+    // form its terminfo declares for application mode (kcuu1=\EOA).
+    client.send(&ClientToServer::Key(b"\x1b[A\n".to_vec()));
+    assert!(
+        client
+            .wait_for(Duration::from_secs(10), |m| grid_contains(m, "^[OA"))
+            .is_some(),
+        "expected the arrow re-encoded as SS3 (^[OA) in the child's echo"
     );
 
     kill_and_join(client, daemon, &env.session_name);
