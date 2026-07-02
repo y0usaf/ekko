@@ -384,7 +384,10 @@ mod tests {
         assert_eq!(ev.kind, MouseKind::Other);
     }
 
-    fn modes(mode: ekko_proto::MouseMode, encoding: ekko_proto::MouseEncoding) -> ekko_proto::TermModes {
+    fn modes(
+        mode: ekko_proto::MouseMode,
+        encoding: ekko_proto::MouseEncoding,
+    ) -> ekko_proto::TermModes {
         ekko_proto::TermModes {
             mouse_mode: mode,
             mouse_encoding: encoding,

@@ -51,7 +51,9 @@ pub fn socket_dir() -> PathBuf {
     if let Some(runtime_dir) = std::env::var_os("XDG_RUNTIME_DIR")
         && !runtime_dir.is_empty()
     {
-        return PathBuf::from(runtime_dir).join("ekko").join(wire_dir_name());
+        return PathBuf::from(runtime_dir)
+            .join("ekko")
+            .join(wire_dir_name());
     }
     let tmp_dir = std::env::var_os("TMPDIR")
         .filter(|s| !s.is_empty())

@@ -14,8 +14,6 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use interprocess::local_socket::Stream as LocalSocketStream;
-use interprocess::local_socket::traits::Stream as _;
 use ekko_ext::{
     AppRuntime, EventHandlerRegistration, EventKind, EventReturn, Extension, ExtensionHost,
     ExtensionManifest, RuntimeBuilder,
@@ -24,6 +22,8 @@ use ekko_proto::{
     ClientToServer, ExitReason, GridPayload, GridUpdate, ServerToClient, WIRE_VERSION, read_msg,
     write_msg,
 };
+use interprocess::local_socket::Stream as LocalSocketStream;
+use interprocess::local_socket::traits::Stream as _;
 
 static ENV_LOCK: Mutex<()> = Mutex::new(());
 

@@ -27,6 +27,7 @@ use crate::client_io::{self, ClientHandle, ClientId};
 use crate::grid;
 use crate::pty_io;
 use crate::pty_writer::{self, PtyWriterInstruction};
+use crate::vt_compat::HvpToCup;
 
 /// Minimum spacing between `GridUpdate` broadcasts while a child floods the
 /// PTY; the ceiling on how long a visible change may wait for a frame.
@@ -85,6 +86,8 @@ pub struct Hub {
     attached: HashMap<ClientId, (u16, u16)>,
     next_client_id: ClientId,
     parser: vt100::Parser<TermEvents>,
+    /// Rewrites HVP finals to CUP before the parser (vt100 has no HVP arm).
+    vt_compat: HvpToCup,
     pty: Option<PtySession>,
     epoch: u64,
     dirty: bool,
@@ -129,6 +132,7 @@ impl Hub {
             attached: HashMap::new(),
             next_client_id: 0,
             parser: vt100::Parser::new_with_callbacks(24, 80, scrollback, TermEvents::default()),
+            vt_compat: HvpToCup::default(),
             pty: None,
             epoch: 0,
             dirty: false,
@@ -207,7 +211,7 @@ impl Hub {
                 log::info!("hub: evicting client {id} after a write failure");
                 self.on_client_disconnected(id);
             }
-            HubInstruction::PtyBytes(bytes) => self.on_pty_bytes(&bytes),
+            HubInstruction::PtyBytes(mut bytes) => self.on_pty_bytes(&mut bytes),
             HubInstruction::PtyExited(code) => self.on_pty_exited(code),
             HubInstruction::ThreadPanicked {
                 thread_name,
@@ -517,7 +521,8 @@ impl Hub {
 
     // -- PTY events ---------------------------------------------------------
 
-    fn on_pty_bytes(&mut self, bytes: &[u8]) {
+    fn on_pty_bytes(&mut self, bytes: &mut [u8]) {
+        self.vt_compat.rewrite_in_place(bytes);
         self.parser.process(bytes);
         if let Some(pty) = &self.pty {
             pty.backlog.fetch_sub(bytes.len(), Ordering::Release);
@@ -728,8 +733,9 @@ impl Hub {
             self.config.general.scrollback_lines,
             TermEvents::default(),
         );
-        // Fresh parser, fresh diff base.
+        // Fresh parser, fresh diff base, fresh compat-filter state.
         self.force_full = true;
+        self.vt_compat = HvpToCup::default();
 
         let mut shell = shell.to_path_buf();
         let mut cwd = cwd.to_path_buf();

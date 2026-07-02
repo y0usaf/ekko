@@ -8,12 +8,12 @@ use std::sync::mpsc;
 use std::thread;
 use std::time::{Duration, Instant};
 
-use interprocess::local_socket::Stream as LocalSocketStream;
-use interprocess::local_socket::traits::Stream as _;
 use ekko_proto::{
     ClientToServer, ExitReason, GridPayload, GridUpdate, ServerToClient, WIRE_VERSION, read_msg,
     write_msg,
 };
+use interprocess::local_socket::Stream as LocalSocketStream;
+use interprocess::local_socket::traits::Stream as _;
 
 /// `cargo test` runs tests on separate threads within one process, but
 /// `EKKO_SOCKET_DIR`/`EKKO_CACHE_DIR` are process-global env vars. Serialize

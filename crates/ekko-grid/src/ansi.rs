@@ -257,7 +257,11 @@ impl AnsiCodegen {
         if ekko_tui::has_truecolor() {
             let _ = write!(self.buf, "\x1b[38;2;{r};{g};{b}m");
         } else {
-            let _ = write!(self.buf, "\x1b[38;5;{}m", ekko_tui::rgb_to_xterm256(r, g, b));
+            let _ = write!(
+                self.buf,
+                "\x1b[38;5;{}m",
+                ekko_tui::rgb_to_xterm256(r, g, b)
+            );
         }
     }
 
@@ -288,7 +292,11 @@ impl AnsiCodegen {
         if ekko_tui::has_truecolor() {
             let _ = write!(self.buf, "\x1b[48;2;{r};{g};{b}m");
         } else {
-            let _ = write!(self.buf, "\x1b[48;5;{}m", ekko_tui::rgb_to_xterm256(r, g, b));
+            let _ = write!(
+                self.buf,
+                "\x1b[48;5;{}m",
+                ekko_tui::rgb_to_xterm256(r, g, b)
+            );
         }
     }
 
@@ -879,7 +887,9 @@ mod tests {
 
     #[test]
     fn recolors_reversed_cells_when_only_colors_change() {
-        ekko_tui::color_cap::force_color_capability(ekko_tui::color_cap::ColorCapability::TrueColor);
+        ekko_tui::color_cap::force_color_capability(
+            ekko_tui::color_cap::ColorCapability::TrueColor,
+        );
         let mut renderer = AnsiRenderer::default();
         let mut surface = CellSurface::new(2, 1, DEFAULT_FG, DEFAULT_BG);
         surface.put_text_styled(

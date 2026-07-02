@@ -13,8 +13,8 @@
 
 use std::sync::{Arc, Mutex};
 
-use mlua::{Lua, Table};
 use ekko_ext::{Color, DrawContext, Rect, ThemePalette};
+use mlua::{Lua, Table};
 
 use crate::convert::resolve_color;
 

@@ -11,6 +11,7 @@ mod hub;
 mod logging;
 mod pty_io;
 mod pty_writer;
+mod vt_compat;
 
 use std::thread;
 
