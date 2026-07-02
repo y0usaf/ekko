@@ -8,6 +8,7 @@
 mod client_io;
 mod grid;
 mod hub;
+mod input_compat;
 mod logging;
 mod pty_io;
 mod pty_writer;

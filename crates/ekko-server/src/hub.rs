@@ -450,7 +450,17 @@ impl Hub {
         );
     }
 
-    fn on_input(&mut self, id: ClientId, bytes: Vec<u8>) {
+    fn on_input(&mut self, id: ClientId, mut bytes: Vec<u8>) {
+        // Cursor keys arrive encoded for the host terminal's DECCKM state;
+        // re-encode them for the child's (see `input_compat`).
+        crate::input_compat::rewrite_cursor_keys(
+            &mut bytes,
+            self.parser.screen().application_cursor(),
+        );
+        self.write_to_pty(id, bytes);
+    }
+
+    fn write_to_pty(&mut self, id: ClientId, bytes: Vec<u8>) {
         if !self.attached.contains_key(&id) {
             return;
         }
@@ -478,7 +488,9 @@ impl Hub {
         } else {
             bytes
         };
-        self.on_input(id, bytes);
+        // Straight to the PTY: paste payload is literal text, and any escape
+        // sequences within it must survive byte-for-byte.
+        self.write_to_pty(id, bytes);
     }
 
     /// Move the scrollback view by `delta` lines (positive = back into
