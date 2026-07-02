@@ -877,7 +877,7 @@ impl App<'_> {
             }
             UiAction::Quit => Ok(Some(ClientOutcome::Exited)),
             UiAction::NewSession { name } => {
-                let name = name.unwrap_or_else(crate::generate_session_name);
+                let name = name.unwrap_or_else(|| crate::next_session_name(self.runtime));
                 match spawn::spawn_daemon(&name) {
                     Ok(()) => Ok(Some(ClientOutcome::SwitchTo {
                         name,

@@ -25,7 +25,10 @@ use interprocess::local_socket::traits::Stream as StreamTrait;
 /// Options controlling how [`run`] attaches to a session.
 #[derive(Clone, Debug)]
 pub struct ClientOptions {
-    pub session_name: String,
+    /// `None` asks the registered session namer for a fresh name (bare
+    /// `ekko`, unnamed `ekko new`); naming is extension policy, so it can
+    /// only be resolved once the runtime is built inside [`run`].
+    pub session_name: Option<String>,
     pub create_if_missing: bool,
     pub force: bool,
 }
@@ -41,9 +44,53 @@ pub enum ClientOutcome {
     SwitchTo { name: String, mode: Option<String> },
 }
 
-/// A fresh throwaway session name, used for bare `ekko` and when
-/// `ekko new` / ctrl+n get no explicit name.
-pub fn generate_session_name() -> String {
+/// A fresh session name for bare `ekko`, unnamed `ekko new`, and alt+n:
+/// naming is policy, so the registered session namer produces the candidate;
+/// the invariants — printable, non-empty, unique among known sessions —
+/// are enforced here regardless of what the namer returns. With no namer
+/// registered (bare harness) or a garbage answer, falls back to a hex name.
+pub(crate) fn next_session_name(runtime: &ekko_ext::AppRuntime) -> String {
+    let taken: Vec<String> = sessions::scan_sessions()
+        .into_iter()
+        .map(|entry| entry.name)
+        .collect();
+    let named = runtime.session_namer().and_then(|namer| {
+        let input = ekko_ext::NamerInput {
+            cwd: std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")),
+            taken: taken.clone(),
+        };
+        sanitize_session_name((namer.generate)(&input))
+    });
+    uniquify(named.unwrap_or_else(fallback_session_name), &taken)
+}
+
+/// Strip control characters and outer whitespace; `None` if nothing usable
+/// survives. The cap is on the *encoded* filename (`/` and `%` expand 3x,
+/// see `ekko_proto::encode_session_name`) because socket paths must fit in
+/// `sun_path` (~108 bytes) alongside the socket directory prefix.
+fn sanitize_session_name(raw: String) -> Option<String> {
+    const MAX_ENCODED_LEN: usize = 60;
+    let mut cleaned: String = raw.trim().chars().filter(|c| !c.is_control()).collect();
+    while ekko_proto::encode_session_name(&cleaned).len() > MAX_ENCODED_LEN {
+        cleaned.pop();
+    }
+    let cleaned = cleaned.trim_end();
+    (!cleaned.is_empty()).then(|| cleaned.to_string())
+}
+
+/// Suffix `-2`, `-3`, ... until the name collides with nothing known.
+fn uniquify(base: String, taken: &[String]) -> String {
+    if !taken.contains(&base) {
+        return base;
+    }
+    (2..)
+        .map(|n| format!("{base}-{n}"))
+        .find(|candidate| !taken.contains(candidate))
+        .expect("some numeric suffix is always free")
+}
+
+/// The no-policy fallback: a throwaway hex name.
+fn fallback_session_name() -> String {
     let nanos = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.subsec_nanos())
@@ -103,7 +150,10 @@ pub fn run(options: ClientOptions) -> Result<()> {
     event_loop::spawn_stdin_reader(tx.clone());
     event_loop::spawn_resize_watcher(tx.clone());
 
-    let mut session_name = options.session_name.clone();
+    let mut session_name = options
+        .session_name
+        .clone()
+        .unwrap_or_else(|| next_session_name(&runtime));
     let mut resume_mode: Option<String> = None;
     let mut generation: u64 = 0;
     loop {
@@ -205,6 +255,35 @@ fn attach_rejected_error(reason: AttachRejectReason) -> anyhow::Error {
     }
 }
 
+#[cfg(test)]
+mod name_tests {
+    use super::*;
+
+    #[test]
+    fn sanitize_strips_controls_and_rejects_empty() {
+        assert_eq!(
+            sanitize_session_name("  a\x1b[31mb\n ".into()),
+            Some("a[31mb".to_string())
+        );
+        assert_eq!(sanitize_session_name(" \t\n ".into()), None);
+        assert_eq!(sanitize_session_name(String::new()), None);
+    }
+
+    #[test]
+    fn sanitize_caps_encoded_length() {
+        let deep = format!("~/{}", "very/".repeat(30));
+        let name = sanitize_session_name(deep).expect("something survives");
+        assert!(ekko_proto::encode_session_name(&name).len() <= 60);
+    }
+
+    #[test]
+    fn uniquify_suffixes_collisions() {
+        let taken = vec!["~/p a-b".to_string(), "~/p a-b-2".to_string()];
+        assert_eq!(uniquify("~/p a-b".into(), &taken), "~/p a-b-3");
+        assert_eq!(uniquify("fresh".into(), &taken), "fresh");
+    }
+}
+
 /// Kill a named session: if its socket is live, ask its daemon to shut down;
 /// otherwise just remove any leftover manifest.
 pub fn kill_session(name: &str) -> Result<()> {
@@ -230,7 +309,7 @@ pub fn kill_session(name: &str) -> Result<()> {
         }
     }
 
-    let manifest_dir = sessions::session_info_dir().join(name);
+    let manifest_dir = sessions::session_info_dir().join(ekko_proto::encode_session_name(name));
     if manifest_dir.exists() {
         std::fs::remove_dir_all(&manifest_dir)
             .with_context(|| format!("removing manifest for '{name}'"))?;

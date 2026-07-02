@@ -40,7 +40,8 @@ pub use overlay::{
 };
 pub use runtime::{AppRuntime, CommandDispatch};
 pub use snapshot::{
-    ClientSnapshot, ProjectGroup, SessionEntry, SessionGrouperSpec, SessionState, StatusNote,
+    ClientSnapshot, NamerInput, ProjectGroup, SessionEntry, SessionGrouperSpec, SessionNameFn,
+    SessionNamerSpec, SessionState, StatusNote,
 };
 pub use surface::{
     DockEdge, MouseKind, SurfaceDrawFn, SurfaceMouseEvent, SurfaceMouseFn, SurfaceSize,

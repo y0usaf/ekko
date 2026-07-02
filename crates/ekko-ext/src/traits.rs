@@ -3,7 +3,7 @@ use ekko_event::EventHandlerRegistration;
 
 use crate::{
     CommandSpec, ExtensionManifest, KeybindingSpec, ModeSpec, OverlaySpec, SessionGrouperSpec,
-    SpinnerSpec, SurfaceSpec, ThemeSpec,
+    SessionNamerSpec, SpinnerSpec, SurfaceSpec, ThemeSpec,
 };
 
 pub trait Extension: Send + Sync {
@@ -41,6 +41,10 @@ pub trait ExtensionHost {
 
     /// Register the session-list grouping policy.
     fn register_session_grouper(&mut self, grouper: SessionGrouperSpec) -> Result<()>;
+
+    /// Register the session-naming policy (names for sessions created
+    /// without an explicit name).
+    fn register_session_namer(&mut self, namer: SessionNamerSpec) -> Result<()>;
 
     /// Subscribe to a lifecycle event.
     fn subscribe(&mut self, handler: EventHandlerRegistration) -> Result<()>;

@@ -6,8 +6,8 @@ use ekko_event::EventHandlerRegistration;
 
 use crate::traits::ExtensionHost;
 use crate::{
-    CommandSpec, KeybindingSpec, ModeSpec, OverlaySpec, SessionGrouperSpec, SpinnerSpec,
-    SurfaceSpec, ThemeSpec,
+    CommandSpec, KeybindingSpec, ModeSpec, OverlaySpec, SessionGrouperSpec, SessionNamerSpec,
+    SpinnerSpec, SurfaceSpec, ThemeSpec,
 };
 
 #[derive(Default)]
@@ -22,6 +22,7 @@ pub(crate) struct RegistryHost {
     pub(crate) themes: BTreeMap<String, ThemeSpec>,
     pub(crate) spinners: BTreeMap<String, SpinnerSpec>,
     pub(crate) session_grouper: Option<SessionGrouperSpec>,
+    pub(crate) session_namer: Option<SessionNamerSpec>,
     pub(crate) event_handlers: Vec<EventHandlerRegistration>,
 }
 
@@ -127,6 +128,18 @@ impl ExtensionHost for RegistryHost {
             );
         }
         self.session_grouper = Some(grouper);
+        Ok(())
+    }
+
+    fn register_session_namer(&mut self, namer: SessionNamerSpec) -> Result<()> {
+        if let Some(existing) = &self.session_namer {
+            bail!(
+                "session namer '{}' is already registered (attempted '{}')",
+                existing.name,
+                namer.name
+            );
+        }
+        self.session_namer = Some(namer);
         Ok(())
     }
 
