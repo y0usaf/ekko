@@ -16,7 +16,8 @@ use ekko_event::{
 use crate::host::RegistryHost;
 use crate::{
     CommandInfo, CommandInvocation, CommandSpec, ExtensionManifest, KeybindingInfo, KeybindingSpec,
-    ModeSpec, OverlaySpec, SessionGrouperSpec, SpinnerSpec, SurfaceSpec, ThemeSpec,
+    ModeSpec, OverlaySpec, SessionGrouperSpec, SessionNamerSpec, SpinnerSpec, SurfaceSpec,
+    ThemeSpec,
 };
 
 /// Per-[`EventKind`] timeout budget for a single extension handler:
@@ -55,6 +56,7 @@ pub struct AppRuntime {
     themes: BTreeMap<String, ThemeSpec>,
     spinners: BTreeMap<String, SpinnerSpec>,
     session_grouper: Option<SessionGrouperSpec>,
+    session_namer: Option<SessionNamerSpec>,
     event_handlers: Vec<EventHandlerRegistration>,
 }
 
@@ -86,6 +88,7 @@ impl AppRuntime {
             themes: host.themes,
             spinners: host.spinners,
             session_grouper: host.session_grouper,
+            session_namer: host.session_namer,
             event_handlers: host.event_handlers,
         }
     }
@@ -298,6 +301,10 @@ impl AppRuntime {
 
     pub fn session_grouper(&self) -> Option<&SessionGrouperSpec> {
         self.session_grouper.as_ref()
+    }
+
+    pub fn session_namer(&self) -> Option<&SessionNamerSpec> {
+        self.session_namer.as_ref()
     }
 }
 

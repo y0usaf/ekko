@@ -14,6 +14,7 @@ pub mod grouping;
 pub mod help;
 pub mod keybindings;
 pub mod leader;
+pub mod naming;
 pub mod resurrection;
 pub mod rows;
 pub mod scroll_mode;
@@ -43,6 +44,7 @@ pub fn client_extensions(
         Box::new(keybindings::KeybindingsExtension::new(config)),
         Box::new(leader::LeaderExtension::new(config)),
         Box::new(grouping::GroupingExtension),
+        Box::new(naming::NamingExtension),
         Box::new(help::HelpOverlayExtension),
     ]
 }

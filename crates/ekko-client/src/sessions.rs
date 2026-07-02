@@ -49,7 +49,11 @@ pub fn scan_sessions() -> Vec<SessionEntry> {
             if !path.is_dir() {
                 continue;
             }
-            let dir_name = dir_entry.file_name().to_string_lossy().into_owned();
+            // Manifest dirs are encoded filenames (see
+            // `ekko_proto::encode_session_name`); the JSON's `session_name`
+            // field is authoritative, the decoded dir name a fallback.
+            let dir_name =
+                ekko_proto::decode_session_name(&dir_entry.file_name().to_string_lossy());
             let manifest_path = path.join("manifest.json");
             let Ok(content) = std::fs::read_to_string(&manifest_path) else {
                 continue;
@@ -58,7 +62,7 @@ pub fn scan_sessions() -> Vec<SessionEntry> {
                 continue;
             };
             let name = value
-                .get("name")
+                .get("session_name")
                 .and_then(|v| v.as_str())
                 .map(str::to_string)
                 .unwrap_or(dir_name);
@@ -108,7 +112,7 @@ fn live_socket_names() -> Vec<String> {
     read_dir
         .flatten()
         .filter(|entry| entry.path().is_file() || is_socket(&entry.path()))
-        .map(|entry| entry.file_name().to_string_lossy().into_owned())
+        .map(|entry| ekko_proto::decode_session_name(&entry.file_name().to_string_lossy()))
         .collect()
 }
 

@@ -31,7 +31,7 @@ Corollaries:
 |---|---|---|
 | `ekko-event` | Event vocabulary (`EventKind`/`EventPayload`/`EventReturn`, `UiAction`) shared by both hosts | core (vocabulary) |
 | `ekko-ext` | Extension API: `Extension`/`ExtensionHost` traits, registries, `RuntimeBuilder`/`AppRuntime`, `DrawContext`, dock layout resolver | core (mechanism) |
-| `ekko-builtins` | Sidebar, statusbar, command mode, commands, keybindings, help overlay, theme, spinner, session grouping, resurrection, spawn hooks | **policy** |
+| `ekko-builtins` | Sidebar, statusbar, command mode, commands, keybindings, help overlay, theme, spinner, session grouping, session naming, resurrection, spawn hooks | **policy** |
 | `ekko-client` | Attach client host: threads, socket glue, snapshot building, `apply_ui_action`, `DrawContext` adapter | core |
 | `ekko-server` | Per-session daemon host: hub actor, PTY lifecycle, render tick, hook dispatch sites | core |
 | `ekko-proto` | Wire contract (framing, socket, messages). Small and stable; independent of `ekko-event` | core |
@@ -87,8 +87,8 @@ event loop are the only translation points (e.g. `EventReturn::EmitNotice`
 - **Server-side Key/Paste interception**: every keystroke would pay a
   dispatch round trip; the client owns input policy.
 - **Lua modes / spinners / session grouper**: `ekko-lua` (WS9) bridges
-  commands, keybindings, surfaces, overlays, themes, and event
-  subscriptions; the remaining registries follow the same
+  commands, keybindings, surfaces, overlays, themes, the session namer,
+  and event subscriptions; the remaining registries follow the same
   stash-function/budgeted-call pattern when a script needs them.
 - **Server-side Lua**: the bridge terminates in the shared traits, so the
   daemon *can* host scripts; only the client loads them today. Wiring the

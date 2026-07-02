@@ -63,12 +63,21 @@ references; it is not part of the build.
 ## Usage
 
 ```sh
-ekko                  # attach to (or create) the default session
-ekko new [name]       # create + attach a named session
+ekko                  # start + attach a fresh session in the current directory
+ekko new [name]       # create + attach a session (named, or auto-named)
 ekko attach <name>    # attach; respawns from a resurrection manifest if needed
 ekko ls               # list live + resurrectable sessions
 ekko kill <name>      # kill a session
 ```
+
+Unnamed sessions are named by the registered session-namer extension; the
+stock policy is the tilde-abbreviated working directory plus a random word
+pair — `~/Dev/ekko polished-lemur` — so `ekko ls` and `EKKO_SESSION_NAME`
+read like places, and the sidebar's project grouping (by parent directory
+of each session's cwd) stays orthogonal to display names. A user extension
+(Rust or Lua `register_session_namer`) replaces the scheme wholesale; the
+host still sanitizes, uniquifies, and falls back to `session-<hex>` if no
+namer is registered.
 
 Inside, navigation lives on the alt layer (nothing steals the control bytes
 your shell depends on):

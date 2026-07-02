@@ -35,8 +35,8 @@
 //!
 //! Registration surface (v1): commands, keybindings, surfaces (with
 //! `visible`/`wants_tick`/`on_mouse`), overlays (with `build_payload`),
-//! themes, and event subscriptions. Modes, spinners, and the session
-//! grouper are not yet bridged.
+//! themes, the session namer, and event subscriptions. Modes, spinners,
+//! and the session grouper are not yet bridged.
 
 mod convert;
 mod draw;
@@ -47,8 +47,8 @@ use std::sync::{Arc, Mutex};
 use anyhow::{Context, Result, anyhow};
 use ekko_ext::{
     CommandOutput, CommandSpec, EventHandlerRegistration, Extension, ExtensionHost,
-    ExtensionManifest, KeybindingSpec, OverlayOutcome, OverlaySpec, OverlayState, SurfaceSpec,
-    ThemeSpec, parse_key_chords,
+    ExtensionManifest, KeybindingSpec, OverlayOutcome, OverlaySpec, OverlayState, SessionNamerSpec,
+    SurfaceSpec, ThemeSpec, parse_key_chords,
 };
 use mlua::{Function, Lua, RegistryKey, Table, Value};
 
@@ -185,7 +185,7 @@ impl Extension for LuaExtension {
                     r#"
                     local regs = {
                       commands = {}, keybindings = {}, surfaces = {},
-                      overlays = {}, themes = {}, subscriptions = {},
+                      overlays = {}, themes = {}, namers = {}, subscriptions = {},
                     }
                     regs.ekko = {
                       register_command = function(spec) table.insert(regs.commands, spec) end,
@@ -193,6 +193,7 @@ impl Extension for LuaExtension {
                       register_surface = function(spec) table.insert(regs.surfaces, spec) end,
                       register_overlay = function(spec) table.insert(regs.overlays, spec) end,
                       register_theme = function(spec) table.insert(regs.themes, spec) end,
+                      register_session_namer = function(spec) table.insert(regs.namers, spec) end,
                       subscribe = function(event, handler)
                         table.insert(regs.subscriptions, { event = event, handler = handler })
                       end,
@@ -222,6 +223,9 @@ impl Extension for LuaExtension {
         }
         for spec in collector.get::<Table>("themes")?.sequence_values() {
             self.register_theme(host, spec?)?;
+        }
+        for spec in collector.get::<Table>("namers")?.sequence_values() {
+            self.register_session_namer(host, &lua, spec?)?;
         }
         for spec in collector.get::<Table>("subscriptions")?.sequence_values() {
             self.register_subscription(host, &lua, spec?)?;
@@ -567,6 +571,45 @@ impl LuaExtension {
                 .get::<Option<String>>("description")?
                 .unwrap_or_default(),
             palette,
+        })
+    }
+
+    fn register_session_namer(
+        &self,
+        host: &mut dyn ExtensionHost,
+        lua: &Lua,
+        spec: Table,
+    ) -> Result<()> {
+        let name: String = spec
+            .get::<Option<String>>("name")?
+            .ok_or_else(|| anyhow!("session namer spec needs a 'name'"))?;
+        let generate = self.stash(
+            lua,
+            spec.get::<Option<Function>>("generate")?
+                .ok_or_else(|| anyhow!("session namer '{name}' needs a 'generate' function"))?,
+        )?;
+        let shared = self.lua.clone();
+        host.register_session_namer(SessionNamerSpec {
+            name,
+            generate: Arc::new(move |input| {
+                let lua = shared.lock().unwrap();
+                with_budget(&lua, HANDLER_BUDGET, |lua| {
+                    let f: Function = lua.registry_value(&generate)?;
+                    let t = lua.create_table()?;
+                    t.set("cwd", input.cwd.display().to_string())?;
+                    t.set(
+                        "taken",
+                        lua.create_sequence_from(input.taken.iter().cloned())?,
+                    )?;
+                    f.call::<String>(t)
+                })
+                .unwrap_or_else(|err| {
+                    // Empty fails the host's sanitizer, which falls back to
+                    // its own generator.
+                    log::warn!("lua session namer errored: {err:#}");
+                    String::new()
+                })
+            }),
         })
     }
 

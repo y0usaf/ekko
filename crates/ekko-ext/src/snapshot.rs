@@ -82,3 +82,24 @@ pub struct SessionGrouperSpec {
     pub name: String,
     pub group: SessionGroupFn,
 }
+
+/// Creation context handed to the registered session namer when a session
+/// is created without an explicit name.
+#[derive(Clone, Debug)]
+pub struct NamerInput {
+    /// Working directory the new session will start in.
+    pub cwd: PathBuf,
+    /// Names already in use (live + resurrectable). Namers should avoid
+    /// these; the host still uniquifies and sanitizes whatever comes back.
+    pub taken: Vec<String>,
+}
+
+/// Policy hook producing a session name from its creation context. Pure:
+/// inputs in, name out — invariants (uniqueness, filename safety, fallback)
+/// are enforced by the host after the call returns.
+pub type SessionNameFn = Arc<dyn Fn(&NamerInput) -> String + Send + Sync>;
+
+pub struct SessionNamerSpec {
+    pub name: String,
+    pub generate: SessionNameFn,
+}

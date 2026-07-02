@@ -58,7 +58,7 @@ fn session_info_root() -> PathBuf {
 }
 
 fn manifest_dir(session_name: &str) -> PathBuf {
-    session_info_root().join(session_name)
+    session_info_root().join(ekko_proto::encode_session_name(session_name))
 }
 
 fn manifest_path(session_name: &str) -> PathBuf {
@@ -132,7 +132,7 @@ pub fn list_sessions() -> anyhow::Result<Vec<SessionSummary>> {
     if let Ok(entries) = fs::read_dir(ekko_proto::socket_dir()) {
         for entry in entries.flatten() {
             if let Some(name) = entry.file_name().to_str() {
-                names.insert(name.to_string());
+                names.insert(ekko_proto::decode_session_name(name));
             }
         }
     }
@@ -141,7 +141,7 @@ pub fn list_sessions() -> anyhow::Result<Vec<SessionSummary>> {
             if entry.path().is_dir()
                 && let Some(name) = entry.file_name().to_str()
             {
-                names.insert(name.to_string());
+                names.insert(ekko_proto::decode_session_name(name));
             }
         }
     }
@@ -187,7 +187,11 @@ fn prune_stale_manifests() {
         if !path.is_dir() {
             continue;
         }
-        let Some(name) = entry.file_name().to_str().map(str::to_string) else {
+        let Some(name) = entry
+            .file_name()
+            .to_str()
+            .map(ekko_proto::decode_session_name)
+        else {
             continue;
         };
         if ekko_proto::socket_path(&name).exists() {

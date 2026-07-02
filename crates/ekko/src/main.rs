@@ -44,17 +44,15 @@ fn main() -> Result<()> {
 
     match cli.command {
         // Bare `ekko` starts a fresh session per terminal (like zellij);
-        // joining an existing one is an explicit `ekko attach`.
-        None => attach(ekko_client::generate_session_name(), true, false),
+        // joining an existing one is an explicit `ekko attach`. `None`
+        // defers naming to the registered session namer inside the client.
+        None => attach(None, true, false),
         Some(Command::Attach { name, force }) => attach(
-            name.unwrap_or_else(|| DEFAULT_SESSION.to_string()),
+            Some(name.unwrap_or_else(|| DEFAULT_SESSION.to_string())),
             true,
             force,
         ),
-        Some(Command::New { name }) => {
-            let name = name.unwrap_or_else(ekko_client::generate_session_name);
-            attach(name, true, false)
-        }
+        Some(Command::New { name }) => attach(name, true, false),
         Some(Command::Ls) => {
             for summary in ekko_server::list_sessions()? {
                 let state = match (summary.alive, summary.attached) {
@@ -73,7 +71,7 @@ fn main() -> Result<()> {
 /// Attach and run until exit; session switches reconnect inside
 /// `ekko_client::run` so client-side state (active mode, extension runtime,
 /// input threads) survives them.
-fn attach(name: String, create_if_missing: bool, force: bool) -> Result<()> {
+fn attach(name: Option<String>, create_if_missing: bool, force: bool) -> Result<()> {
     ekko_client::run(ekko_client::ClientOptions {
         session_name: name,
         create_if_missing,

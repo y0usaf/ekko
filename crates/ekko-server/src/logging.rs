@@ -17,7 +17,10 @@ fn log_dir() -> PathBuf {
 }
 
 fn log_path(session_name: &str) -> PathBuf {
-    log_dir().join(format!("{session_name}.log"))
+    log_dir().join(format!(
+        "{}.log",
+        ekko_proto::encode_session_name(session_name)
+    ))
 }
 
 struct FileLogger {

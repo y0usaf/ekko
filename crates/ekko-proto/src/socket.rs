@@ -70,9 +70,54 @@ pub fn socket_dir() -> PathBuf {
         .join(wire_dir_name())
 }
 
+/// Encode a session name into a single filename component. Session names
+/// are user-visible strings (the stock namer produces e.g.
+/// "~/Dev/ekko blue-orangutan") but double as socket and manifest
+/// filenames, so `/` and `%` are percent-encoded on the way to disk. Names
+/// without those characters encode to themselves, keeping existing socket
+/// and manifest paths stable.
+pub fn encode_session_name(name: &str) -> String {
+    let mut encoded = String::with_capacity(name.len());
+    for c in name.chars() {
+        match c {
+            '/' => encoded.push_str("%2F"),
+            '%' => encoded.push_str("%25"),
+            _ => encoded.push(c),
+        }
+    }
+    encoded
+}
+
+/// Inverse of [`encode_session_name`]: decode a directory-entry filename
+/// back into the session name. Unrecognized `%` sequences pass through
+/// untouched, so filenames that were never encoded survive a round trip.
+pub fn decode_session_name(file_name: &str) -> String {
+    let mut decoded = String::with_capacity(file_name.len());
+    let mut chars = file_name.chars().peekable();
+    while let Some(c) = chars.next() {
+        if c != '%' {
+            decoded.push(c);
+            continue;
+        }
+        let mut lookahead = chars.clone();
+        match (lookahead.next(), lookahead.next()) {
+            (Some('2'), Some('F' | 'f')) => {
+                decoded.push('/');
+                chars = lookahead;
+            }
+            (Some('2'), Some('5')) => {
+                decoded.push('%');
+                chars = lookahead;
+            }
+            _ => decoded.push(c),
+        }
+    }
+    decoded
+}
+
 /// Full path to the session socket for `session_name`.
 pub fn socket_path(session_name: &str) -> PathBuf {
-    socket_dir().join(session_name)
+    socket_dir().join(encode_session_name(session_name))
 }
 
 /// Set the unix permission bits on `path`.
@@ -136,5 +181,42 @@ mod tests {
     #[test]
     fn different_sessions_have_different_paths() {
         assert_ne!(socket_path("a"), socket_path("b"));
+    }
+
+    #[test]
+    fn plain_names_encode_to_themselves() {
+        assert_eq!(encode_session_name("main"), "main");
+        assert_eq!(
+            encode_session_name("~/Dev ekko"),
+            "~/Dev ekko".replace('/', "%2F")
+        );
+    }
+
+    #[test]
+    fn name_encoding_round_trips() {
+        for name in [
+            "main",
+            "~/Dev/ekko blue-orangutan",
+            "100% legit/name",
+            "%2F literal",
+            "trailing%",
+        ] {
+            assert_eq!(decode_session_name(&encode_session_name(name)), name);
+        }
+    }
+
+    #[test]
+    fn encoded_names_are_single_path_components() {
+        let path = socket_path("~/Dev/ekko blue-orangutan");
+        assert_eq!(
+            path.file_name().unwrap().to_string_lossy(),
+            "~%2FDev%2Fekko blue-orangutan"
+        );
+    }
+
+    #[test]
+    fn unencoded_percent_sequences_pass_through_decode() {
+        assert_eq!(decode_session_name("100%done"), "100%done");
+        assert_eq!(decode_session_name("%"), "%");
     }
 }
