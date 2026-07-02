@@ -14,7 +14,9 @@ use ekko_tui::{display_cell_width, truncate_to_cells};
 use crate::rows::{self, SidebarRowKind};
 
 const SIDEBAR_SELECTOR: &str = "> ";
-const SCROLLBAR_TRACK: &str = "\u{2502}";
+/// The rail: the sidebar's right border column, always drawn; it doubles as
+/// the scrollbar track when the list overflows.
+const RAIL: &str = "\u{2502}";
 const SCROLLBAR_THUMB: &str = "\u{2503}";
 
 pub struct SidebarExtension {
@@ -89,6 +91,9 @@ fn draw_sidebar(ctx: &mut dyn DrawContext, snapshot: &ClientSnapshot, scroll: &M
     let mut content_cols = cols;
     if cols > 1 {
         content_cols = cols - 1;
+        for row in 0..rows {
+            ctx.set_cell(cols - 1, row, theme.border, theme.sidebar_bg, RAIL, false);
+        }
         ctx.render_scrollbar(
             cols - 1,
             0,
@@ -98,7 +103,7 @@ fn draw_sidebar(ctx: &mut dyn DrawContext, snapshot: &ClientSnapshot, scroll: &M
             scroll_pos,
             theme.border,
             theme.sidebar_bg,
-            SCROLLBAR_TRACK,
+            RAIL,
             theme.accent_2,
             SCROLLBAR_THUMB,
         );

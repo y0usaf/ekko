@@ -10,12 +10,12 @@ use std::thread;
 use std::time::Duration;
 
 use crossbeam_channel::{Receiver, Sender};
-use interprocess::local_socket::Stream as LocalSocketStream;
-use interprocess::local_socket::prelude::*;
-use interprocess::local_socket::traits::SendHalf as _;
 use ekko_proto::{
     ClientToServer, GridPayload, GridRow, GridUpdate, ServerToClient, read_msg, write_msg,
 };
+use interprocess::local_socket::Stream as LocalSocketStream;
+use interprocess::local_socket::prelude::*;
+use interprocess::local_socket::traits::SendHalf as _;
 
 use crate::hub::HubInstruction;
 

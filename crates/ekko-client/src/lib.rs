@@ -18,9 +18,9 @@ use std::io::Read;
 use std::path::PathBuf;
 
 use anyhow::{Context, Result, bail};
-use interprocess::local_socket::traits::Stream as StreamTrait;
 use ekko_config::Config;
 use ekko_proto::{AttachRejectReason, ClientToServer, ServerToClient, WIRE_VERSION, socket_path};
+use interprocess::local_socket::traits::Stream as StreamTrait;
 
 /// Options controlling how [`run`] attaches to a session.
 #[derive(Clone, Debug)]
@@ -176,7 +176,9 @@ fn connect_and_attach(
     )
     .context("sending attach request")?;
 
-    match ekko_proto::read_msg::<_, ServerToClient>(&mut recv).context("waiting for attach reply")? {
+    match ekko_proto::read_msg::<_, ServerToClient>(&mut recv)
+        .context("waiting for attach reply")?
+    {
         Some(ServerToClient::Attached { session_name, .. }) => Ok((send, recv, session_name)),
         Some(ServerToClient::AttachRejected(reason)) => Err(attach_rejected_error(reason)),
         Some(other) => bail!("unexpected reply while attaching: {other:?}"),

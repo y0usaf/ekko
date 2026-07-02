@@ -45,12 +45,12 @@ use std::path::Path;
 use std::sync::{Arc, Mutex};
 
 use anyhow::{Context, Result, anyhow};
-use mlua::{Function, Lua, RegistryKey, Table, Value};
 use ekko_ext::{
     CommandOutput, CommandSpec, EventHandlerRegistration, Extension, ExtensionHost,
     ExtensionManifest, KeybindingSpec, OverlayOutcome, OverlaySpec, OverlayState, SurfaceSpec,
     ThemeSpec, parse_key_chords,
 };
+use mlua::{Function, Lua, RegistryKey, Table, Value};
 
 use convert::{
     actions_from_value, event_kind_from_name, event_return_from_value, mouse_event_table,

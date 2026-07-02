@@ -4,11 +4,11 @@
 //! Lua, mirroring the snapshot-reads/action-writes discipline.
 
 use anyhow::{Result, anyhow, bail};
-use mlua::{Lua, Table, Value};
 use ekko_ext::{
     ClientSnapshot, Color, EventKind, EventPayload, EventReturn, KeyIntercept, NoteKind,
     NoticeLevel, RegistryView, SurfaceMouseEvent, ThemePalette, UiAction,
 };
+use mlua::{Lua, Table, Value};
 
 // ── Into Lua ─────────────────────────────────────────────────────────────
 

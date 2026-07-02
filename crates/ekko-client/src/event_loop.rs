@@ -14,7 +14,8 @@ use std::time::{Duration, Instant};
 use anyhow::Result;
 use ekko_ext::{
     AppRuntime, ClientSnapshot, EventKind, EventPayload, EventReturn, KeyIntercept, ModeOutcome,
-    NoteKind, OverlayOutcome, ProjectGroup, SessionEntry, ThemePalette, UiAction, resolve_layout,
+    NoteKind, OverlayOutcome, ProjectGroup, ResolvedLayout, SessionEntry, ThemePalette, UiAction,
+    resolve_layout,
 };
 use ekko_grid::ansi::AnsiRenderer;
 use ekko_grid::cell_surface::CellSurface;
@@ -79,6 +80,7 @@ pub(crate) fn run_event_loop(
         runtime,
         generation,
         last_size: (0, 0),
+        last_sent_grid: (0, 0),
         last_session_refresh: Instant::now() - SESSION_REFRESH_INTERVAL,
         last_cursor_shape: 0,
         render_buf: Vec::with_capacity(64 * 1024),
@@ -178,6 +180,11 @@ struct App<'a> {
     /// Connection generation; socket events from other generations are stale.
     generation: u64,
     last_size: (u16, u16),
+    /// The grid size last reported to the server: the terminal pane the
+    /// layout leaves over, not the raw frame. Attach reports the raw frame
+    /// (the runtime doesn't exist yet), so this starts at (0, 0) and the
+    /// first loop pass corrects the session size.
+    last_sent_grid: (u16, u16),
     last_session_refresh: Instant,
     /// Last DECSCUSR shape pushed to the host terminal (0 = default).
     last_cursor_shape: u8,
@@ -318,10 +325,6 @@ impl App<'_> {
         let size = terminal_size();
         if size != self.last_size {
             self.last_size = size;
-            self.send_message(ClientToServer::Resize {
-                cols: size.0,
-                rows: size.1,
-            })?;
             self.runtime.dispatch(
                 EventKind::Resize,
                 EventPayload::Resize {
@@ -331,7 +334,29 @@ impl App<'_> {
             );
             self.state.dirty = true;
         }
+        // The session grid gets the pane the layout leaves over, never the
+        // raw frame: chrome (sidebar, statusbar) is client-local and must
+        // not count toward the PTY's size. Recomputed every pass, not just
+        // on frame changes — surface visibility can change at a fixed frame
+        // size and the pane moves with it.
+        let pane = self.terminal_pane_size();
+        if pane != self.last_sent_grid {
+            self.last_sent_grid = pane;
+            self.send_message(ClientToServer::Resize {
+                cols: pane.0,
+                rows: pane.1,
+            })?;
+            self.state.dirty = true;
+        }
         Ok(())
+    }
+
+    /// The terminal pane's size under the current layout.
+    fn terminal_pane_size(&self) -> (u16, u16) {
+        let snapshot = self.snapshot();
+        let surfaces = self.runtime.visible_surfaces(&snapshot);
+        let layout = resolve_layout(self.last_size.0, self.last_size.1, &surfaces);
+        pane_grid_size(&layout)
     }
 
     fn snapshot(&self) -> ClientSnapshot {
@@ -1056,4 +1081,38 @@ fn now_millis() -> u64 {
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_millis() as u64)
         .unwrap_or(0)
+}
+
+/// PTY dimensions for a resolved layout: the terminal pane, floored at 1x1
+/// so a frame fully consumed by chrome can't ask the server for a zero-size
+/// grid.
+fn pane_grid_size(layout: &ResolvedLayout) -> (u16, u16) {
+    (
+        layout.terminal.cols.max(1) as u16,
+        layout.terminal.rows.max(1) as u16,
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ekko_ext::Rect;
+
+    #[test]
+    fn pane_grid_size_reports_the_terminal_pane_not_the_frame() {
+        let layout = ResolvedLayout {
+            regions: Vec::new(),
+            terminal: Rect::new(30, 0, 90, 39),
+        };
+        assert_eq!(pane_grid_size(&layout), (90, 39));
+    }
+
+    #[test]
+    fn pane_grid_size_floors_a_degenerate_pane_at_one_cell() {
+        let layout = ResolvedLayout {
+            regions: Vec::new(),
+            terminal: Rect::new(0, 0, 0, 0),
+        };
+        assert_eq!(pane_grid_size(&layout), (1, 1));
+    }
 }
