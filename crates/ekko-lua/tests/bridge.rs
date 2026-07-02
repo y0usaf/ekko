@@ -68,38 +68,29 @@ impl DrawContext for Recorder {
     ) {
         self.calls.push(format!("bold {col} {row} {value}"));
     }
-    #[allow(clippy::too_many_arguments)]
     fn put_text_styled(
         &mut self,
         col: i32,
         row: i32,
         _max: i32,
-        _fg: Color,
-        _bg: Color,
         value: &str,
-        reverse: bool,
-        bold: bool,
+        style: ekko_ext::TextStyle,
     ) {
-        self.calls
-            .push(format!("styled {col} {row} {value} r={reverse} b={bold}"));
+        self.calls.push(format!(
+            "styled {col} {row} {value} r={} b={}",
+            style.reverse, style.bold
+        ));
     }
     fn draw_box(&mut self, rect: Rect, _f: Color, _b: Color, _border: Color) {
         self.calls.push(format!("box {} {}", rect.cols, rect.rows));
     }
-    #[allow(clippy::too_many_arguments)]
     fn render_scrollbar(
         &mut self,
         _col: i32,
         _row: i32,
         _rows: i32,
-        _visible: usize,
-        _total: usize,
-        _scroll: usize,
-        _fg: Color,
-        _bg: Color,
-        _track: &str,
-        _thumb_fg: Color,
-        _thumb: &str,
+        _model: ekko_ext::ScrollbarModel,
+        _style: ekko_ext::ScrollbarStyle<'_>,
     ) {
     }
 }

@@ -14,8 +14,8 @@ use std::time::{Duration, Instant};
 use crossbeam_channel::{Receiver, RecvTimeoutError, Sender};
 use ekko_config::Config;
 use ekko_proto::{
-    AttachRejectReason, ClientCommand, ClientToServer, CursorState, ExitReason, GridPayload,
-    GridRow, GridUpdate, ServerNotice, ServerToClient, TermModes,
+    AttachRejectReason, ClientToServer, CursorState, ExitReason, GridPayload, GridRow, GridUpdate,
+    ServerNotice, ServerToClient, TermModes,
 };
 use ekko_pty::{PtyCommand, WinSize};
 use interprocess::local_socket::Stream as LocalSocketStream;
@@ -60,6 +60,16 @@ pub enum HubInstruction {
     /// single-owner.
     HeartbeatTick,
     Shutdown,
+}
+
+/// The fields of [`ClientToServer::Attach`], regrouped for `on_attach`.
+struct AttachRequest {
+    wire_version: u32,
+    cols: u16,
+    rows: u16,
+    cwd: PathBuf,
+    shell: Option<PathBuf>,
+    force: bool,
 }
 
 /// The live PTY plus everything needed to talk to it.
@@ -266,41 +276,46 @@ impl Hub {
         match msg {
             ClientToServer::Attach {
                 wire_version,
-                session_name: _,
-                create_if_missing: _,
                 cols,
                 rows,
                 cwd,
                 shell,
                 force,
-            } => self.on_attach(id, wire_version, cols, rows, cwd, shell, force),
+            } => self.on_attach(
+                id,
+                AttachRequest {
+                    wire_version,
+                    cols,
+                    rows,
+                    cwd,
+                    shell,
+                    force,
+                },
+            ),
             ClientToServer::Detach => self.on_detach(id),
             ClientToServer::Resize { cols, rows } => self.on_resize(id, cols, rows),
             ClientToServer::Key(bytes) => self.on_input(id, bytes),
             ClientToServer::Paste(bytes) => self.on_paste(id, bytes),
             ClientToServer::Scroll { delta } => self.on_scroll(id, delta),
             ClientToServer::ScrollReset => self.set_scrollback_view(id, 0),
-            ClientToServer::Command(cmd) => self.on_command(id, cmd),
-            ClientToServer::ListSessions => {
-                let sessions = self.list_sessions_with_self_attached();
-                self.send_to(id, ServerToClient::Sessions(sessions));
+            ClientToServer::KillCurrentSession => {
+                let name = self.session_name.clone();
+                self.on_kill_session(id, &name);
             }
             ClientToServer::KillSession(name) => self.on_kill_session(id, &name),
             ClientToServer::Ping => self.send_to(id, ServerToClient::Pong),
         }
     }
 
-    #[allow(clippy::too_many_arguments)]
-    fn on_attach(
-        &mut self,
-        id: ClientId,
-        wire_version: u32,
-        cols: u16,
-        rows: u16,
-        cwd: PathBuf,
-        shell: Option<PathBuf>,
-        force: bool,
-    ) {
+    fn on_attach(&mut self, id: ClientId, req: AttachRequest) {
+        let AttachRequest {
+            wire_version,
+            cols,
+            rows,
+            cwd,
+            shell,
+            force,
+        } = req;
         if wire_version != ekko_proto::WIRE_VERSION {
             self.send_to(
                 id,
@@ -360,8 +375,6 @@ impl Hub {
         self.needs_full.insert(id);
         self.dirty = true;
         self.render_now();
-        let sessions = self.list_sessions_with_self_attached();
-        self.send_to(id, ServerToClient::Sessions(sessions));
         let (cols, rows) = {
             let screen = self.parser.screen();
             let size = screen.size();
@@ -488,21 +501,6 @@ impl Hub {
         self.parser.screen_mut().set_scrollback(rows);
         if self.parser.screen().scrollback() != before {
             self.mark_dirty();
-        }
-    }
-
-    fn on_command(&mut self, id: ClientId, cmd: ClientCommand) {
-        match cmd {
-            ClientCommand::KillCurrentSession => {
-                let name = self.session_name.clone();
-                self.on_kill_session(id, &name);
-            }
-            ClientCommand::NewSession { .. } | ClientCommand::SwitchSession(_) => {
-                log::debug!("hub: {cmd:?} is handled client-side, ignoring");
-            }
-            ClientCommand::RenameSession(_) => {
-                log::warn!("hub: RenameSession is not supported in v1, ignoring");
-            }
         }
     }
 
@@ -819,16 +817,6 @@ impl Hub {
         {
             log::warn!("hub: failed to spawn heartbeat thread: {e}");
         }
-    }
-
-    fn list_sessions_with_self_attached(&self) -> Vec<ekko_proto::SessionSummary> {
-        let mut sessions = ekko_resurrection::list_sessions().unwrap_or_default();
-        for session in &mut sessions {
-            if session.name == self.session_name {
-                session.attached = !self.attached.is_empty();
-            }
-        }
-        sessions
     }
 
     /// Called once the hub loop exits, regardless of why.

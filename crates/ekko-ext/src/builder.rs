@@ -35,6 +35,17 @@ impl RuntimeBuilder {
         self
     }
 
+    /// Register a batch of boxed extensions (a builtins layer, a script
+    /// loader's crop) in order.
+    pub fn register_boxed_extensions(
+        self,
+        extensions: impl IntoIterator<Item = Box<dyn Extension>>,
+    ) -> Self {
+        extensions
+            .into_iter()
+            .fold(self, Self::register_boxed_extension)
+    }
+
     pub fn build(self) -> Result<AppRuntime> {
         let mut host = RegistryHost::default();
         let mut manifests = Vec::new();

@@ -1,7 +1,7 @@
 # ekko
 
 An **extension-first** terminal multiplexer with zellij-class robustness and
-the phi/pi-harness look: an unboxed, Charmtone-themed chrome —
+an unboxed chrome themed from the host terminal's own colors —
 project/session sidebar, one fullscreen terminal, a single statusbar row — in
 front of a detachable session daemon.
 

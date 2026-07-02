@@ -132,22 +132,13 @@ impl TestClient {
         write_msg(&mut self.send, msg).expect("write to daemon");
     }
 
-    fn attach(&mut self, session_name: &str, cwd: PathBuf, force: bool) {
-        self.attach_with_size(session_name, cwd, force, 80, 24);
+    fn attach(&mut self, cwd: PathBuf, force: bool) {
+        self.attach_with_size(cwd, force, 80, 24);
     }
 
-    fn attach_with_size(
-        &mut self,
-        session_name: &str,
-        cwd: PathBuf,
-        force: bool,
-        cols: u16,
-        rows: u16,
-    ) {
+    fn attach_with_size(&mut self, cwd: PathBuf, force: bool, cols: u16, rows: u16) {
         self.send(&ClientToServer::Attach {
             wire_version: WIRE_VERSION,
-            session_name: session_name.to_string(),
-            create_if_missing: true,
             cols,
             rows,
             cwd,
@@ -219,7 +210,7 @@ fn attach_type_and_see_output() {
     let daemon = spawn_daemon(env.session_name.clone());
 
     let mut client = TestClient::connect(&env.session_name);
-    client.attach(&env.session_name, env.cwd(), false);
+    client.attach(env.cwd(), false);
     assert!(
         client
             .wait_for(Duration::from_secs(5), |m| matches!(
@@ -248,7 +239,7 @@ fn detach_then_reattach_preserves_screen() {
     let daemon = spawn_daemon(env.session_name.clone());
 
     let mut client = TestClient::connect(&env.session_name);
-    client.attach(&env.session_name, env.cwd(), false);
+    client.attach(env.cwd(), false);
     assert!(
         client
             .wait_for(Duration::from_secs(5), |m| matches!(
@@ -280,7 +271,7 @@ fn detach_then_reattach_preserves_screen() {
     // Reattach with a fresh connection; the PTY + vt100 state kept running
     // headless, so the screen content should still be there.
     let mut client2 = TestClient::connect(&env.session_name);
-    client2.attach(&env.session_name, env.cwd(), false);
+    client2.attach(env.cwd(), false);
     assert!(
         client2
             .wait_for(Duration::from_secs(5), |m| grid_contains(m, "hello"))
@@ -297,7 +288,7 @@ fn two_clients_share_a_session() {
     let daemon = spawn_daemon(env.session_name.clone());
 
     let mut client1 = TestClient::connect(&env.session_name);
-    client1.attach(&env.session_name, env.cwd(), false);
+    client1.attach(env.cwd(), false);
     assert!(
         client1
             .wait_for(Duration::from_secs(5), |m| matches!(
@@ -308,7 +299,7 @@ fn two_clients_share_a_session() {
     );
 
     let mut client2 = TestClient::connect(&env.session_name);
-    client2.attach(&env.session_name, env.cwd(), false);
+    client2.attach(env.cwd(), false);
     assert!(
         client2
             .wait_for(Duration::from_secs(5), |m| matches!(
@@ -338,7 +329,7 @@ fn force_attach_kicks_other_clients() {
     let daemon = spawn_daemon(env.session_name.clone());
 
     let mut client1 = TestClient::connect(&env.session_name);
-    client1.attach(&env.session_name, env.cwd(), false);
+    client1.attach(env.cwd(), false);
     assert!(
         client1
             .wait_for(Duration::from_secs(5), |m| matches!(
@@ -349,7 +340,7 @@ fn force_attach_kicks_other_clients() {
     );
 
     let mut client2 = TestClient::connect(&env.session_name);
-    client2.attach(&env.session_name, env.cwd(), true);
+    client2.attach(env.cwd(), true);
     assert!(
         client2
             .wait_for(Duration::from_secs(5), |m| matches!(
@@ -377,7 +368,7 @@ fn session_sizes_to_smallest_attached_client() {
     let daemon = spawn_daemon(env.session_name.clone());
 
     let mut client1 = TestClient::connect(&env.session_name);
-    client1.attach(&env.session_name, env.cwd(), false);
+    client1.attach(env.cwd(), false);
     assert!(
         client1
             .wait_for(Duration::from_secs(5), |m| matches!(
@@ -390,7 +381,7 @@ fn session_sizes_to_smallest_attached_client() {
     // A smaller client joins: the session shrinks to fit it, and the larger
     // client is told via a grid update at the new size.
     let mut client2 = TestClient::connect(&env.session_name);
-    client2.attach_with_size(&env.session_name, env.cwd(), false, 60, 20);
+    client2.attach_with_size(env.cwd(), false, 60, 20);
     assert!(
         client1
             .wait_for(Duration::from_secs(5), |m| matches!(
@@ -450,7 +441,7 @@ fn shell_exit_ends_session_and_daemon() {
     let daemon = spawn_daemon(env.session_name.clone());
 
     let mut client = TestClient::connect(&env.session_name);
-    client.attach(&env.session_name, env.cwd(), false);
+    client.attach(env.cwd(), false);
     assert!(
         client
             .wait_for(Duration::from_secs(5), |m| matches!(
@@ -497,7 +488,7 @@ fn scroll_messages_move_the_scrollback_view() {
     let daemon = spawn_daemon(env.session_name.clone());
 
     let mut client = TestClient::connect(&env.session_name);
-    client.attach_with_size(&env.session_name, env.cwd(), false, 80, 6);
+    client.attach_with_size(env.cwd(), false, 80, 6);
     assert!(
         client
             .wait_for(Duration::from_secs(5), |m| matches!(
@@ -549,7 +540,7 @@ fn paste_is_rewrapped_when_the_child_uses_bracketed_paste() {
     let daemon = spawn_daemon(env.session_name.clone());
 
     let mut client = TestClient::connect(&env.session_name);
-    client.attach(&env.session_name, env.cwd(), false);
+    client.attach(env.cwd(), false);
     assert!(
         client
             .wait_for(Duration::from_secs(5), |m| matches!(
@@ -590,7 +581,7 @@ fn child_mouse_mode_requests_are_reported_to_the_client() {
     let daemon = spawn_daemon(env.session_name.clone());
 
     let mut client = TestClient::connect(&env.session_name);
-    client.attach(&env.session_name, env.cwd(), false);
+    client.attach(env.cwd(), false);
     assert!(
         client
             .wait_for(Duration::from_secs(5), |m| matches!(

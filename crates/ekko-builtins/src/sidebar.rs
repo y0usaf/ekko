@@ -7,7 +7,8 @@ use std::sync::{Arc, Mutex};
 use anyhow::Result;
 use ekko_ext::{
     ClientSnapshot, Color, DockEdge, DrawContext, Extension, ExtensionHost, ExtensionManifest,
-    MouseKind, Rect, SurfaceMouseEvent, SurfaceSize, SurfaceSpec, UiAction, fade_toward,
+    MouseKind, Rect, ScrollbarModel, ScrollbarStyle, SurfaceMouseEvent, SurfaceSize, SurfaceSpec,
+    UiAction, fade_toward,
 };
 use ekko_tui::{display_cell_width, truncate_to_cells};
 
@@ -98,14 +99,18 @@ fn draw_sidebar(ctx: &mut dyn DrawContext, snapshot: &ClientSnapshot, scroll: &M
             cols - 1,
             0,
             rows,
-            visible_rows,
-            row_model.len(),
-            scroll_pos,
-            theme.border,
-            theme.sidebar_bg,
-            RAIL,
-            theme.accent_2,
-            SCROLLBAR_THUMB,
+            ScrollbarModel {
+                visible_items: visible_rows,
+                total_items: row_model.len(),
+                scroll_from_top: scroll_pos,
+            },
+            ScrollbarStyle {
+                fg: theme.border,
+                bg: theme.sidebar_bg,
+                track_glyph: RAIL,
+                thumb_fg: theme.accent_2,
+                thumb_glyph: SCROLLBAR_THUMB,
+            },
         );
     }
 

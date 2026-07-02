@@ -6,7 +6,6 @@
 
 pub mod ansi;
 pub mod cell_surface;
-pub mod charmtone;
 pub mod color;
 pub mod damage;
 pub mod layout;

@@ -436,6 +436,37 @@ mod tests {
     }
 
     #[test]
+    fn duplicate_keybinding_chord_fails_loudly_within_a_mode_scope() {
+        fn binding(chord: &[u8], mode: Option<&str>) -> crate::KeybindingSpec {
+            crate::KeybindingSpec {
+                chords: vec![chord.to_vec()],
+                chord_text: String::from_utf8_lossy(chord).into_owned(),
+                mode: mode.map(str::to_string),
+                description: String::new(),
+                handler: Arc::new(|_| Vec::new()),
+            }
+        }
+        // Same chord in the same scope: hard error.
+        let result = RuntimeBuilder::new()
+            .register_extension(TestExt::new(|host| {
+                host.register_keybinding(binding(b"\x11", None))?;
+                host.register_keybinding(binding(b"\x11", None))?;
+                Ok(())
+            }))
+            .build();
+        assert!(result.is_err());
+        // Same chord in different mode scopes: fine.
+        let result = RuntimeBuilder::new()
+            .register_extension(TestExt::new(|host| {
+                host.register_keybinding(binding(b"\x11", None))?;
+                host.register_keybinding(binding(b"\x11", Some("leader")))?;
+                Ok(())
+            }))
+            .build();
+        assert!(result.is_ok());
+    }
+
+    #[test]
     fn alias_collision_with_command_name_fails_loudly() {
         let result = RuntimeBuilder::new()
             .register_extension(TestExt::new(|host| {

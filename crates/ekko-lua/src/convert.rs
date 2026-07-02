@@ -229,32 +229,11 @@ pub fn payload_table(lua: &Lua, payload: &EventPayload) -> mlua::Result<Table> {
 
 // ── Names ────────────────────────────────────────────────────────────────
 
+/// Resolve a subscription string against the canonical names owned by
+/// `ekko-event` (`EventKind::name`), so a new event variant is available to
+/// Lua the moment it's added to the vocabulary.
 pub fn event_kind_from_name(name: &str) -> Option<EventKind> {
-    use EventKind::*;
-    Some(match name {
-        "client_ready" => ClientReady,
-        "session_attached" => SessionAttached,
-        "before_session_detach" => BeforeSessionDetach,
-        "session_detached" => SessionDetached,
-        "before_session_switch" => BeforeSessionSwitch,
-        "session_switched" => SessionSwitched,
-        "session_list_refreshed" => SessionListRefreshed,
-        "grid_updated" => GridUpdated,
-        "bell" => Bell,
-        "resize" => Resize,
-        "tick" => Tick,
-        "key_input" => KeyInput,
-        "mode_changed" => ModeChanged,
-        "command_invoked" => CommandInvoked,
-        "before_pty_spawn" => BeforePtySpawn,
-        "session_created" => SessionCreated,
-        "client_attached" => ClientAttached,
-        "client_detached" => ClientDetached,
-        "session_exited" => SessionExited,
-        "pty_resized" => PtyResized,
-        "heartbeat" => Heartbeat,
-        _ => return None,
-    })
+    EventKind::from_name(name)
 }
 
 // ── Out of Lua ───────────────────────────────────────────────────────────

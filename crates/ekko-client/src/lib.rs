@@ -41,8 +41,8 @@ pub enum ClientOutcome {
     SwitchTo { name: String, mode: Option<String> },
 }
 
-/// A fresh throwaway session name, used when `ekko new` / ctrl+n get no
-/// explicit name.
+/// A fresh throwaway session name, used for bare `ekko` and when
+/// `ekko new` / ctrl+n get no explicit name.
 pub fn generate_session_name() -> String {
     let nanos = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -53,18 +53,22 @@ pub fn generate_session_name() -> String {
 
 /// Build the client's extension runtime: builtins first (so user extensions
 /// reusing a name fail loudly), filtered by `[extensions] disabled`.
-fn build_runtime(config: &Config) -> Result<ekko_ext::AppRuntime> {
+fn build_runtime(
+    config: &Config,
+    #[cfg_attr(not(feature = "builtins"), allow(unused_variables))] terminal_colors: Option<
+        ekko_tui::TerminalColors,
+    >,
+) -> Result<ekko_ext::AppRuntime> {
     let builder = ekko_ext::RuntimeBuilder::new().with_disabled(&config.extensions.disabled);
     #[cfg(feature = "builtins")]
-    let builder = ekko_builtins::client_extensions(config)
-        .into_iter()
-        .fold(builder, ekko_ext::RuntimeBuilder::register_boxed_extension);
+    let builder = builder
+        .register_boxed_extensions(ekko_builtins::client_extensions(config, terminal_colors));
     #[cfg(feature = "keycast")]
     let builder = builder.register_extension(ekko_keycast::KeycastExtension);
     #[cfg(feature = "lua")]
-    let builder = ekko_lua::load_extensions(&ekko_config::config_dir().join("extensions"))
-        .into_iter()
-        .fold(builder, ekko_ext::RuntimeBuilder::register_boxed_extension);
+    let builder = builder.register_boxed_extensions(ekko_lua::load_extensions(
+        &ekko_config::config_dir().join("extensions"),
+    ));
     builder.build()
 }
 
@@ -77,7 +81,6 @@ fn build_runtime(config: &Config) -> Result<ekko_ext::AppRuntime> {
 /// keystroke.
 pub fn run(options: ClientOptions) -> Result<()> {
     let config = Config::load_default().unwrap_or_default();
-    let runtime = build_runtime(&config).context("building extension runtime")?;
 
     // Restore the terminal from anywhere a panic unwinds through, since the
     // `RawModeGuard`'s `Drop` won't run during an abort/unhandled unwind out
@@ -88,6 +91,13 @@ pub fn run(options: ClientOptions) -> Result<()> {
         previous_hook(info);
     }));
     let _raw_guard = ekko_tui::RawModeGuard::new()?;
+
+    // Probe the host terminal's colors (OSC 10/11/4) so the builtin theme can
+    // derive its palette from them. Must run inside raw mode (the reply is
+    // read byte-wise from stdin) and before the stdin reader thread spawns,
+    // or the reader would eat the response.
+    let terminal_colors = ekko_tui::detect_terminal_colors(std::time::Duration::from_millis(250));
+    let runtime = build_runtime(&config, terminal_colors).context("building extension runtime")?;
 
     let (tx, rx) = std::sync::mpsc::channel::<event_loop::Event>();
     event_loop::spawn_stdin_reader(tx.clone());
@@ -165,8 +175,6 @@ fn connect_and_attach(
         &mut send,
         &ClientToServer::Attach {
             wire_version: WIRE_VERSION,
-            session_name: session_name.to_string(),
-            create_if_missing,
             cols,
             rows,
             cwd,
@@ -191,7 +199,6 @@ fn attach_rejected_error(reason: AttachRejectReason) -> anyhow::Error {
         AttachRejectReason::WrongWireVersion => {
             anyhow::anyhow!("wire protocol version mismatch; rebuild ekko and try again")
         }
-        AttachRejectReason::SessionNotFound => anyhow::anyhow!("session not found"),
         AttachRejectReason::SpawnFailed(message) => {
             anyhow::anyhow!("session daemon failed to start: {message}")
         }

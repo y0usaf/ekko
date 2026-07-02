@@ -141,11 +141,9 @@ impl TestClient {
         write_msg(&mut self.send, msg).expect("write to daemon");
     }
 
-    fn attach(&mut self, session_name: &str, cwd: PathBuf) {
+    fn attach(&mut self, cwd: PathBuf) {
         self.send(&ClientToServer::Attach {
             wire_version: WIRE_VERSION,
-            session_name: session_name.to_string(),
-            create_if_missing: true,
             cols: 80,
             rows: 24,
             cwd,
@@ -318,7 +316,7 @@ fn lifecycle_hooks_fire_in_order() {
     let daemon = spawn_daemon_with(env.session_name.clone(), runtime);
 
     let mut client = TestClient::connect(&env.session_name);
-    client.attach(&env.session_name, env.cwd());
+    client.attach(env.cwd());
     assert!(
         client
             .wait_for(Duration::from_secs(5), |m| matches!(
@@ -340,7 +338,7 @@ fn lifecycle_hooks_fire_in_order() {
 
     let client2 = {
         let mut c = TestClient::connect(&env.session_name);
-        c.attach(&env.session_name, env.cwd());
+        c.attach(env.cwd());
         c.wait_for(Duration::from_secs(5), |m| {
             matches!(m, ServerToClient::Attached { .. })
         })
@@ -371,7 +369,7 @@ fn pty_spawn_override_reaches_the_shell() {
     let daemon = spawn_daemon_with(env.session_name.clone(), runtime);
 
     let mut client = TestClient::connect(&env.session_name);
-    client.attach(&env.session_name, env.cwd());
+    client.attach(env.cwd());
     assert!(
         client
             .wait_for(Duration::from_secs(5), |m| matches!(
@@ -411,7 +409,7 @@ fn env_file_builtin_injects_project_environment() {
     let daemon = spawn_daemon_with(env.session_name.clone(), builder.build().unwrap());
 
     let mut client = TestClient::connect(&env.session_name);
-    client.attach(&env.session_name, env.cwd());
+    client.attach(env.cwd());
     assert!(
         client
             .wait_for(Duration::from_secs(5), |m| matches!(
@@ -459,7 +457,7 @@ fn blocked_handler_does_not_wedge_the_hub() {
 
     let started = Instant::now();
     let mut client = TestClient::connect(&env.session_name);
-    client.attach(&env.session_name, env.cwd());
+    client.attach(env.cwd());
     assert!(
         client
             .wait_for(Duration::from_secs(10), |m| matches!(
@@ -491,7 +489,7 @@ fn bare_harness_works_and_writes_no_manifest() {
     let daemon = spawn_daemon_with(env.session_name.clone(), AppRuntime::empty());
 
     let mut client = TestClient::connect(&env.session_name);
-    client.attach(&env.session_name, env.cwd());
+    client.attach(env.cwd());
     assert!(
         client
             .wait_for(Duration::from_secs(5), |m| matches!(

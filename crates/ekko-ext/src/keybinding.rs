@@ -74,6 +74,23 @@ pub fn parse_key_binding(text: &str) -> Option<Vec<u8>> {
     parse_key_chords(text).and_then(|chords| chords.into_iter().next())
 }
 
+/// Resolve config binding strings into the flattened chord set plus the
+/// joined display text (`"ctrl+b / alt+b"`), ready for a `KeybindingSpec`.
+/// Unparseable strings are skipped; returns `None` when nothing parses
+/// (callers treat the binding as absent). Callers that want to *reject*
+/// bad input instead should use [`parse_key_chords`] per string.
+pub fn resolve_chords(strings: &[String]) -> Option<(Vec<Vec<u8>>, String)> {
+    let chords: Vec<Vec<u8>> = strings
+        .iter()
+        .filter_map(|s| parse_key_chords(s))
+        .flatten()
+        .collect();
+    if chords.is_empty() {
+        return None;
+    }
+    Some((chords, strings.join(" / ")))
+}
+
 fn single_char(text: &str) -> Option<char> {
     let mut chars = text.chars();
     let ch = chars.next()?;

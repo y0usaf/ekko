@@ -29,9 +29,7 @@ use hub::{Hub, HubInstruction};
 fn build_runtime(config: &ekko_config::Config) -> anyhow::Result<ekko_ext::AppRuntime> {
     let builder = ekko_ext::RuntimeBuilder::new().with_disabled(&config.extensions.disabled);
     #[cfg(feature = "builtins")]
-    let builder = ekko_builtins::server_extensions()
-        .into_iter()
-        .fold(builder, ekko_ext::RuntimeBuilder::register_boxed_extension);
+    let builder = builder.register_boxed_extensions(ekko_builtins::server_extensions());
     builder.build()
 }
 
