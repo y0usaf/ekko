@@ -12,13 +12,13 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use crossbeam_channel::{Receiver, RecvTimeoutError, Sender};
-use interprocess::local_socket::Stream as LocalSocketStream;
 use ekko_config::Config;
 use ekko_proto::{
     AttachRejectReason, ClientCommand, ClientToServer, CursorState, ExitReason, GridPayload,
     GridRow, GridUpdate, ServerNotice, ServerToClient, TermModes,
 };
 use ekko_pty::{PtyCommand, WinSize};
+use interprocess::local_socket::Stream as LocalSocketStream;
 
 use ekko_event::{EventKind, EventPayload, EventReturn, SessionExitReason};
 use ekko_ext::AppRuntime;
@@ -733,7 +733,11 @@ impl Hub {
 
         let mut shell = shell.to_path_buf();
         let mut cwd = cwd.to_path_buf();
-        let mut env: Vec<(String, String)> = Vec::new();
+        // Stamp the pane with its own session so shells can tell they're
+        // inside ekko (a stale outer value is dropped in ekko-pty); extension
+        // overrides are appended after and win on duplicate keys.
+        let mut env: Vec<(String, String)> =
+            vec![("EKKO_SESSION_NAME".to_string(), self.session_name.clone())];
         for value in self.dispatch(
             EventKind::BeforePtySpawn,
             EventPayload::PtySpawn {
