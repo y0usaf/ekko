@@ -976,8 +976,7 @@ impl vt100::Callbacks for TermEvents {
                     let Some((r, g, b)) = self.host_palette_color(idx) else {
                         continue;
                     };
-                    let reply =
-                        format!("\x1b]4;{};{}\x1b\\", idx, osc_color_reply_body(r, g, b));
+                    let reply = format!("\x1b]4;{};{}\x1b\\", idx, osc_color_reply_body(r, g, b));
                     self.replies.extend_from_slice(reply.as_bytes());
                 }
             }
