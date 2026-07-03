@@ -380,6 +380,7 @@ impl App<'_> {
                 }),
             keybindings: self.runtime.keybinding_infos(),
             now_ms: now_millis(),
+            hidden_surfaces: self.state.hidden_surfaces.iter().cloned().collect(),
             theme: self.palette,
         }
     }
@@ -966,6 +967,24 @@ impl App<'_> {
             }
             UiAction::ScrollToBottom => {
                 self.send_message(ClientToServer::ScrollReset)?;
+                Ok(None)
+            }
+            UiAction::ToggleSurface { name } => {
+                if self.runtime.surface(&name).is_none() {
+                    self.state.set_note(
+                        format!("unknown surface: {name}"),
+                        NoteKind::Error,
+                        STATUS_NOTE_TTL,
+                    );
+                    return Ok(None);
+                }
+                if !self.state.hidden_surfaces.remove(&name) {
+                    self.state.hidden_surfaces.insert(name);
+                }
+                // The terminal pane grows/shrinks with the toggle; the next
+                // loop pass resizes the session grid via
+                // `apply_resize_if_changed`.
+                self.state.dirty = true;
                 Ok(None)
             }
             UiAction::InvokeCommand { line } => {

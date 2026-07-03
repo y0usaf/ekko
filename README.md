@@ -91,7 +91,8 @@ your shell depends on):
 | `alt+e` | command mode (`:q`, `:detach`, `:new [name]`, `:switch <name>`, `:kill`, `:help`, `:keycast`) |
 | `alt+s` | scroll mode (`j`/`k` line, `u`/`d` half page, PgUp/PgDn page, `g` top, `G` live, `q`/Esc exit) |
 | `alt+/` | help overlay |
-| `ctrl+space` | leader: a which-key panel of every `mode = "leader"` binding (`e` command mode, `s` scroll, `n` new session, `d` detach, `?` help) |
+| `ctrl+space` | leader: a which-key panel of every `mode = "leader"` binding (`e` command mode, `s` scroll, `n` new session, `d` detach, `b` toggle sidebar, `?` help) |
+| `ctrl+space ctrl+space` | toggle the session sidebar (leader chord again inside leader mode) |
 | `ctrl+q` | detach |
 
 The mouse wheel scrolls history directly (arrow keys on the alternate

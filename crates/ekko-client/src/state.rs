@@ -115,6 +115,9 @@ pub struct ClientState {
     pub status_note: Option<StatusNote>,
     /// Mouse selection over the terminal pane, in grid-local coordinates.
     pub selection: TerminalSelection,
+    /// Surfaces toggled off by `UiAction::ToggleSurface`. Client-local:
+    /// a fresh attach starts with everything visible.
+    pub hidden_surfaces: std::collections::HashSet<String>,
     pub dirty: bool,
 }
 
@@ -129,6 +132,7 @@ impl ClientState {
             overlay: None,
             status_note: None,
             selection: TerminalSelection::default(),
+            hidden_surfaces: std::collections::HashSet::new(),
             dirty: true,
         }
     }

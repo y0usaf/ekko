@@ -344,6 +344,10 @@ pub enum UiAction {
     Scroll { delta: i32 },
     /// Jump the scrollback view back to the live screen.
     ScrollToBottom,
+    /// Toggle a named docked surface's visibility for this client. Unknown
+    /// names surface an error note; the hidden set is client-local state,
+    /// so a reattach starts visible again.
+    ToggleSurface { name: String },
 }
 
 /// A handler function invoked when a lifecycle event is dispatched.
