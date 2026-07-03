@@ -514,18 +514,57 @@ impl LuaExtension {
                 return OverlayOutcome::Close;
             };
             let lua = key_shared.lock().unwrap();
-            let outcome = with_budget(&lua, HANDLER_BUDGET, |lua| {
+            let value = match with_budget(&lua, HANDLER_BUDGET, |lua| {
                 let f: Function = lua.registry_value(handle_key)?;
                 let state_value: Value = lua.registry_value(&state.0)?;
-                f.call::<Option<String>>((state_value, lua.create_string(bytes)?))
-            });
-            match outcome {
-                Ok(Some(word)) if word == "close" => OverlayOutcome::Close,
-                Ok(_) => OverlayOutcome::None,
+                f.call::<Value>((state_value, lua.create_string(bytes)?))
+            }) {
+                Ok(value) => value,
                 Err(err) => {
                     log::warn!("lua overlay key handler errored: {err:#}");
-                    OverlayOutcome::Close
+                    return OverlayOutcome::Close;
                 }
+            };
+            match &value {
+                Value::Nil => OverlayOutcome::None,
+                Value::String(s) => {
+                    if s.to_string_lossy() == "close" {
+                        OverlayOutcome::Close
+                    } else {
+                        OverlayOutcome::None
+                    }
+                }
+                Value::Table(t) => {
+                    // Array form: { "close", action, action, ... }
+                    if t.raw_len() > 0
+                        && matches!(
+                            t.get::<Option<Value>>(1),
+                            Ok(Some(Value::String(s))) if s.to_string_lossy() == "close"
+                        )
+                    {
+                        let mut actions = Vec::new();
+                        let vals: Vec<Value> = t.clone().sequence_values::<Value>().skip(1).collect::<mlua::Result<_>>().unwrap_or_default();
+                        for v in &vals {
+                            if let Ok(mut a) = actions_from_value(v) {
+                                actions.append(&mut a);
+                            }
+                        }
+                        if actions.is_empty() {
+                            OverlayOutcome::Close
+                        } else {
+                            OverlayOutcome::CloseWith(actions)
+                        }
+                    } else {
+                        // Single-action table form: { switch_session = name }
+                        match actions_from_value(&value) {
+                            Ok(actions) if !actions.is_empty() => {
+                                OverlayOutcome::CloseWith(actions)
+                            }
+                            _ => OverlayOutcome::None,
+                        }
+                    }
+                }
+                _ => OverlayOutcome::None,
             }
         });
 
