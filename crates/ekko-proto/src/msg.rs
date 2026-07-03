@@ -16,6 +16,10 @@ pub enum ClientToServer {
         cwd: PathBuf,
         shell: Option<PathBuf>,
         force: bool,
+        /// The host terminal's colors as probed by the client (OSC 10/11/4),
+        /// so the server can answer the child's color queries on the host's
+        /// behalf. `None` when the host terminal didn't answer the probe.
+        terminal_colors: Option<TerminalColors>,
     },
     /// Detach from the current session without killing it.
     Detach,
@@ -222,4 +226,15 @@ pub enum WireColor {
     Default,
     Indexed(u8),
     Rgb(u8, u8, u8),
+}
+
+/// Host terminal colors forwarded on attach: default background/foreground
+/// (OSC 11/10) plus the 16 ANSI palette entries (OSC 4). Entries the host
+/// terminal didn't report stay `None`. Mirrors `ekko_tui::TerminalColors`,
+/// re-declared here so the wire crate stays dependency-free.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TerminalColors {
+    pub background: (u8, u8, u8),
+    pub foreground: (u8, u8, u8),
+    pub palette: [Option<(u8, u8, u8)>; 16],
 }

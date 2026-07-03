@@ -144,6 +144,10 @@ pub fn run(options: ClientOptions) -> Result<()> {
     // read byte-wise from stdin) and before the stdin reader thread spawns,
     // or the reader would eat the response.
     let terminal_colors = ekko_tui::detect_terminal_colors(std::time::Duration::from_millis(250));
+    // Also forwarded to the server on attach, so the hub can answer the
+    // child's OSC 10/11/4 color queries on the host terminal's behalf
+    // (nested ekko, phi, neovim background detection).
+    let wire_colors = terminal_colors.as_ref().map(wire_terminal_colors);
     let runtime = build_runtime(&config, terminal_colors).context("building extension runtime")?;
 
     let (tx, rx) = std::sync::mpsc::channel::<event_loop::Event>();
@@ -157,8 +161,12 @@ pub fn run(options: ClientOptions) -> Result<()> {
     let mut resume_mode: Option<String> = None;
     let mut generation: u64 = 0;
     loop {
-        let (send, recv, attached_name) =
-            connect_and_attach(&session_name, options.create_if_missing, options.force)?;
+        let (send, recv, attached_name) = connect_and_attach(
+            &session_name,
+            options.create_if_missing,
+            options.force,
+            wire_colors.clone(),
+        )?;
         generation += 1;
         event_loop::spawn_socket_reader(tx.clone(), recv, generation);
         match event_loop::run_event_loop(
@@ -187,6 +195,7 @@ fn connect_and_attach(
     session_name: &str,
     create_if_missing: bool,
     force: bool,
+    terminal_colors: Option<ekko_proto::TerminalColors>,
 ) -> Result<ConnectedHalves> {
     let path = socket_path(session_name);
 
@@ -230,6 +239,7 @@ fn connect_and_attach(
             cwd,
             shell: None,
             force,
+            terminal_colors,
         },
     )
     .context("sending attach request")?;
@@ -241,6 +251,16 @@ fn connect_and_attach(
         Some(ServerToClient::AttachRejected(reason)) => Err(attach_rejected_error(reason)),
         Some(other) => bail!("unexpected reply while attaching: {other:?}"),
         None => bail!("connection closed before attach completed"),
+    }
+}
+
+/// Convert the TUI probe result into the wire representation sent on attach.
+fn wire_terminal_colors(colors: &ekko_tui::TerminalColors) -> ekko_proto::TerminalColors {
+    let rgb = |c: ekko_tui::Rgb| (c.0, c.1, c.2);
+    ekko_proto::TerminalColors {
+        background: rgb(colors.background),
+        foreground: rgb(colors.foreground),
+        palette: colors.palette.map(|slot| slot.map(rgb)),
     }
 }
 
