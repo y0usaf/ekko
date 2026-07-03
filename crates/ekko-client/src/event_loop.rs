@@ -565,9 +565,9 @@ impl App<'_> {
         // 1. An open overlay intercepts everything.
         if self.state.overlay.is_some() {
             self.flush_pty(pty_bytes)?;
-            self.handle_overlay_input(token);
+            let outcome = self.handle_overlay_input(token)?;
             self.state.dirty = true;
-            return Ok(None);
+            return Ok(outcome);
         }
 
         // 2. Bracketed paste framing (core mechanism).
@@ -643,21 +643,29 @@ impl App<'_> {
         Ok(None)
     }
 
-    fn handle_overlay_input(&mut self, bytes: &[u8]) {
+    fn handle_overlay_input(&mut self, bytes: &[u8]) -> Result<Option<ClientOutcome>> {
         let Some(name) = self.state.overlay.as_ref().map(|o| o.name.clone()) else {
-            return;
+            return Ok(None);
         };
         let Some(spec) = self.runtime.overlay(&name) else {
             self.state.overlay = None;
-            return;
+            return Ok(None);
         };
         let handle_key = spec.handle_key.clone();
         let outcome = match self.state.overlay.as_mut() {
             Some(active) => handle_key(&mut active.state, bytes),
-            None => return,
+            None => return Ok(None),
         };
-        if outcome == OverlayOutcome::Close {
-            self.state.overlay = None;
+        match outcome {
+            OverlayOutcome::None => Ok(None),
+            OverlayOutcome::Close => {
+                self.state.overlay = None;
+                Ok(None)
+            }
+            OverlayOutcome::CloseWith(actions) => {
+                self.state.overlay = None;
+                self.apply_ui_actions(actions, 0)
+            }
         }
     }
 

@@ -5,6 +5,8 @@
 use std::any::Any;
 use std::sync::Arc;
 
+use ekko_event::UiAction;
+
 use crate::command::CommandInfo;
 use crate::draw::DrawContext;
 use crate::keybinding::KeybindingInfo;
@@ -45,6 +47,8 @@ pub enum OverlayOutcome {
     None,
     /// Close the overlay.
     Close,
+    /// Close the overlay and apply the returned actions (e.g. switch session).
+    CloseWith(Vec<UiAction>),
 }
 
 #[derive(Clone)]
