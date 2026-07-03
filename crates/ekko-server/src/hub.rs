@@ -70,6 +70,7 @@ struct AttachRequest {
     cwd: PathBuf,
     shell: Option<PathBuf>,
     force: bool,
+    terminal_colors: Option<ekko_proto::TerminalColors>,
 }
 
 /// The live PTY plus everything needed to talk to it.
@@ -95,6 +96,11 @@ pub struct Hub {
     /// is sized to the smallest attached client, tmux-style.
     attached: HashMap<ClientId, (u16, u16)>,
     next_client_id: ClientId,
+    /// The host terminal's colors from the most recent attach whose client
+    /// probe succeeded; fed to [`TermEvents`] so the hub can answer the
+    /// child's OSC 10/11/4 color queries. Kept on the hub so a PTY respawn
+    /// (which rebuilds the parser) doesn't lose it.
+    host_colors: Option<ekko_proto::TerminalColors>,
     parser: vt100::Parser<TermEvents>,
     /// Rewrites HVP finals to CUP before the parser (vt100 has no HVP arm).
     vt_compat: HvpToCup,
@@ -141,6 +147,7 @@ impl Hub {
             clients: HashMap::new(),
             attached: HashMap::new(),
             next_client_id: 0,
+            host_colors: None,
             parser: vt100::Parser::new_with_callbacks(24, 80, scrollback, TermEvents::default()),
             vt_compat: HvpToCup::default(),
             pty: None,
@@ -281,6 +288,7 @@ impl Hub {
                 cwd,
                 shell,
                 force,
+                terminal_colors,
             } => self.on_attach(
                 id,
                 AttachRequest {
@@ -290,6 +298,7 @@ impl Hub {
                     cwd,
                     shell,
                     force,
+                    terminal_colors,
                 },
             ),
             ClientToServer::Detach => self.on_detach(id),
@@ -315,6 +324,7 @@ impl Hub {
             cwd,
             shell,
             force,
+            terminal_colors,
         } = req;
         if wire_version != ekko_proto::WIRE_VERSION {
             self.send_to(
@@ -322,6 +332,14 @@ impl Hub {
                 ServerToClient::AttachRejected(AttachRejectReason::WrongWireVersion),
             );
             return;
+        }
+        // Adopt the client's probed host colors (first probe wins; a later
+        // client that failed its probe must not clobber a good answer) and
+        // refresh the live parser so color queries from an already-running
+        // child are answered with them too.
+        if terminal_colors.is_some() && self.host_colors.is_none() {
+            self.host_colors = terminal_colors;
+            self.parser.callbacks_mut().host_colors = self.host_colors.clone();
         }
         if force {
             let others: Vec<ClientId> =
@@ -741,7 +759,10 @@ impl Hub {
             rows,
             cols,
             self.config.general.scrollback_lines,
-            TermEvents::default(),
+            TermEvents {
+                host_colors: self.host_colors.clone(),
+                ..TermEvents::default()
+            },
         );
         // Fresh parser, fresh diff base, fresh compat-filter state.
         self.force_full = true;
@@ -851,6 +872,10 @@ impl Hub {
 struct TermEvents {
     audible: usize,
     replies: Vec<u8>,
+    /// The host terminal's colors (from the attaching client's OSC probe),
+    /// used to answer the child's OSC 10/11/4 color queries. `None` falls
+    /// back to the standard VGA palette so probing children never hang.
+    host_colors: Option<ekko_proto::TerminalColors>,
     /// Latest OSC 0/2 title since the last drain.
     title: Option<String>,
     /// Latest OSC 52 write since the last drain (still base64-encoded).
@@ -919,7 +944,108 @@ impl vt100::Callbacks for TermEvents {
             _ => {}
         }
     }
+
+    fn unhandled_osc(&mut self, _screen: &mut vt100::Screen, params: &[&[u8]]) {
+        // Color queries (OSC 10/11 default fg/bg, OSC 4 palette). Programs
+        // probe these at startup to theme themselves (nested ekko, phi,
+        // neovim's background detection); vt100 doesn't model colors, so the
+        // hub answers on the host terminal's behalf from the colors the
+        // attaching client probed. Replies are ST-terminated; probers accept
+        // BEL and ST alike.
+        match params {
+            [b"10", b"?"] => {
+                let (r, g, b) = self.host_foreground();
+                let reply = format!("\x1b]10;{}\x1b\\", osc_color_reply_body(r, g, b));
+                self.replies.extend_from_slice(reply.as_bytes());
+            }
+            [b"11", b"?"] => {
+                let (r, g, b) = self.host_background();
+                let reply = format!("\x1b]11;{}\x1b\\", osc_color_reply_body(r, g, b));
+                self.replies.extend_from_slice(reply.as_bytes());
+            }
+            [b"4", rest @ ..] => {
+                // OSC 4 batches pairs: `4;idx;?;idx;?;...`.
+                for pair in rest.chunks_exact(2) {
+                    let [idx_bytes, b"?"] = pair else { continue };
+                    let Some(idx) = std::str::from_utf8(idx_bytes)
+                        .ok()
+                        .and_then(|s| s.parse::<u8>().ok())
+                    else {
+                        continue;
+                    };
+                    let Some((r, g, b)) = self.host_palette_color(idx) else {
+                        continue;
+                    };
+                    let reply =
+                        format!("\x1b]4;{};{}\x1b\\", idx, osc_color_reply_body(r, g, b));
+                    self.replies.extend_from_slice(reply.as_bytes());
+                }
+            }
+            _ => {}
+        }
+    }
 }
+
+impl TermEvents {
+    fn host_foreground(&self) -> (u8, u8, u8) {
+        self.host_colors
+            .as_ref()
+            .map(|c| c.foreground)
+            .unwrap_or(FALLBACK_FOREGROUND)
+    }
+
+    fn host_background(&self) -> (u8, u8, u8) {
+        self.host_colors
+            .as_ref()
+            .map(|c| c.background)
+            .unwrap_or(FALLBACK_BACKGROUND)
+    }
+
+    /// Palette color for `idx`. Indices 0-15 come from the host's probed
+    /// palette (VGA fallback per-entry); higher indices aren't tracked and
+    /// yield `None` (no reply, matching a terminal without OSC 4 support).
+    fn host_palette_color(&self, idx: u8) -> Option<(u8, u8, u8)> {
+        if idx >= 16 {
+            return None;
+        }
+        let i = idx as usize;
+        Some(
+            self.host_colors
+                .as_ref()
+                .and_then(|c| c.palette[i])
+                .unwrap_or(FALLBACK_PALETTE[i]),
+        )
+    }
+}
+
+/// XParseColor-style reply body, 16-bit per channel like xterm reports.
+fn osc_color_reply_body(r: u8, g: u8, b: u8) -> String {
+    let expand = |c: u8| u16::from(c) * 0x0101;
+    format!("rgb:{:04x}/{:04x}/{:04x}", expand(r), expand(g), expand(b))
+}
+
+/// VGA defaults, mirroring `ekko_tui::default_terminal_colors`; used when the
+/// outermost client's own probe got no answer (SSH, CI).
+const FALLBACK_BACKGROUND: (u8, u8, u8) = (0x00, 0x00, 0x00);
+const FALLBACK_FOREGROUND: (u8, u8, u8) = (0xc0, 0xc0, 0xc0);
+const FALLBACK_PALETTE: [(u8, u8, u8); 16] = [
+    (0x00, 0x00, 0x00),
+    (0x80, 0x00, 0x00),
+    (0x00, 0x80, 0x00),
+    (0x80, 0x80, 0x00),
+    (0x00, 0x00, 0x80),
+    (0x80, 0x00, 0x80),
+    (0x00, 0x80, 0x80),
+    (0xc0, 0xc0, 0xc0),
+    (0x80, 0x80, 0x80),
+    (0xff, 0x00, 0x00),
+    (0x00, 0xff, 0x00),
+    (0xff, 0xff, 0x00),
+    (0x00, 0x00, 0xff),
+    (0xff, 0x00, 0xff),
+    (0x00, 0xff, 0xff),
+    (0xff, 0xff, 0xff),
+];
 
 /// Remove any embedded bracketed-paste end markers from a paste payload so
 /// the wrapped paste can't be broken out of.
@@ -966,6 +1092,57 @@ mod tests {
         parser.process(b"\x1b[?1004l\x1b[0 q");
         assert_eq!(parser.callbacks_mut().cursor_shape, 0);
         assert!(!parser.callbacks_mut().focus_reporting);
+    }
+
+    #[test]
+    fn term_events_answer_osc_color_queries_with_host_colors() {
+        let mut parser = vt100::Parser::new_with_callbacks(
+            24,
+            80,
+            0,
+            TermEvents {
+                host_colors: Some(ekko_proto::TerminalColors {
+                    background: (0x1e, 0x1e, 0x2e),
+                    foreground: (0xcd, 0xd6, 0xf4),
+                    palette: {
+                        let mut palette = [None; 16];
+                        palette[1] = Some((0xf3, 0x8b, 0xa8));
+                        palette
+                    },
+                }),
+                ..TermEvents::default()
+            },
+        );
+        parser.process(b"\x1b]10;?\x1b\\\x1b]11;?\x1b\\\x1b]4;1;?\x1b\\");
+        let replies = std::mem::take(&mut parser.callbacks_mut().replies);
+        let replies = String::from_utf8(replies).unwrap();
+        assert_eq!(
+            replies,
+            "\x1b]10;rgb:cdcd/d6d6/f4f4\x1b\\\x1b]11;rgb:1e1e/1e1e/2e2e\x1b\\\x1b]4;1;rgb:f3f3/8b8b/a8a8\x1b\\"
+        );
+    }
+
+    #[test]
+    fn term_events_answer_osc_color_queries_with_vga_fallback() {
+        // No host colors (outermost client's probe failed): the child still
+        // gets an answer so it never stalls on its own probe timeout.
+        let mut parser = vt100::Parser::new_with_callbacks(24, 80, 0, TermEvents::default());
+        parser.process(b"\x1b]11;?\x1b\\\x1b]4;9;?\x07");
+        let replies = std::mem::take(&mut parser.callbacks_mut().replies);
+        let replies = String::from_utf8(replies).unwrap();
+        assert_eq!(
+            replies,
+            "\x1b]11;rgb:0000/0000/0000\x1b\\\x1b]4;9;rgb:ffff/0000/0000\x1b\\"
+        );
+    }
+
+    #[test]
+    fn term_events_ignore_osc_color_sets_and_out_of_range_queries() {
+        let mut parser = vt100::Parser::new_with_callbacks(24, 80, 0, TermEvents::default());
+        // Setting a color (not a query) and querying an untracked index
+        // must produce no reply.
+        parser.process(b"\x1b]10;#ffffff\x1b\\\x1b]4;42;?\x1b\\");
+        assert!(parser.callbacks_mut().replies.is_empty());
     }
 
     #[test]

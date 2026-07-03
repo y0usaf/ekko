@@ -32,7 +32,11 @@ use interprocess::local_socket::{
 /// `ClientCommand` wrapper (its only live variant is now
 /// `ClientToServer::KillCurrentSession`); `Attach` lost `session_name` /
 /// `create_if_missing` (the daemon is per-session; creation is client-side).
-pub const WIRE_VERSION: u32 = 5;
+///
+/// v6: `Attach` gained `terminal_colors` — the client's OSC 10/11/4 probe
+/// result, so the server can answer the child's color queries (OSC 10/11/4
+/// with `?`) on the host terminal's behalf.
+pub const WIRE_VERSION: u32 = 6;
 
 fn wire_dir_name() -> String {
     format!("wire_v{WIRE_VERSION}")

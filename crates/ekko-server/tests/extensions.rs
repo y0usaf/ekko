@@ -152,6 +152,7 @@ impl TestClient {
             cwd,
             shell: Some(PathBuf::from("/bin/sh")),
             force: false,
+            terminal_colors: None,
         });
     }
 

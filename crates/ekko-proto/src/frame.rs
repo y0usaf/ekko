@@ -123,6 +123,15 @@ mod tests {
             cwd: "/home/user".into(),
             shell: Some("/bin/bash".into()),
             force: false,
+            terminal_colors: Some(TerminalColors {
+                background: (0x1e, 0x1e, 0x2e),
+                foreground: (0xcd, 0xd6, 0xf4),
+                palette: {
+                    let mut palette = [None; 16];
+                    palette[1] = Some((0xf3, 0x8b, 0xa8));
+                    palette
+                },
+            }),
         });
         roundtrip(ClientToServer::Detach);
         roundtrip(ClientToServer::Resize {
