@@ -264,10 +264,7 @@ impl AppRuntime {
         self.surfaces
             .values()
             .filter(|spec| {
-                !snapshot
-                    .hidden_surfaces
-                    .iter()
-                    .any(|name| *name == spec.name)
+                !snapshot.hidden_surfaces.contains(&spec.name)
                     && spec
                         .visible
                         .as_ref()
@@ -282,6 +279,16 @@ impl AppRuntime {
 
     pub fn overlay(&self, name: &str) -> Option<&OverlaySpec> {
         self.overlays.get(name)
+    }
+
+    /// The overlay attached to `mode` (via [`OverlaySpec::attach_mode`]),
+    /// if any. First match in name order wins; registering two overlays
+    /// attached to the same mode is a configuration error worth surfacing,
+    /// but the host degrades to the deterministic first.
+    pub fn overlay_attached_to(&self, mode: &str) -> Option<&OverlaySpec> {
+        self.overlays
+            .values()
+            .find(|o| o.attach_mode.as_deref() == Some(mode))
     }
 
     pub fn theme(&self, name: &str) -> Option<&ThemeSpec> {
@@ -640,6 +647,35 @@ mod tests {
             names(runtime.visible_surfaces(&hidden_snapshot)),
             vec!["toggled"]
         );
+    }
+
+    #[test]
+    fn overlay_attached_to_finds_the_mode_attached_overlay() {
+        fn overlay(name: &str, attach_mode: Option<&str>) -> crate::OverlaySpec {
+            crate::OverlaySpec {
+                name: name.into(),
+                description: String::new(),
+                init_state: Arc::new(|_| Box::new(()) as crate::OverlayState),
+                render: Arc::new(|_, _, _| {}),
+                handle_key: Arc::new(|_, _| crate::OverlayOutcome::None),
+                build_payload: None,
+                attach_mode: attach_mode.map(Into::into),
+            }
+        }
+        let runtime = RuntimeBuilder::new()
+            .register_extension(TestExt::new(|host| {
+                host.register_overlay(overlay("free", None))?;
+                host.register_overlay(overlay("panel", Some("leader")))
+            }))
+            .build()
+            .unwrap();
+        assert_eq!(
+            runtime
+                .overlay_attached_to("leader")
+                .map(|o| o.name.as_str()),
+            Some("panel")
+        );
+        assert!(runtime.overlay_attached_to("scroll").is_none());
     }
 
     #[test]

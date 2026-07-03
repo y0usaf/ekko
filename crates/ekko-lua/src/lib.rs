@@ -543,7 +543,12 @@ impl LuaExtension {
                         )
                     {
                         let mut actions = Vec::new();
-                        let vals: Vec<Value> = t.clone().sequence_values::<Value>().skip(1).collect::<mlua::Result<_>>().unwrap_or_default();
+                        let vals: Vec<Value> = t
+                            .clone()
+                            .sequence_values::<Value>()
+                            .skip(1)
+                            .collect::<mlua::Result<_>>()
+                            .unwrap_or_default();
                         for v in &vals {
                             if let Ok(mut a) = actions_from_value(v) {
                                 actions.append(&mut a);
@@ -596,6 +601,7 @@ impl LuaExtension {
             render: render_fn,
             handle_key: key_fn,
             build_payload: payload_fn,
+            attach_mode: spec.get::<Option<String>>("attach_mode")?,
         })
     }
 
