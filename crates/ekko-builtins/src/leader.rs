@@ -68,6 +68,17 @@ impl LeaderExtension {
                 vec![UiAction::ExitMode, UiAction::Detach],
             ),
             (
+                "leader.toggle_sidebar",
+                &["b"],
+                "toggle sidebar",
+                vec![
+                    UiAction::ExitMode,
+                    UiAction::ToggleSurface {
+                        name: "sidebar".into(),
+                    },
+                ],
+            ),
+            (
                 "leader.help",
                 &["?"],
                 "help",
@@ -108,14 +119,32 @@ impl Extension for LeaderExtension {
     fn register(&self, host: &mut dyn ExtensionHost) -> Result<()> {
         if let Some((chords, chord_text)) = resolve_chords(&self.leader) {
             host.register_keybinding(KeybindingSpec {
-                chords,
-                chord_text,
+                chords: chords.clone(),
+                chord_text: chord_text.clone(),
                 mode: None,
                 description: "leader".into(),
                 handler: Arc::new(|_| {
                     vec![UiAction::EnterMode {
                         name: LEADER_MODE.into(),
                     }]
+                }),
+            })?;
+            // The leader chord pressed again inside leader mode toggles the
+            // session sidebar: leader-leader opens/closes the session list.
+            // Registered as a mode-scoped binding so it beats the mode's
+            // own key handler (which swallows non-printables).
+            host.register_keybinding(KeybindingSpec {
+                chords,
+                chord_text,
+                mode: Some(LEADER_MODE.into()),
+                description: "toggle sidebar".into(),
+                handler: Arc::new(|_| {
+                    vec![
+                        UiAction::ExitMode,
+                        UiAction::ToggleSurface {
+                            name: "sidebar".into(),
+                        },
+                    ]
                 }),
             })?;
         }
@@ -270,6 +299,7 @@ mod tests {
             status_note: None,
             keybindings: vec![],
             now_ms: 0,
+            hidden_surfaces: Vec::new(),
             theme: ThemePalette::fallback(),
         }
     }
@@ -358,6 +388,42 @@ mod tests {
                 "bytes {bytes:?}"
             );
         }
+    }
+
+    #[test]
+    fn leader_chord_again_toggles_the_sidebar() {
+        let rt = runtime();
+        // ctrl+space arrives as NUL; inside leader mode it toggles the
+        // session sidebar (leader-leader = open/close the session list).
+        let spec = rt
+            .match_keybinding(&[0x00], Some(LEADER_MODE))
+            .expect("leader chord bound in leader mode");
+        assert_eq!(
+            (spec.handler)(&snapshot()),
+            vec![
+                UiAction::ExitMode,
+                UiAction::ToggleSurface {
+                    name: "sidebar".into()
+                }
+            ]
+        );
+    }
+
+    #[test]
+    fn toggle_sidebar_entry_is_leader_scoped() {
+        let rt = runtime();
+        let spec = rt
+            .match_keybinding(b"b", Some(LEADER_MODE))
+            .expect("b bound in leader");
+        assert_eq!(
+            (spec.handler)(&snapshot()),
+            vec![
+                UiAction::ExitMode,
+                UiAction::ToggleSurface {
+                    name: "sidebar".into()
+                }
+            ]
+        );
     }
 
     #[test]

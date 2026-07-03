@@ -67,6 +67,10 @@ pub struct ClientSnapshot {
     pub keybindings: Vec<crate::KeybindingInfo>,
     /// Wall-clock milliseconds for animation.
     pub now_ms: u64,
+    /// Surfaces the user has toggled off (`UiAction::ToggleSurface`);
+    /// [`crate::AppRuntime::visible_surfaces`] skips these regardless of the
+    /// surface's own `visible` predicate.
+    pub hidden_surfaces: Vec<String>,
     /// The resolved chrome palette.
     pub theme: ThemePalette,
 }

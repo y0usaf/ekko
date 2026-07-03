@@ -226,6 +226,7 @@ mod tests {
             status_note: None,
             keybindings: vec![],
             now_ms: 0,
+            hidden_surfaces: Vec::new(),
             theme: ThemePalette::fallback(),
         }
     }

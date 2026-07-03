@@ -31,6 +31,7 @@ fn snapshot() -> ClientSnapshot {
         status_note: None,
         keybindings: vec![],
         now_ms: 12_345,
+        hidden_surfaces: Vec::new(),
         theme: ThemePalette::fallback(),
     }
 }

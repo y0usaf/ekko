@@ -22,6 +22,11 @@ pub fn snapshot_table(lua: &Lua, snapshot: &ClientSnapshot) -> mlua::Result<Tabl
     t.set("grid_rows", snapshot.grid_rows)?;
     t.set("scrollback", snapshot.scrollback)?;
     t.set("now_ms", snapshot.now_ms)?;
+    let hidden = lua.create_table()?;
+    for (i, name) in snapshot.hidden_surfaces.iter().enumerate() {
+        hidden.set(i + 1, name.clone())?;
+    }
+    t.set("hidden_surfaces", hidden)?;
     if let Some(note) = &snapshot.status_note {
         let n = lua.create_table()?;
         n.set("text", note.text.clone())?;
@@ -293,6 +298,9 @@ fn action_from_value(value: &Value) -> Result<UiAction> {
             }
             if let Some(name) = t.get::<Option<String>>("open_overlay")? {
                 return Ok(UiAction::OpenOverlay { name });
+            }
+            if let Some(name) = t.get::<Option<String>>("toggle_surface")? {
+                return Ok(UiAction::ToggleSurface { name });
             }
             if let Some(line) = t.get::<Option<String>>("invoke_command")? {
                 return Ok(UiAction::InvokeCommand { line });

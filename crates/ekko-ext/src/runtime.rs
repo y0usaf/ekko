@@ -257,14 +257,21 @@ impl AppRuntime {
     }
 
     /// The surfaces that should claim layout regions this cycle: those with
-    /// no `visible` predicate, plus those whose predicate returns `true`.
+    /// no `visible` predicate, plus those whose predicate returns `true` —
+    /// minus any the user has toggled off (`snapshot.hidden_surfaces`, fed
+    /// by `UiAction::ToggleSurface`), which the toggle overrides.
     pub fn visible_surfaces(&self, snapshot: &crate::ClientSnapshot) -> Vec<&SurfaceSpec> {
         self.surfaces
             .values()
             .filter(|spec| {
-                spec.visible
-                    .as_ref()
-                    .is_none_or(|visible| visible(snapshot))
+                !snapshot
+                    .hidden_surfaces
+                    .iter()
+                    .any(|name| *name == spec.name)
+                    && spec
+                        .visible
+                        .as_ref()
+                        .is_none_or(|visible| visible(snapshot))
             })
             .collect()
     }
@@ -610,6 +617,7 @@ mod tests {
             status_note: None,
             keybindings: vec![],
             now_ms: 0,
+            hidden_surfaces: Vec::new(),
             theme: crate::ThemePalette::fallback(),
         };
         let names =
@@ -622,6 +630,16 @@ mod tests {
         );
         // The unfiltered listing is unaffected.
         assert_eq!(runtime.surfaces().len(), 2);
+        // A user toggle (`UiAction::ToggleSurface`) hides a surface even
+        // when its predicate says visible (or it has none).
+        let hidden_snapshot = crate::ClientSnapshot {
+            hidden_surfaces: vec!["always".into()],
+            ..snapshot
+        };
+        assert_eq!(
+            names(runtime.visible_surfaces(&hidden_snapshot)),
+            vec!["toggled"]
+        );
     }
 
     #[test]
