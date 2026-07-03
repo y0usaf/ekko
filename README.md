@@ -147,3 +147,11 @@ A keybinding registered with `mode = "leader"` becomes a leader-map entry:
 the host dispatches it while the leader mode is active, and the which-key
 panel lists it automatically. `examples/leader-map.lua` shows leaf entries
 (return `"exit_mode"` ahead of the action) and a sticky, repeatable one.
+
+An overlay registered with `attach_mode = "leader"` (or any mode name) is
+mode-attached: the host opens it when that mode is entered and closes it
+when the mode exits. While its mode is active the overlay is render-only —
+keys keep flowing to the mode, so e.g. a session-list popup can track
+sticky leader-map navigation live alongside the which-key panel. Opened
+explicitly (`open_overlay`) outside its mode, it behaves like any other
+overlay and owns the keys.
