@@ -34,11 +34,19 @@ pub struct LeaderExtension {
     /// The stock map: key strings, description, actions. Keys come from
     /// config (`[keybinds] "leader.help" = "h"`) with single-char defaults.
     map: Vec<(Vec<String>, String, Vec<UiAction>)>,
+    /// Whether the builtin sidebar is enabled ([`Config`] `[extensions]
+    /// disabled`): the sidebar-toggle entries are pointless without it.
+    sidebar_enabled: bool,
 }
 
 impl LeaderExtension {
     pub fn new(config: &Config) -> Self {
-        let stock: Vec<(&str, &[&str], &str, Vec<UiAction>)> = vec![
+        let sidebar_enabled = !config
+            .extensions
+            .disabled
+            .iter()
+            .any(|id| id == "ekko-builtins.sidebar");
+        let mut stock: Vec<(&str, &[&str], &str, Vec<UiAction>)> = vec![
             (
                 "leader.command_mode",
                 &["e"],
@@ -90,6 +98,9 @@ impl LeaderExtension {
                 ],
             ),
         ];
+        if !sidebar_enabled {
+            stock.retain(|(action, ..)| *action != "leader.toggle_sidebar");
+        }
         Self {
             leader: config.bindings_for("leader", &["ctrl+space"]),
             map: stock
@@ -102,6 +113,7 @@ impl LeaderExtension {
                     )
                 })
                 .collect(),
+            sidebar_enabled,
         }
     }
 }
@@ -131,20 +143,28 @@ impl Extension for LeaderExtension {
             })?;
             // The leader chord pressed again inside leader mode toggles the
             // session sidebar: leader-leader opens/closes the session list.
-            // Registered as a mode-scoped binding so it beats the mode's
-            // own key handler (which swallows non-printables).
+            // With the sidebar disabled it just closes the panel (and any
+            // mode-attached overlay with it). Registered as a mode-scoped
+            // binding so it beats the mode's own key handler (which
+            // swallows non-printables).
+            let sidebar_enabled = self.sidebar_enabled;
             host.register_keybinding(KeybindingSpec {
                 chords,
                 chord_text,
                 mode: Some(LEADER_MODE.into()),
-                description: "toggle sidebar".into(),
-                handler: Arc::new(|_| {
-                    vec![
-                        UiAction::ExitMode,
-                        UiAction::ToggleSurface {
+                description: if sidebar_enabled {
+                    "toggle sidebar".into()
+                } else {
+                    "close panel".into()
+                },
+                handler: Arc::new(move |_| {
+                    let mut actions = vec![UiAction::ExitMode];
+                    if sidebar_enabled {
+                        actions.push(UiAction::ToggleSurface {
                             name: "sidebar".into(),
-                        },
-                    ]
+                        });
+                    }
+                    actions
                 }),
             })?;
         }
@@ -282,6 +302,18 @@ mod tests {
     fn runtime() -> ekko_ext::AppRuntime {
         RuntimeBuilder::new()
             .register_extension(LeaderExtension::new(&Config::default()))
+            .build()
+            .unwrap()
+    }
+
+    fn runtime_without_sidebar() -> ekko_ext::AppRuntime {
+        let mut config = Config::default();
+        config
+            .extensions
+            .disabled
+            .push("ekko-builtins.sidebar".into());
+        RuntimeBuilder::new()
+            .register_extension(LeaderExtension::new(&config))
             .build()
             .unwrap()
     }
@@ -424,6 +456,20 @@ mod tests {
                 }
             ]
         );
+    }
+
+    #[test]
+    fn disabled_sidebar_drops_the_toggle_and_repeat_just_closes() {
+        let rt = runtime_without_sidebar();
+        // No 'b' entry: toggling a surface that is never registered would
+        // only produce an error note.
+        assert!(rt.match_keybinding(b"b", Some(LEADER_MODE)).is_none());
+        // The leader chord repeated inside leader mode plainly closes the
+        // panel (and any mode-attached overlay with it).
+        let spec = rt
+            .match_keybinding(&[0x00], Some(LEADER_MODE))
+            .expect("leader chord bound in leader mode");
+        assert_eq!((spec.handler)(&snapshot()), vec![UiAction::ExitMode]);
     }
 
     #[test]
