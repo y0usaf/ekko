@@ -62,4 +62,10 @@ pub struct OverlaySpec {
     /// [`RegistryView`] every time the overlay opens; the result is passed
     /// to `init_state`.
     pub build_payload: Option<OverlayPayloadFn>,
+    /// Mode-attached overlay: when set, the host opens this overlay on
+    /// entering the named mode and closes it when that mode exits. While
+    /// attached, the overlay is render-only — input keeps flowing to the
+    /// mode (its `handle_key` is never called), so mode chrome like the
+    /// which-key panel stays fully interactive alongside it.
+    pub attach_mode: Option<String>,
 }

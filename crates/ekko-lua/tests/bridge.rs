@@ -405,6 +405,36 @@ fn overlays_carry_lua_state_and_payloads() {
 }
 
 #[test]
+fn overlays_can_attach_to_a_mode() {
+    let runtime = runtime(
+        r#"
+        local ext = { id = "user.attached" }
+        function ext.register(ekko)
+          ekko.register_overlay({
+            name = "session-panel",
+            description = "session list, tied to the leader panel",
+            attach_mode = "leader",
+            init = function() return {} end,
+            render = function(ctx, state, snapshot) end,
+            handle_key = function(state, bytes) end,
+          })
+        end
+        return ext
+        "#,
+    );
+    let spec = runtime
+        .overlay("session-panel")
+        .expect("overlay registered");
+    assert_eq!(spec.attach_mode.as_deref(), Some("leader"));
+    assert_eq!(
+        runtime
+            .overlay_attached_to("leader")
+            .map(|o| o.name.as_str()),
+        Some("session-panel")
+    );
+}
+
+#[test]
 fn themes_register_with_hex_overrides() {
     let runtime = runtime(
         r##"

@@ -63,6 +63,7 @@ impl Extension for HelpOverlayExtension {
             build_payload: Some(Arc::new(|registries| {
                 Box::new(build_help_payload(registries)) as OverlayPayload
             })),
+            attach_mode: None,
         })
     }
 }

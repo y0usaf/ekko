@@ -563,8 +563,18 @@ impl App<'_> {
         token: &[u8],
         pty_bytes: &mut Vec<u8>,
     ) -> Result<Option<ClientOutcome>> {
-        // 1. An open overlay intercepts everything.
-        if self.state.overlay.is_some() {
+        // 1. An open overlay intercepts everything — except an overlay
+        // attached to the active mode (`OverlaySpec::attach_mode`), which is
+        // render-only while that mode runs: its lifecycle is host-managed
+        // and input keeps flowing to the mode. Opened outside its mode
+        // (explicit `OpenOverlay`), an attached overlay behaves like any
+        // other and owns the keys.
+        if let Some(name) = self.state.overlay.as_ref().map(|o| o.name.clone())
+            && self
+                .runtime
+                .overlay(&name)
+                .is_none_or(|spec| spec.attach_mode.as_deref() != Some(self.state.mode.as_str()))
+        {
             self.flush_pty(pty_bytes)?;
             let outcome = self.handle_overlay_input(token)?;
             self.state.dirty = true;
@@ -1038,6 +1048,19 @@ impl App<'_> {
         let init_state = spec.init_state.clone();
         let from = std::mem::replace(&mut self.state.mode, name.to_string());
         self.state.mode_state = Some(init_state());
+        // Mode-attached overlays follow the mode: the previous mode's
+        // attached overlay closes with it (a mode-to-mode transition skips
+        // exit_mode), and the new mode's attached overlay opens — without
+        // stomping an overlay that is already open for another reason.
+        self.close_attached_overlay(&from);
+        if self.state.overlay.is_none()
+            && let Some(attached) = self
+                .runtime
+                .overlay_attached_to(name)
+                .map(|o| o.name.clone())
+        {
+            self.open_overlay(&attached);
+        }
         self.runtime.dispatch(
             EventKind::ModeChanged,
             EventPayload::ModeChanged {
@@ -1056,6 +1079,7 @@ impl App<'_> {
             ClientSnapshot::NORMAL_MODE.to_string(),
         );
         self.state.mode_state = None;
+        self.close_attached_overlay(&from);
         self.runtime.dispatch(
             EventKind::ModeChanged,
             EventPayload::ModeChanged {
@@ -1063,6 +1087,20 @@ impl App<'_> {
                 to: ClientSnapshot::NORMAL_MODE.to_string(),
             },
         );
+    }
+
+    /// Close the open overlay if it is attached to `mode` (see
+    /// [`ekko_ext::OverlaySpec::attach_mode`]).
+    fn close_attached_overlay(&mut self, mode: &str) {
+        if let Some(open) = self.state.overlay.as_ref().map(|o| o.name.clone())
+            && self
+                .runtime
+                .overlay(&open)
+                .is_some_and(|spec| spec.attach_mode.as_deref() == Some(mode))
+        {
+            self.state.overlay = None;
+            self.state.dirty = true;
+        }
     }
 
     fn open_overlay(&mut self, name: &str) {
