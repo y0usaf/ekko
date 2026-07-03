@@ -18,6 +18,7 @@ use crate::snapshot::ClientSnapshot;
 /// - `"up" | "down" | "left" | "right"` — both the CSI (`ESC [ A`) and
 ///   application-cursor SS3 (`ESC O A`) forms
 /// - `"alt+<arrow>"` — the modified CSI form (`ESC [ 1 ; 3 A`)
+/// - `"delete"` — the Delete key (`ESC [ 3 ~`)
 /// - `"<char>"` — a bare printable, case-sensitive (`g` ≠ `G`), plus the
 ///   `"space"` name. Meant for mode-scoped bindings (a leader map's keys);
 ///   a bare key bound in normal mode shadows typing that character.
@@ -52,6 +53,10 @@ pub fn parse_key_chords(text: &str) -> Option<Vec<Vec<u8>>> {
 
     if let Some(arrow) = arrow_final_byte(&text) {
         return Some(vec![vec![0x1b, b'[', arrow], vec![0x1b, b'O', arrow]]);
+    }
+
+    if let Some(seq) = csi_tilde_key(&text) {
+        return Some(vec![seq]);
     }
 
     if let Some(rest) = text.strip_prefix("ctrl+") {
@@ -106,6 +111,16 @@ fn arrow_final_byte(name: &str) -> Option<u8> {
         "down" => Some(b'B'),
         "right" => Some(b'C'),
         "left" => Some(b'D'),
+        _ => None,
+    }
+}
+
+/// Named keys that arrive as `ESC [ <param> ~` sequences (the CSI-tilde
+/// family). Currently only `delete` (`ESC [ 3 ~`); extend the match as
+/// more are needed.
+fn csi_tilde_key(name: &str) -> Option<Vec<u8>> {
+    match name {
+        "delete" => Some(vec![0x1b, b'[', b'3', b'~']),
         _ => None,
     }
 }
@@ -193,6 +208,11 @@ mod tests {
     fn parses_space_forms() {
         assert_eq!(parse_key_binding("space"), Some(vec![0x20]));
         assert_eq!(parse_key_binding("ctrl+space"), Some(vec![0x00]));
+    }
+
+    #[test]
+    fn parses_named_delete_key() {
+        assert_eq!(parse_key_binding("delete"), Some(b"[3~".to_vec()));
     }
 
     #[test]
