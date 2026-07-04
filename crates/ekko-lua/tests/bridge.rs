@@ -712,6 +712,139 @@ fn spawn_override_returns_marshal_shell_cwd_and_env() {
 }
 
 #[test]
+fn budget_blowout_on_before_pty_spawn_degrades_to_no_override() {
+    // A runaway `BeforePtySpawn` gate hits the instruction budget (pure Lua
+    // looping, so the hook aborts it long before the dispatch timeout). The
+    // dispatcher logs and skips it — the spawn proceeds without an override
+    // rather than failing. The well-behaved gate registered *after* it in
+    // the same script pins that the budget abort released the script's Lua
+    // state cleanly.
+    let runtime = runtime(
+        r#"
+        local ext = { id = "user.blowout" }
+        function ext.register(ekko)
+          ekko.subscribe("before_pty_spawn", function(payload)
+            while true do end
+          end)
+          ekko.subscribe("before_pty_spawn", function(payload)
+            return { spawn_override = { cwd = "/srv" } }
+          end)
+        end
+        return ext
+        "#,
+    );
+    let returns = runtime.dispatch(
+        EventKind::BeforePtySpawn,
+        EventPayload::PtySpawn {
+            session_name: "main".into(),
+            shell: "/bin/sh".into(),
+            cwd: "/home".into(),
+            cols: 80,
+            rows: 24,
+        },
+    );
+    let [EventReturn::PtySpawnOverride { shell, cwd, env }] = returns.as_slice() else {
+        panic!("expected only the well-behaved override, got {returns:?}");
+    };
+    assert_eq!(shell, &None);
+    assert_eq!(cwd.as_deref(), Some(Path::new("/srv")));
+    assert!(env.is_empty());
+}
+
+#[test]
+fn abandoned_lua_lock_is_skipped_by_timeout_and_spares_other_scripts() {
+    // The one hole the instruction budget cannot cover: a single C call
+    // (here: pathological pattern backtracking) never yields to the hook,
+    // so it outlives the dispatch timeout and the detached thread keeps the
+    // script's Lua lock. Subsequent callbacks into the same script must
+    // fail cleanly — blocked on the lock, timed out, logged, skipped — and
+    // other scripts (separate Lua states, separate locks) must be
+    // completely unaffected. This is the daemon's containment story for a
+    // wedged server script degrading exactly one extension, never the hub.
+    use std::sync::Arc;
+    use std::time::{Duration, Instant};
+
+    let sentinel = std::env::temp_dir().join(format!("ekko-lua-stall-{}", std::process::id()));
+    let _ = std::fs::remove_file(&sentinel);
+    let stuck = r#"
+        local ext = { id = "user.stuck" }
+        function ext.register(ekko)
+          ekko.register_command({
+            name = "stall",
+            handler = function(args)
+              local f = assert(io.open("SENTINEL", "w"))
+              f:write("locked")
+              f:close()
+              -- One C call the instruction hook cannot interrupt; holds
+              -- this script's lock far past every dispatch timeout.
+              string.find(string.rep("a", 300), "a-a-a-a-ab")
+            end,
+          })
+          ekko.subscribe("bell", function(payload)
+            return { notice = { message = "stuck answered" } }
+          end)
+        end
+        return ext
+        "#
+    .replace("SENTINEL", &sentinel.display().to_string());
+    let healthy = r#"
+        local ext = { id = "user.healthy" }
+        function ext.register(ekko)
+          ekko.subscribe("bell", function(payload)
+            return { notice = { message = "healthy answered" } }
+          end)
+        end
+        return ext
+        "#;
+    let runtime = Arc::new(
+        RuntimeBuilder::new()
+            .register_boxed_extension(Box::new(
+                LuaExtension::from_source("stuck.lua", &stuck).expect("script loads"),
+            ))
+            .register_boxed_extension(Box::new(
+                LuaExtension::from_source("healthy.lua", healthy).expect("script loads"),
+            ))
+            .build()
+            .expect("runtime builds"),
+    );
+
+    // Wedge user.stuck on its own thread; the sentinel file is written
+    // under the lock, so once it exists the lock is held.
+    {
+        let runtime = runtime.clone();
+        std::thread::spawn(move || {
+            let _ = runtime.invoke_command(":stall");
+        });
+    }
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while !sentinel.exists() {
+        assert!(Instant::now() < deadline, "stall handler never started");
+        std::thread::sleep(Duration::from_millis(10));
+    }
+
+    let start = Instant::now();
+    let returns = runtime.dispatch_labeled(
+        EventKind::Bell,
+        EventPayload::Bell {
+            session_name: "main".into(),
+        },
+    );
+    // user.stuck's bell handler blocked on the abandoned lock and was timed
+    // out; user.healthy answered normally; the dispatcher never wedged.
+    assert_eq!(returns.len(), 1, "got {returns:?}");
+    assert_eq!(returns[0].0, "user.healthy:bell");
+    assert!(matches!(
+        &returns[0].1,
+        EventReturn::EmitNotice { message, .. } if message == "healthy answered"
+    ));
+    assert!(
+        start.elapsed() < Duration::from_secs(5),
+        "dispatch must time the blocked handler out, not wait for the lock"
+    );
+    let _ = std::fs::remove_file(&sentinel);
+}
+
+#[test]
 fn overlays_carry_lua_state_and_payloads() {
     let runtime = runtime(
         r#"
