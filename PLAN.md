@@ -36,16 +36,21 @@ and `nix flake check` green after each (doctrine 7).
 - [x] A1 `ekko.register_mode` — landed (dialect parser + cursor return in
       `convert.rs`; `examples/scroll-mode.lua` + builtin-parity bridge test
       cover the A-acceptance mode items).
-- [ ] A2 `ekko.register_spinner` ← **next**
-- [ ] A3 `ekko.register_session_grouper`
-- [ ] A4 `ctx.render_scrollbar` draw op
+- [x] A2 `ekko.register_spinner` — landed (pure-data walk; empty frames is
+      a registration error, interval defaults to 80ms).
+- [x] A3 `ekko.register_session_grouper` — landed (name-rehydration +
+      trailing "ungrouped" group; error → `ekko_ext::fallback_group`, which
+      was promoted from a private ekko-client fn so bridge and client share
+      the no-grouper shape). All 10 `ExtensionHost` registries now bridged.
+- [ ] A4 `ctx.render_scrollbar` draw op ← **next**
 - [ ] A5 surface `Scaled` size + `hide_below`
 - [ ] WS-B, WS-C, WS-D not started.
 
 Tree note: `crates/ekko-lua/tests/which_key_real.rs` (pinned to a local
 `~/.config/ekko` path), `examples/window-frame.lua`, and `.claude/` are
 deliberately-untracked local scratch — not part of this plan's work; a
-dirty-looking `git status` showing only these is fine.
+dirty-looking `git status` showing only these is fine. (`result` is now
+gitignored; `nix build` no longer dirties the tree.)
 
 ---
 
