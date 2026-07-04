@@ -685,6 +685,50 @@ fn themes_register_with_hex_overrides() {
 }
 
 #[test]
+fn spinners_register_as_pure_data() {
+    let runtime = runtime(
+        r#"
+        local ext = { id = "user.spin" }
+        function ext.register(ekko)
+          ekko.register_spinner({ name = "dots", frames = { "a", "b", "c" }, interval_ms = 100 })
+          ekko.register_spinner({ name = "blink", frames = { "*" } })
+        end
+        return ext
+        "#,
+    );
+    let spinner = runtime.spinner("dots").expect("spinner registered");
+    assert_eq!(*spinner.frames, vec!["a", "b", "c"]);
+    assert_eq!(spinner.interval_ms, 100);
+    assert_eq!(spinner.frame_at(0), "a");
+    assert_eq!(spinner.frame_at(150), "b");
+    assert_eq!(spinner.frame_at(300), "a");
+    // interval_ms defaults when omitted.
+    assert_eq!(
+        runtime.spinner("blink").expect("registered").interval_ms,
+        80
+    );
+
+    // A frameless spinner is a registration error, not a blank animation.
+    let empty = LuaExtension::from_source(
+        "empty.lua",
+        r#"
+        local ext = { id = "user.empty" }
+        function ext.register(ekko)
+          ekko.register_spinner({ name = "void", frames = {} })
+        end
+        return ext
+        "#,
+    )
+    .expect("script loads");
+    assert!(
+        RuntimeBuilder::new()
+            .register_boxed_extension(Box::new(empty))
+            .build()
+            .is_err()
+    );
+}
+
+#[test]
 fn broken_scripts_fail_to_load_but_duplicates_fail_the_build() {
     assert!(LuaExtension::from_source("bad.lua", "this is not lua").is_err());
     assert!(

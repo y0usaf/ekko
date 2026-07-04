@@ -35,8 +35,8 @@
 //!
 //! Registration surface: commands, keybindings, surfaces (with
 //! `visible`/`wants_tick`/`on_mouse`), overlays (with `build_payload`),
-//! modes, themes, the session namer, and event subscriptions. Spinners
-//! and the session grouper are not yet bridged.
+//! modes, themes, spinners, the session namer, and event subscriptions.
+//! The session grouper is not yet bridged.
 
 mod convert;
 mod draw;
@@ -48,7 +48,8 @@ use anyhow::{Context, Result, anyhow};
 use ekko_ext::{
     CommandOutput, CommandSpec, EventHandlerRegistration, Extension, ExtensionHost,
     ExtensionManifest, KeybindingSpec, ModeOutcome, ModeSpec, ModeState, OverlayOutcome,
-    OverlaySpec, OverlayState, SessionNamerSpec, SurfaceSpec, ThemeSpec, parse_key_chords,
+    OverlaySpec, OverlayState, SessionNamerSpec, SpinnerSpec, SurfaceSpec, ThemeSpec,
+    parse_key_chords,
 };
 use mlua::{Function, Lua, RegistryKey, Table, Value};
 
@@ -186,7 +187,8 @@ impl Extension for LuaExtension {
                     r#"
                     local regs = {
                       commands = {}, keybindings = {}, surfaces = {},
-                      overlays = {}, modes = {}, themes = {}, namers = {}, subscriptions = {},
+                      overlays = {}, modes = {}, themes = {}, spinners = {},
+                      namers = {}, subscriptions = {},
                     }
                     regs.ekko = {
                       register_command = function(spec) table.insert(regs.commands, spec) end,
@@ -195,6 +197,7 @@ impl Extension for LuaExtension {
                       register_overlay = function(spec) table.insert(regs.overlays, spec) end,
                       register_mode = function(spec) table.insert(regs.modes, spec) end,
                       register_theme = function(spec) table.insert(regs.themes, spec) end,
+                      register_spinner = function(spec) table.insert(regs.spinners, spec) end,
                       register_session_namer = function(spec) table.insert(regs.namers, spec) end,
                       subscribe = function(event, handler)
                         table.insert(regs.subscriptions, { event = event, handler = handler })
@@ -228,6 +231,9 @@ impl Extension for LuaExtension {
         }
         for spec in collector.get::<Table>("themes")?.sequence_values() {
             self.register_theme(host, spec?)?;
+        }
+        for spec in collector.get::<Table>("spinners")?.sequence_values() {
+            self.register_spinner(host, spec?)?;
         }
         for spec in collector.get::<Table>("namers")?.sequence_values() {
             self.register_session_namer(host, &lua, spec?)?;
@@ -730,6 +736,25 @@ impl LuaExtension {
                 .get::<Option<String>>("description")?
                 .unwrap_or_default(),
             palette,
+        })
+    }
+
+    fn register_spinner(&self, host: &mut dyn ExtensionHost, spec: Table) -> Result<()> {
+        let name: String = spec
+            .get::<Option<String>>("name")?
+            .ok_or_else(|| anyhow!("spinner spec needs a 'name'"))?;
+        let frames: Vec<String> = spec
+            .get::<Option<Table>>("frames")?
+            .ok_or_else(|| anyhow!("spinner '{name}' needs a 'frames' array"))?
+            .sequence_values::<String>()
+            .collect::<mlua::Result<_>>()?;
+        if frames.is_empty() {
+            return Err(anyhow!("spinner '{name}' needs at least one frame"));
+        }
+        host.register_spinner(SpinnerSpec {
+            name,
+            frames: Arc::new(frames),
+            interval_ms: spec.get::<Option<u64>>("interval_ms")?.unwrap_or(80),
         })
     }
 
