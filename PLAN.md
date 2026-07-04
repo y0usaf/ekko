@@ -42,8 +42,12 @@ and `nix flake check` green after each (doctrine 7).
       trailing "ungrouped" group; error → `ekko_ext::fallback_group`, which
       was promoted from a private ekko-client fn so bridge and client share
       the no-grouper shape). All 10 `ExtensionHost` registries now bridged.
-- [ ] A4 `ctx.render_scrollbar` draw op ← **next**
-- [ ] A5 surface `Scaled` size + `hide_below`
+- [x] A4 `ctx.render_scrollbar` draw op — landed (table-form call, one
+      spec table per plan; `track`/`thumb` glyphs optional, defaulting to
+      `"│"`/`"█"` — note the sidebar builtin's thumb is `"┃"` U+2503, so a
+      pixel-faithful sidebar clone passes `thumb = "┃"` explicitly).
+      `DrawContext` is now fully bridged.
+- [ ] A5 surface `Scaled` size + `hide_below` ← **next**
 - [ ] WS-B, WS-C, WS-D not started.
 
 Tree note: `crates/ekko-lua/tests/which_key_real.rs` (pinned to a local

@@ -13,7 +13,7 @@
 
 use std::sync::{Arc, Mutex};
 
-use ekko_ext::{Color, DrawContext, Rect, TextStyle, ThemePalette};
+use ekko_ext::{Color, DrawContext, Rect, ScrollbarModel, ScrollbarStyle, TextStyle, ThemePalette};
 use mlua::{Lua, Table};
 
 use crate::convert::resolve_color;
@@ -47,6 +47,19 @@ pub enum DrawOp {
         fill_fg: Color,
         bg: Color,
         border: Color,
+    },
+    Scrollbar {
+        col: i32,
+        row: i32,
+        rows: i32,
+        visible_items: usize,
+        total_items: usize,
+        scroll_from_top: usize,
+        fg: Color,
+        bg: Color,
+        track_glyph: String,
+        thumb_fg: Color,
+        thumb_glyph: String,
     },
 }
 
@@ -89,13 +102,42 @@ pub fn replay(ops: &[DrawOp], ctx: &mut dyn DrawContext) {
                 bg,
                 border,
             } => ctx.draw_box(*rect, *fill_fg, *bg, *border),
+            DrawOp::Scrollbar {
+                col,
+                row,
+                rows,
+                visible_items,
+                total_items,
+                scroll_from_top,
+                fg,
+                bg,
+                track_glyph,
+                thumb_fg,
+                thumb_glyph,
+            } => ctx.render_scrollbar(
+                *col,
+                *row,
+                *rows,
+                ScrollbarModel {
+                    visible_items: *visible_items,
+                    total_items: *total_items,
+                    scroll_from_top: *scroll_from_top,
+                },
+                ScrollbarStyle {
+                    fg: *fg,
+                    bg: *bg,
+                    track_glyph,
+                    thumb_fg: *thumb_fg,
+                    thumb_glyph,
+                },
+            ),
         }
     }
 }
 
 /// Build the `ctx` table handed to a Lua draw callback: `size()`,
 /// `fill_rect`, `set_cell`, `put_text`, `put_text_bold`, `put_text_styled`,
-/// and `draw_box`, all appending to `ops`.
+/// `draw_box`, and `render_scrollbar`, all appending to `ops`.
 pub fn ops_context_table(
     lua: &Lua,
     ops: Arc<Mutex<Vec<DrawOp>>>,
@@ -212,7 +254,7 @@ pub fn ops_context_table(
         )?,
     )?;
 
-    let buf = ops;
+    let buf = ops.clone();
     ctx.set(
         "draw_box",
         lua.create_function(
@@ -235,6 +277,34 @@ pub fn ops_context_table(
                 Ok(())
             },
         )?,
+    )?;
+
+    // Table-form call: geometry + model are required, glyphs are optional.
+    // `ctx.render_scrollbar({ col =, row =, rows =, visible =, total =,
+    //   from_top =, fg =, bg =, thumb_fg =, track = "│", thumb = "█" })`
+    let buf = ops;
+    ctx.set(
+        "render_scrollbar",
+        lua.create_function(move |_, spec: Table| {
+            buf.lock().unwrap().push(DrawOp::Scrollbar {
+                col: spec.get("col")?,
+                row: spec.get("row")?,
+                rows: spec.get("rows")?,
+                visible_items: spec.get("visible")?,
+                total_items: spec.get("total")?,
+                scroll_from_top: spec.get("from_top")?,
+                fg: color(&spec.get::<String>("fg")?, &palette)?,
+                bg: color(&spec.get::<String>("bg")?, &palette)?,
+                track_glyph: spec
+                    .get::<Option<String>>("track")?
+                    .unwrap_or_else(|| "│".into()),
+                thumb_fg: color(&spec.get::<String>("thumb_fg")?, &palette)?,
+                thumb_glyph: spec
+                    .get::<Option<String>>("thumb")?
+                    .unwrap_or_else(|| "█".into()),
+            });
+            Ok(())
+        })?,
     )?;
 
     Ok(ctx)

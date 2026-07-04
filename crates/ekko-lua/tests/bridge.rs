@@ -88,12 +88,20 @@ impl DrawContext for Recorder {
     }
     fn render_scrollbar(
         &mut self,
-        _col: i32,
-        _row: i32,
-        _rows: i32,
-        _model: ekko_ext::ScrollbarModel,
-        _style: ekko_ext::ScrollbarStyle<'_>,
+        col: i32,
+        row: i32,
+        rows: i32,
+        model: ekko_ext::ScrollbarModel,
+        style: ekko_ext::ScrollbarStyle<'_>,
     ) {
+        self.calls.push(format!(
+            "scrollbar {col} {row} {rows} {}/{}@{} {}{}",
+            model.visible_items,
+            model.total_items,
+            model.scroll_from_top,
+            style.track_glyph,
+            style.thumb_glyph,
+        ));
     }
 }
 
@@ -221,6 +229,46 @@ fn surface_draw_ops_are_buffered_and_replayed() {
             "styled 30 0 B r=false b=true",
             "cell 0 0 |",
             "box 10 1",
+        ]
+    );
+}
+
+#[test]
+fn scrollbar_op_marshals_model_style_and_glyph_defaults() {
+    let runtime = runtime(
+        r##"
+        local ext = { id = "user.sb" }
+        function ext.register(ekko)
+          ekko.register_surface({
+            name = "lua-list",
+            dock = "left",
+            size = 20,
+            draw = function(ctx, snapshot)
+              ctx.render_scrollbar({
+                col = 19, row = 0, rows = 10,
+                visible = 10, total = 40, from_top = 5,
+                fg = "border", bg = "surface", thumb_fg = "accent",
+              })
+              ctx.render_scrollbar({
+                col = 19, row = 0, rows = 10,
+                visible = 10, total = 40, from_top = 5,
+                fg = "border", bg = "surface", thumb_fg = "accent",
+                track = ".", thumb = "#",
+              })
+            end,
+          })
+        end
+        return ext
+        "##,
+    );
+    let spec = runtime.surface("lua-list").expect("surface registered");
+    let mut recorder = Recorder::default();
+    (spec.draw)(&mut recorder, &snapshot());
+    assert_eq!(
+        recorder.calls,
+        vec![
+            "scrollbar 19 0 10 10/40@5 │█",
+            "scrollbar 19 0 10 10/40@5 .#"
         ]
     );
 }
