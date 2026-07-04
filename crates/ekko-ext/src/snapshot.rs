@@ -82,6 +82,20 @@ impl ClientSnapshot {
 /// Policy hook grouping the flat session list into named project groups.
 pub type SessionGroupFn = Arc<dyn Fn(Vec<SessionEntry>) -> Vec<ProjectGroup> + Send + Sync>;
 
+/// The grouping used when no session grouper is registered (and the safe
+/// fallback when a registered grouper fails): one flat, name-sorted
+/// "sessions" group.
+pub fn fallback_group(mut sessions: Vec<SessionEntry>) -> Vec<ProjectGroup> {
+    if sessions.is_empty() {
+        return Vec::new();
+    }
+    sessions.sort_by(|a, b| a.name.cmp(&b.name));
+    vec![ProjectGroup {
+        name: "sessions".to_string(),
+        sessions,
+    }]
+}
+
 pub struct SessionGrouperSpec {
     pub name: String,
     pub group: SessionGroupFn,

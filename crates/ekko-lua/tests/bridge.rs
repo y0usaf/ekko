@@ -5,7 +5,8 @@
 
 use ekko_ext::{
     AppRuntime, ClientSnapshot, Color, CommandDispatch, DrawContext, EventKind, EventPayload,
-    EventReturn, KeyIntercept, NoteKind, Rect, RuntimeBuilder, ThemePalette, UiAction,
+    EventReturn, KeyIntercept, NoteKind, Rect, RuntimeBuilder, SessionEntry, SessionState,
+    ThemePalette, UiAction,
 };
 use ekko_lua::LuaExtension;
 
@@ -725,6 +726,96 @@ fn spinners_register_as_pure_data() {
             .register_boxed_extension(Box::new(empty))
             .build()
             .is_err()
+    );
+}
+
+fn session_entries() -> Vec<SessionEntry> {
+    let entry = |name: &str, cwd: &str| SessionEntry {
+        name: name.into(),
+        cwd: cwd.into(),
+        state: SessionState::Alive,
+        created_at_secs: 7,
+    };
+    vec![
+        entry("api", "/work/api"),
+        entry("web", "/work/web"),
+        entry("scratch", "/tmp"),
+    ]
+}
+
+#[test]
+fn session_grouper_rehydrates_by_name_and_keeps_unclaimed_sessions() {
+    let runtime = runtime(
+        r#"
+        local ext = { id = "user.grouper" }
+        function ext.register(ekko)
+          ekko.register_session_grouper({
+            name = "by-root",
+            group = function(sessions)
+              local work = {}
+              for _, s in ipairs(sessions) do
+                if s.cwd:sub(1, 6) == "/work/" and s.state == "alive" then
+                  table.insert(work, s.name)
+                end
+              end
+              return {
+                { name = "work", sessions = work },
+                -- Fabricated names and repeat claims are dropped, so this
+                -- group rehydrates empty and disappears.
+                { name = "ghost", sessions = { "no-such-session", "api" } },
+              }
+            end,
+          })
+        end
+        return ext
+        "#,
+    );
+    let spec = runtime.session_grouper().expect("grouper registered");
+    assert_eq!(spec.name, "by-root");
+    let groups = (spec.group)(session_entries());
+    assert_eq!(groups.len(), 2);
+    assert_eq!(groups[0].name, "work");
+    assert_eq!(
+        groups[0]
+            .sessions
+            .iter()
+            .map(|s| s.name.as_str())
+            .collect::<Vec<_>>(),
+        vec!["api", "web"]
+    );
+    // "scratch" was never claimed: it must not vanish from the sidebar.
+    assert_eq!(groups[1].name, "ungrouped");
+    assert_eq!(groups[1].sessions[0].name, "scratch");
+    assert_eq!(groups[1].sessions[0].created_at_secs, 7);
+}
+
+#[test]
+fn broken_session_groupers_degrade_to_the_flat_fallback() {
+    let runtime = runtime(
+        r#"
+        local ext = { id = "user.badgroup" }
+        function ext.register(ekko)
+          ekko.register_session_grouper({
+            name = "broken",
+            group = function(sessions) error("boom") end,
+          })
+        end
+        return ext
+        "#,
+    );
+    let spec = runtime.session_grouper().expect("grouper registered");
+    let groups = (spec.group)(session_entries());
+    // Exactly the no-grouper shape: one flat, name-sorted "sessions" group.
+    assert_eq!(groups, ekko_ext::fallback_group(session_entries()));
+    assert_eq!(groups.len(), 1);
+    assert_eq!(groups[0].name, "sessions");
+    assert_eq!(
+        groups[0]
+            .sessions
+            .iter()
+            .map(|s| s.name.as_str())
+            .collect::<Vec<_>>(),
+        vec!["api", "scratch", "web"]
     );
 }
 

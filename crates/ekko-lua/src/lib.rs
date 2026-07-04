@@ -35,8 +35,8 @@
 //!
 //! Registration surface: commands, keybindings, surfaces (with
 //! `visible`/`wants_tick`/`on_mouse`), overlays (with `build_payload`),
-//! modes, themes, spinners, the session namer, and event subscriptions.
-//! The session grouper is not yet bridged.
+//! modes, themes, spinners, the session grouper, the session namer, and
+//! event subscriptions — every `ExtensionHost` registry.
 
 mod convert;
 mod draw;
@@ -48,15 +48,15 @@ use anyhow::{Context, Result, anyhow};
 use ekko_ext::{
     CommandOutput, CommandSpec, EventHandlerRegistration, Extension, ExtensionHost,
     ExtensionManifest, KeybindingSpec, ModeOutcome, ModeSpec, ModeState, OverlayOutcome,
-    OverlaySpec, OverlayState, SessionNamerSpec, SpinnerSpec, SurfaceSpec, ThemeSpec,
-    parse_key_chords,
+    OverlaySpec, OverlayState, SessionGrouperSpec, SessionNamerSpec, SpinnerSpec, SurfaceSpec,
+    ThemeSpec, parse_key_chords,
 };
 use mlua::{Function, Lua, RegistryKey, Table, Value};
 
 use convert::{
     actions_from_value, cursor_from_value, event_kind_from_name, event_return_from_value,
-    mode_outcome_from_value, mouse_event_table, palette_from_table, payload_table,
-    registry_view_table, snapshot_table,
+    group_claims_from_value, mode_outcome_from_value, mouse_event_table, palette_from_table,
+    payload_table, registry_view_table, rehydrate_groups, session_entries_table, snapshot_table,
 };
 use draw::{DrawOp, ops_context_table, replay};
 
@@ -188,7 +188,7 @@ impl Extension for LuaExtension {
                     local regs = {
                       commands = {}, keybindings = {}, surfaces = {},
                       overlays = {}, modes = {}, themes = {}, spinners = {},
-                      namers = {}, subscriptions = {},
+                      groupers = {}, namers = {}, subscriptions = {},
                     }
                     regs.ekko = {
                       register_command = function(spec) table.insert(regs.commands, spec) end,
@@ -198,6 +198,7 @@ impl Extension for LuaExtension {
                       register_mode = function(spec) table.insert(regs.modes, spec) end,
                       register_theme = function(spec) table.insert(regs.themes, spec) end,
                       register_spinner = function(spec) table.insert(regs.spinners, spec) end,
+                      register_session_grouper = function(spec) table.insert(regs.groupers, spec) end,
                       register_session_namer = function(spec) table.insert(regs.namers, spec) end,
                       subscribe = function(event, handler)
                         table.insert(regs.subscriptions, { event = event, handler = handler })
@@ -234,6 +235,9 @@ impl Extension for LuaExtension {
         }
         for spec in collector.get::<Table>("spinners")?.sequence_values() {
             self.register_spinner(host, spec?)?;
+        }
+        for spec in collector.get::<Table>("groupers")?.sequence_values() {
+            self.register_session_grouper(host, &lua, spec?)?;
         }
         for spec in collector.get::<Table>("namers")?.sequence_values() {
             self.register_session_namer(host, &lua, spec?)?;
@@ -755,6 +759,43 @@ impl LuaExtension {
             name,
             frames: Arc::new(frames),
             interval_ms: spec.get::<Option<u64>>("interval_ms")?.unwrap_or(80),
+        })
+    }
+
+    fn register_session_grouper(
+        &self,
+        host: &mut dyn ExtensionHost,
+        lua: &Lua,
+        spec: Table,
+    ) -> Result<()> {
+        let name: String = spec
+            .get::<Option<String>>("name")?
+            .ok_or_else(|| anyhow!("session grouper spec needs a 'name'"))?;
+        let group = self.stash(
+            lua,
+            spec.get::<Option<Function>>("group")?
+                .ok_or_else(|| anyhow!("session grouper '{name}' needs a 'group' function"))?,
+        )?;
+        let shared = self.lua.clone();
+        host.register_session_grouper(SessionGrouperSpec {
+            name,
+            group: Arc::new(move |sessions| {
+                let lua = shared.lock().unwrap();
+                let claims = with_budget(&lua, HANDLER_BUDGET, |lua| {
+                    let f: Function = lua.registry_value(&group)?;
+                    f.call::<Value>(session_entries_table(lua, &sessions)?)
+                })
+                .and_then(|value| group_claims_from_value(&value));
+                match claims {
+                    Ok(claims) => rehydrate_groups(claims, sessions),
+                    Err(err) => {
+                        // Same shape the host uses with no grouper at all:
+                        // a broken script degrades to the flat group.
+                        log::warn!("lua session grouper errored: {err:#}");
+                        ekko_ext::fallback_group(sessions)
+                    }
+                }
+            }),
         })
     }
 
