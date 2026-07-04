@@ -6,7 +6,7 @@
 use ekko_ext::{
     AppRuntime, ClientSnapshot, Color, CommandDispatch, DrawContext, EventKind, EventPayload,
     EventReturn, KeyIntercept, NoteKind, Rect, RuntimeBuilder, SessionEntry, SessionState,
-    ThemePalette, UiAction,
+    SurfaceSize, ThemePalette, UiAction,
 };
 use ekko_lua::LuaExtension;
 
@@ -270,6 +270,85 @@ fn scrollbar_op_marshals_model_style_and_glyph_defaults() {
             "scrollbar 19 0 10 10/40@5 │█",
             "scrollbar 19 0 10 10/40@5 .#"
         ]
+    );
+}
+
+#[test]
+fn surface_scaled_size_and_hide_below_are_marshaled() {
+    let runtime = runtime(
+        r##"
+        local ext = { id = "user.sized" }
+        function ext.register(ekko)
+          ekko.register_surface({
+            name = "scaled",
+            dock = "left",
+            size = { preferred = 30, min = 10, fraction = 3, min_remaining = 20 },
+            hide_below = { cols = 64, rows = 4 },
+            draw = function(ctx, snapshot) end,
+          })
+          ekko.register_surface({
+            name = "scaled-defaults",
+            dock = "left",
+            size = { preferred = 12 },
+            hide_below = { cols = 40 },
+            draw = function(ctx, snapshot) end,
+          })
+        end
+        return ext
+        "##,
+    );
+    let spec = runtime.surface("scaled").expect("surface registered");
+    assert_eq!(
+        spec.size,
+        SurfaceSize::Scaled {
+            preferred: 30,
+            min: 10,
+            max_fraction_denom: 3,
+            min_remaining: 20,
+        }
+    );
+    assert_eq!(spec.hide_below, Some((64, 4)));
+
+    // Omitted Scaled fields default to layout no-ops; omitted hide_below
+    // fields default to 0 (no constraint on that axis).
+    let spec = runtime
+        .surface("scaled-defaults")
+        .expect("surface registered");
+    assert_eq!(
+        spec.size,
+        SurfaceSize::Scaled {
+            preferred: 12,
+            min: 0,
+            max_fraction_denom: 1,
+            min_remaining: 0,
+        }
+    );
+    assert_eq!(spec.hide_below, Some((40, 0)));
+}
+
+#[test]
+fn surface_scaled_size_without_preferred_is_a_registration_error() {
+    let ext = LuaExtension::from_source(
+        "nopref.lua",
+        r#"
+        local ext = { id = "user.nopref" }
+        function ext.register(ekko)
+          ekko.register_surface({
+            name = "broken",
+            dock = "left",
+            size = { min = 10 },
+            draw = function(ctx, snapshot) end,
+          })
+        end
+        return ext
+        "#,
+    )
+    .expect("script loads");
+    assert!(
+        RuntimeBuilder::new()
+            .register_boxed_extension(Box::new(ext))
+            .build()
+            .is_err()
     );
 }
 
