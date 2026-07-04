@@ -47,8 +47,15 @@ and `nix flake check` green after each (doctrine 7).
       `"│"`/`"█"` — note the sidebar builtin's thumb is `"┃"` U+2503, so a
       pixel-faithful sidebar clone passes `thumb = "┃"` explicitly).
       `DrawContext` is now fully bridged.
-- [ ] A5 surface `Scaled` size + `hide_below` ← **next**
-- [ ] WS-B, WS-C, WS-D not started.
+- [x] A5 surface `Scaled` size + `hide_below` — landed (`size` accepts an
+      integer → `Fixed` or a `{ preferred, min, fraction, min_remaining }`
+      table → `Scaled`; `preferred` is required, the rest default to layout
+      no-ops (0/1/0); `hide_below = { cols =, rows = }`, missing fields → 0).
+      **WS-A is complete** — full client registry + draw parity; README's
+      Lua section now lists the whole bridged surface.
+- [ ] WS-B (server-side Lua) ← **next**: start with B1 (`host` field on the
+      manifest + `HostKind` filter in `load_extensions`).
+- [ ] WS-C, WS-D not started.
 
 Tree note: `crates/ekko-lua/tests/which_key_real.rs` (pinned to a local
 `~/.config/ekko` path), `examples/window-frame.lua`, and `.claude/` are

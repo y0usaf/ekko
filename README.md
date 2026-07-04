@@ -137,8 +137,13 @@ end
 return ext
 ```
 
-`ekko.register_command` / `register_keybinding` / `register_surface` /
-`register_overlay` / `register_theme` / `subscribe` are bridged; every
+Every `ExtensionHost` registry is bridged: `ekko.register_command` /
+`register_keybinding` / `register_surface` / `register_overlay` /
+`register_mode` / `register_theme` / `register_spinner` /
+`register_session_grouper` / `register_session_namer` / `subscribe`. A
+surface's `size` is a fixed integer or a scaled table
+(`{ preferred =, min =, fraction =, min_remaining = }`), and
+`hide_below = { cols =, rows = }` skips it on small frames. Every
 callback runs under an instruction budget, and draw calls are buffered ops
 replayed only if the callback returns cleanly — a runaway script errors out
 instead of wedging the terminal.

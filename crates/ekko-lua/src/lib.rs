@@ -365,6 +365,37 @@ impl LuaExtension {
             other => return Err(anyhow!("surface '{name}': unknown dock edge '{other}'")),
         };
 
+        // `size` is an integer (Fixed) or a table (Scaled). The Scaled table
+        // requires `preferred`; the other fields default to values the layout
+        // resolver treats as no-ops (min = 0, fraction = 1, min_remaining = 0).
+        let size = match spec.get::<Value>("size")? {
+            Value::Nil => ekko_ext::SurfaceSize::Fixed(1),
+            Value::Integer(n) => ekko_ext::SurfaceSize::Fixed(i32::try_from(n)?),
+            Value::Table(t) => ekko_ext::SurfaceSize::Scaled {
+                preferred: t.get::<Option<i32>>("preferred")?.ok_or_else(|| {
+                    anyhow!("surface '{name}': scaled 'size' table needs 'preferred'")
+                })?,
+                min: t.get::<Option<i32>>("min")?.unwrap_or(0),
+                max_fraction_denom: t.get::<Option<i32>>("fraction")?.unwrap_or(1),
+                min_remaining: t.get::<Option<i32>>("min_remaining")?.unwrap_or(0),
+            },
+            other => {
+                return Err(anyhow!(
+                    "surface '{name}': 'size' must be an integer or a table, got {}",
+                    other.type_name()
+                ));
+            }
+        };
+        let hide_below = spec
+            .get::<Option<Table>>("hide_below")?
+            .map(|t| {
+                mlua::Result::Ok((
+                    t.get::<Option<i32>>("cols")?.unwrap_or(0),
+                    t.get::<Option<i32>>("rows")?.unwrap_or(0),
+                ))
+            })
+            .transpose()?;
+
         let shared = self.lua.clone();
         let draw_name = name.clone();
         let draw_fn: ekko_ext::SurfaceDrawFn = Arc::new(move |ctx, snapshot| {
@@ -415,8 +446,8 @@ impl LuaExtension {
             name,
             dock,
             priority: spec.get::<Option<i32>>("priority")?.unwrap_or(100),
-            size: ekko_ext::SurfaceSize::Fixed(spec.get::<Option<i32>>("size")?.unwrap_or(1)),
-            hide_below: None,
+            size,
+            hide_below,
             visible,
             draw: draw_fn,
             on_mouse,
