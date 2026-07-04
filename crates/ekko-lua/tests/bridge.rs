@@ -435,6 +435,235 @@ fn overlays_can_attach_to_a_mode() {
 }
 
 #[test]
+fn mode_outcome_dialect_round_trips() {
+    let runtime = runtime(
+        r#"
+        local ext = { id = "user.dialect" }
+        function ext.register(ekko)
+          ekko.register_mode({
+            name = "dialect",
+            on_key = function(state, bytes, snapshot)
+              if bytes == "n" then return nil end
+              if bytes == "e" then return "exit" end
+              if bytes == "s" then return { scroll = -1 } end
+              if bytes == "a" then return { { scroll = 1 }, "detach" } end
+              if bytes == "x" then return { "exit", { switch_session = "other" } } end
+              if bytes == "X" then return { "exit" } end
+              if bytes == "u" then return "not-an-outcome" end
+              if bytes == "b" then return 42 end
+            end,
+          })
+        end
+        return ext
+        "#,
+    );
+    let spec = runtime.mode("dialect").expect("mode registered");
+    let cases: Vec<(&[u8], ekko_ext::ModeOutcome)> = vec![
+        (b"n", ekko_ext::ModeOutcome::Continue),
+        (b"e", ekko_ext::ModeOutcome::Exit),
+        (
+            b"s",
+            ekko_ext::ModeOutcome::ContinueWith(vec![UiAction::Scroll { delta: -1 }]),
+        ),
+        (
+            b"a",
+            ekko_ext::ModeOutcome::ContinueWith(vec![
+                UiAction::Scroll { delta: 1 },
+                UiAction::Detach,
+            ]),
+        ),
+        (
+            b"x",
+            ekko_ext::ModeOutcome::ExitWith(vec![UiAction::SwitchSession {
+                name: "other".into(),
+            }]),
+        ),
+        (b"X", ekko_ext::ModeOutcome::Exit),
+        // Unrecognized returns degrade to Continue, never trap or exit.
+        (b"u", ekko_ext::ModeOutcome::Continue),
+        (b"b", ekko_ext::ModeOutcome::Continue),
+    ];
+    for (bytes, expected) in cases {
+        let mut state = (spec.init_state)();
+        assert_eq!(
+            (spec.on_key)(&mut state, bytes, &snapshot()),
+            expected,
+            "bytes {bytes:?}"
+        );
+    }
+}
+
+#[test]
+fn modes_carry_lua_state_and_render_a_cursor() {
+    let runtime = runtime(
+        r#"
+        local ext = { id = "user.jump" }
+        function ext.register(ekko)
+          ekko.register_mode({
+            name = "jump",
+            init = function() return { input = "" } end,
+            on_key = function(state, bytes, snapshot)
+              if bytes == "\27" then return "exit" end
+              state.input = state.input .. bytes
+            end,
+            render = function(ctx, state, snapshot)
+              if state.input == "" then return nil end
+              ctx.put_text(0, 0, 40, "text", "surface", "jump: " .. state.input)
+              return { row = 0, col = 6 + #state.input }
+            end,
+          })
+        end
+        return ext
+        "#,
+    );
+    let spec = runtime.mode("jump").expect("mode registered");
+    let render = spec.render.as_ref().expect("mode has a render fn");
+    let mut state = (spec.init_state)();
+
+    // Empty state: nothing drawn, no cursor.
+    let mut recorder = Recorder::default();
+    assert_eq!(render(&mut recorder, &state, &snapshot()), None);
+    assert!(recorder.calls.is_empty());
+
+    // Two keys mutate the registry-held Lua state in place.
+    assert_eq!(
+        (spec.on_key)(&mut state, b"a", &snapshot()),
+        ekko_ext::ModeOutcome::Continue
+    );
+    assert_eq!(
+        (spec.on_key)(&mut state, b"b", &snapshot()),
+        ekko_ext::ModeOutcome::Continue
+    );
+    let mut recorder = Recorder::default();
+    assert_eq!(render(&mut recorder, &state, &snapshot()), Some((0, 8)));
+    assert_eq!(recorder.calls, vec!["styled 0 0 jump: ab r=false b=false"]);
+
+    assert_eq!(
+        (spec.on_key)(&mut state, b"\x1b", &snapshot()),
+        ekko_ext::ModeOutcome::Exit
+    );
+}
+
+#[test]
+fn default_mode_state_is_a_table_and_broken_handlers_exit() {
+    let runtime = runtime(
+        r#"
+        local ext = { id = "user.modes" }
+        function ext.register(ekko)
+          -- No init: the bridge hands on_key a fresh empty table.
+          ekko.register_mode({
+            name = "counting",
+            on_key = function(state, bytes, snapshot)
+              state.n = (state.n or 0) + 1
+              if state.n >= 2 then return "exit" end
+            end,
+          })
+          ekko.register_mode({
+            name = "broken",
+            on_key = function(state, bytes, snapshot) error("boom") end,
+          })
+          ekko.register_mode({
+            name = "runaway",
+            on_key = function(state, bytes, snapshot) while true do end end,
+          })
+        end
+        return ext
+        "#,
+    );
+    let spec = runtime.mode("counting").expect("mode registered");
+    let mut state = (spec.init_state)();
+    assert_eq!(
+        (spec.on_key)(&mut state, b"x", &snapshot()),
+        ekko_ext::ModeOutcome::Continue
+    );
+    assert_eq!(
+        (spec.on_key)(&mut state, b"x", &snapshot()),
+        ekko_ext::ModeOutcome::Exit
+    );
+
+    // A broken or runaway mode must not trap input: both bail out.
+    for name in ["broken", "runaway"] {
+        let spec = runtime.mode(name).expect("mode registered");
+        let mut state = (spec.init_state)();
+        assert_eq!(
+            (spec.on_key)(&mut state, b"x", &snapshot()),
+            ekko_ext::ModeOutcome::Exit,
+            "mode {name}"
+        );
+    }
+}
+
+/// The A-acceptance proof for modes: `examples/scroll-mode.lua` re-registers
+/// the scroll-mode builtin's key policy, byte for byte. Drives the example
+/// through the same cases as the builtin's own tests.
+#[test]
+fn scroll_mode_example_matches_the_builtin_policy() {
+    let path = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../examples/scroll-mode.lua"
+    );
+    let runtime = RuntimeBuilder::new()
+        .register_boxed_extension(Box::new(
+            LuaExtension::from_file(std::path::Path::new(path)).expect("example loads"),
+        ))
+        .build()
+        .expect("runtime builds");
+    let spec = runtime.mode("scroll").expect("scroll mode registered");
+    // snapshot() has grid_rows = 23: half page 11, full page 23.
+    let cases: Vec<(&[u8], ekko_ext::ModeOutcome)> = vec![
+        (
+            b"k",
+            ekko_ext::ModeOutcome::ContinueWith(vec![UiAction::Scroll { delta: 1 }]),
+        ),
+        (
+            b"j",
+            ekko_ext::ModeOutcome::ContinueWith(vec![UiAction::Scroll { delta: -1 }]),
+        ),
+        (
+            b"u",
+            ekko_ext::ModeOutcome::ContinueWith(vec![UiAction::Scroll { delta: 11 }]),
+        ),
+        (
+            b"\x1b[6~",
+            ekko_ext::ModeOutcome::ContinueWith(vec![UiAction::Scroll { delta: -23 }]),
+        ),
+        (
+            b"g",
+            ekko_ext::ModeOutcome::ContinueWith(vec![UiAction::Scroll { delta: i32::MAX }]),
+        ),
+        (
+            b"G",
+            ekko_ext::ModeOutcome::ContinueWith(vec![UiAction::ScrollToBottom]),
+        ),
+        (
+            b"\x1b[<64;10;5M",
+            ekko_ext::ModeOutcome::ContinueWith(vec![UiAction::Scroll { delta: 3 }]),
+        ),
+        (
+            b"\x1b[<65;10;5M",
+            ekko_ext::ModeOutcome::ContinueWith(vec![UiAction::Scroll { delta: -3 }]),
+        ),
+        (
+            b"q",
+            ekko_ext::ModeOutcome::ExitWith(vec![UiAction::ScrollToBottom]),
+        ),
+        (
+            b"\x1b",
+            ekko_ext::ModeOutcome::ExitWith(vec![UiAction::ScrollToBottom]),
+        ),
+        (b"x", ekko_ext::ModeOutcome::Continue),
+    ];
+    for (bytes, expected) in cases {
+        let mut state = (spec.init_state)();
+        assert_eq!(
+            (spec.on_key)(&mut state, bytes, &snapshot()),
+            expected,
+            "bytes {bytes:?}"
+        );
+    }
+}
+
+#[test]
 fn themes_register_with_hex_overrides() {
     let runtime = runtime(
         r##"

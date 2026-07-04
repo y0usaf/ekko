@@ -33,9 +33,9 @@
 //! [`ekko_ext::DrawContext`] after the Lua call returns — native extensions
 //! pay for none of this.
 //!
-//! Registration surface (v1): commands, keybindings, surfaces (with
+//! Registration surface: commands, keybindings, surfaces (with
 //! `visible`/`wants_tick`/`on_mouse`), overlays (with `build_payload`),
-//! themes, the session namer, and event subscriptions. Modes, spinners,
+//! modes, themes, the session namer, and event subscriptions. Spinners
 //! and the session grouper are not yet bridged.
 
 mod convert;
@@ -47,14 +47,15 @@ use std::sync::{Arc, Mutex};
 use anyhow::{Context, Result, anyhow};
 use ekko_ext::{
     CommandOutput, CommandSpec, EventHandlerRegistration, Extension, ExtensionHost,
-    ExtensionManifest, KeybindingSpec, OverlayOutcome, OverlaySpec, OverlayState, SessionNamerSpec,
-    SurfaceSpec, ThemeSpec, parse_key_chords,
+    ExtensionManifest, KeybindingSpec, ModeOutcome, ModeSpec, ModeState, OverlayOutcome,
+    OverlaySpec, OverlayState, SessionNamerSpec, SurfaceSpec, ThemeSpec, parse_key_chords,
 };
 use mlua::{Function, Lua, RegistryKey, Table, Value};
 
 use convert::{
-    actions_from_value, event_kind_from_name, event_return_from_value, mouse_event_table,
-    palette_from_table, payload_table, registry_view_table, snapshot_table,
+    actions_from_value, cursor_from_value, event_kind_from_name, event_return_from_value,
+    mode_outcome_from_value, mouse_event_table, palette_from_table, payload_table,
+    registry_view_table, snapshot_table,
 };
 use draw::{DrawOp, ops_context_table, replay};
 
@@ -185,13 +186,14 @@ impl Extension for LuaExtension {
                     r#"
                     local regs = {
                       commands = {}, keybindings = {}, surfaces = {},
-                      overlays = {}, themes = {}, namers = {}, subscriptions = {},
+                      overlays = {}, modes = {}, themes = {}, namers = {}, subscriptions = {},
                     }
                     regs.ekko = {
                       register_command = function(spec) table.insert(regs.commands, spec) end,
                       register_keybinding = function(spec) table.insert(regs.keybindings, spec) end,
                       register_surface = function(spec) table.insert(regs.surfaces, spec) end,
                       register_overlay = function(spec) table.insert(regs.overlays, spec) end,
+                      register_mode = function(spec) table.insert(regs.modes, spec) end,
                       register_theme = function(spec) table.insert(regs.themes, spec) end,
                       register_session_namer = function(spec) table.insert(regs.namers, spec) end,
                       subscribe = function(event, handler)
@@ -220,6 +222,9 @@ impl Extension for LuaExtension {
         }
         for spec in collector.get::<Table>("overlays")?.sequence_values() {
             self.register_overlay(host, &lua, spec?)?;
+        }
+        for spec in collector.get::<Table>("modes")?.sequence_values() {
+            self.register_mode(host, &lua, spec?)?;
         }
         for spec in collector.get::<Table>("themes")?.sequence_values() {
             self.register_theme(host, spec?)?;
@@ -602,6 +607,115 @@ impl LuaExtension {
             handle_key: key_fn,
             build_payload: payload_fn,
             attach_mode: spec.get::<Option<String>>("attach_mode")?,
+        })
+    }
+
+    fn register_mode(&self, host: &mut dyn ExtensionHost, lua: &Lua, spec: Table) -> Result<()> {
+        let name: String = spec
+            .get::<Option<String>>("name")?
+            .ok_or_else(|| anyhow!("mode spec needs a 'name'"))?;
+        let on_key = self.stash(
+            lua,
+            spec.get::<Option<Function>>("on_key")?
+                .ok_or_else(|| anyhow!("mode '{name}' needs an 'on_key' function"))?,
+        )?;
+        let init = match spec.get::<Option<Function>>("init")? {
+            Some(f) => Some(self.stash(lua, f)?),
+            None => None,
+        };
+        let render = match spec.get::<Option<Function>>("render")? {
+            Some(f) => Some(self.stash(lua, f)?),
+            None => None,
+        };
+
+        // Per-activation mode state is a Lua value held in the registry,
+        // exactly like overlay state; the host stores only the opaque key.
+        // Lua mutates the value in place, so the `&mut ModeState` threading
+        // in the native signature needs no extra plumbing here.
+        struct LuaModeState(RegistryKey);
+
+        let init_shared = self.lua.clone();
+        let init_fn: ekko_ext::ModeInitFn = Arc::new(move || {
+            let lua = init_shared.lock().unwrap();
+            let state_value = match &init {
+                // No init: fresh empty table, so on_key can always index it.
+                None => lua.create_table().map(Value::Table).unwrap_or(Value::Nil),
+                Some(init) => with_budget(&lua, HANDLER_BUDGET, |lua| {
+                    let f: Function = lua.registry_value(init)?;
+                    f.call::<Value>(())
+                })
+                .unwrap_or_else(|err| {
+                    log::warn!("lua mode init errored: {err:#}");
+                    Value::Nil
+                }),
+            };
+            let key = lua
+                .create_registry_value(state_value)
+                .expect("storing mode state");
+            Box::new(LuaModeState(key)) as ModeState
+        });
+
+        let key_shared = self.lua.clone();
+        let key_fn: ekko_ext::ModeKeyFn = Arc::new(move |state, bytes, snapshot| {
+            let Some(state) = (**state).downcast_ref::<LuaModeState>() else {
+                return ModeOutcome::Exit;
+            };
+            let lua = key_shared.lock().unwrap();
+            let value = match with_budget(&lua, HANDLER_BUDGET, |lua| {
+                let f: Function = lua.registry_value(&on_key)?;
+                let state_value: Value = lua.registry_value(&state.0)?;
+                f.call::<Value>((
+                    state_value,
+                    lua.create_string(bytes)?,
+                    snapshot_table(lua, snapshot)?,
+                ))
+            }) {
+                Ok(value) => value,
+                Err(err) => {
+                    // A broken mode must not trap input: bail out of it.
+                    log::warn!("lua mode key handler errored: {err:#}");
+                    return ModeOutcome::Exit;
+                }
+            };
+            mode_outcome_from_value(&value)
+        });
+
+        let render_fn: Option<ekko_ext::ModeRenderFn> = render.map(|render| {
+            let shared = self.lua.clone();
+            let render_name = name.clone();
+            Arc::new(
+                move |ctx: &mut dyn ekko_ext::DrawContext,
+                      state: &ModeState,
+                      snapshot: &ekko_ext::ClientSnapshot| {
+                    let state = state.downcast_ref::<LuaModeState>()?;
+                    let lua = shared.lock().unwrap();
+                    let ops: Arc<Mutex<Vec<DrawOp>>> = Arc::default();
+                    let result = with_budget(&lua, DRAW_BUDGET, |lua| {
+                        let f: Function = lua.registry_value(&render)?;
+                        let ctx_table =
+                            ops_context_table(lua, ops.clone(), ctx.size(), snapshot.theme)?;
+                        let state_value: Value = lua.registry_value(&state.0)?;
+                        f.call::<Value>((ctx_table, state_value, snapshot_table(lua, snapshot)?))
+                    });
+                    match result {
+                        Ok(value) => {
+                            replay(&ops.lock().unwrap(), ctx);
+                            cursor_from_value(&value)
+                        }
+                        Err(err) => {
+                            log::warn!("lua mode '{render_name}' render errored: {err:#}");
+                            None
+                        }
+                    }
+                },
+            ) as ekko_ext::ModeRenderFn
+        });
+
+        host.register_mode(ModeSpec {
+            name,
+            init_state: init_fn,
+            on_key: key_fn,
+            render: render_fn,
         })
     }
 

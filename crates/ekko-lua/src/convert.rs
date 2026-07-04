@@ -5,8 +5,8 @@
 
 use anyhow::{Result, anyhow, bail};
 use ekko_ext::{
-    ClientSnapshot, Color, EventKind, EventPayload, EventReturn, KeyIntercept, NoteKind,
-    NoticeLevel, RegistryView, SurfaceMouseEvent, ThemePalette, UiAction,
+    ClientSnapshot, Color, EventKind, EventPayload, EventReturn, KeyIntercept, ModeOutcome,
+    NoteKind, NoticeLevel, RegistryView, SurfaceMouseEvent, ThemePalette, UiAction,
 };
 use mlua::{Lua, Table, Value};
 
@@ -332,6 +332,69 @@ fn action_from_value(value: &Value) -> Result<UiAction> {
         }
         other => bail!("expected an action string or table, got {other:?}"),
     }
+}
+
+/// Normalize a mode `on_key` return into a [`ModeOutcome`]. The dialect
+/// deliberately mirrors the overlay `handle_key` dialect ("close" becomes
+/// "exit"): `nil` → `Continue`; the string `"exit"` → `Exit`; an array with
+/// an `"exit"` head → `ExitWith` the remaining actions; any other action
+/// table/array → `ContinueWith`. Unrecognized values degrade to `Continue`
+/// — a mode swallows what it doesn't understand.
+pub fn mode_outcome_from_value(value: &Value) -> ModeOutcome {
+    match value {
+        Value::Nil => ModeOutcome::Continue,
+        Value::String(s) => {
+            if s.to_string_lossy() == "exit" {
+                ModeOutcome::Exit
+            } else {
+                ModeOutcome::Continue
+            }
+        }
+        Value::Table(t) => {
+            // Array form: { "exit", action, action, ... }
+            if t.raw_len() > 0
+                && matches!(
+                    t.get::<Option<Value>>(1),
+                    Ok(Some(Value::String(s))) if s.to_string_lossy() == "exit"
+                )
+            {
+                let mut actions = Vec::new();
+                let vals: Vec<Value> = t
+                    .clone()
+                    .sequence_values::<Value>()
+                    .skip(1)
+                    .collect::<mlua::Result<_>>()
+                    .unwrap_or_default();
+                for v in &vals {
+                    if let Ok(mut a) = actions_from_value(v) {
+                        actions.append(&mut a);
+                    }
+                }
+                if actions.is_empty() {
+                    ModeOutcome::Exit
+                } else {
+                    ModeOutcome::ExitWith(actions)
+                }
+            } else {
+                match actions_from_value(value) {
+                    Ok(actions) if !actions.is_empty() => ModeOutcome::ContinueWith(actions),
+                    _ => ModeOutcome::Continue,
+                }
+            }
+        }
+        _ => ModeOutcome::Continue,
+    }
+}
+
+/// A mode render's optional hardware-cursor return: `{ row =, col = }` → a
+/// position, anything else → no cursor.
+pub fn cursor_from_value(value: &Value) -> Option<(i32, i32)> {
+    let Value::Table(t) = value else {
+        return None;
+    };
+    let row = t.get::<Option<i32>>("row").ok()??;
+    let col = t.get::<Option<i32>>("col").ok()??;
+    Some((row, col))
 }
 
 /// Normalize a subscription handler's return into an [`EventReturn`].
