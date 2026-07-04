@@ -27,8 +27,9 @@
 //! ```
 //!
 //! Guard rails (the "scripting bridge adds its own guard" from `DESIGN.md`):
-//! every callback into Lua runs under an instruction budget (a runaway
-//! script errors out instead of wedging the host), and draw callbacks write
+//! every callback into Lua runs under an instruction budget — configurable
+//! via the config's `lua` section (a runaway script errors out instead of
+//! wedging the host) — and draw callbacks write
 //! buffered, data-only draw ops that are replayed into the real
 //! [`ekko_ext::DrawContext`] after the Lua call returns — native extensions
 //! pay for none of this.
@@ -75,12 +76,14 @@ use convert::{
 };
 use draw::{DrawOp, ops_context_table, replay};
 
-/// Instruction budget for render-path callbacks (draw / visible /
-/// wants_tick), which run on the client's frame pass.
-const DRAW_BUDGET: u32 = 200_000;
-/// Instruction budget for handler callbacks (commands, keybindings, events,
-/// overlay keys), which the host already bounds by wall-clock timeouts.
-const HANDLER_BUDGET: u32 = 2_000_000;
+/// Instruction budget for the bootstrap paths no config can govern:
+/// evaluating `init.lua` itself and a script's top-level chunk, both of
+/// which run before any config attaches. Everything after — callbacks and
+/// the `register()` call — runs under the `[lua]` config budgets
+/// (`draw_budget` for render-path callbacks on the client's frame pass,
+/// `handler_budget` for handlers the host already bounds by wall-clock
+/// timeouts).
+const BOOTSTRAP_BUDGET: u32 = ekko_config::LUA_HANDLER_BUDGET_DEFAULT;
 
 /// A shared handle on one script's Lua state. All callbacks from all
 /// registries of one script serialize on this lock; separate scripts get
@@ -148,7 +151,7 @@ impl LuaExtension {
     /// with an `id` and a `register` function.
     pub fn from_source(origin: &str, source: &str) -> Result<Self> {
         let lua = Lua::new();
-        let ext: Table = with_budget(&lua, HANDLER_BUDGET, |lua| {
+        let ext: Table = with_budget(&lua, BOOTSTRAP_BUDGET, |lua| {
             lua.load(source).set_name(origin).eval()
         })
         .with_context(|| format!("evaluating lua extension '{origin}'"))?;
@@ -276,7 +279,7 @@ impl Extension for LuaExtension {
         // each register_* call appends its spec table. The bridge then walks
         // the collected specs and registers real host entries whose closures
         // call back into the stored Lua functions.
-        let collector: Table = with_budget(&lua, HANDLER_BUDGET, |lua| {
+        let collector: Table = with_budget(&lua, self.handler_budget(), |lua| {
             let regs: Table = lua
                 .load(
                     r#"
@@ -356,6 +359,16 @@ impl LuaExtension {
         Ok(Arc::new(lua.create_registry_value(function)?))
     }
 
+    /// The `[lua]` config budgets. Resolved at register time (after
+    /// [`Self::set_config`]); callbacks capture the plain values.
+    fn handler_budget(&self) -> u32 {
+        self.config.lua.handler_budget
+    }
+
+    fn draw_budget(&self) -> u32 {
+        self.config.lua.draw_budget
+    }
+
     fn register_command(&self, host: &mut dyn ExtensionHost, lua: &Lua, spec: Table) -> Result<()> {
         let name: String = spec
             .get::<Option<String>>("name")?
@@ -370,6 +383,7 @@ impl LuaExtension {
             None => Vec::new(),
         };
         let shared = self.lua.clone();
+        let handler_budget = self.handler_budget();
         host.register_command(CommandSpec {
             name: name.clone(),
             aliases,
@@ -379,7 +393,7 @@ impl LuaExtension {
             args_hint: spec.get::<Option<String>>("args_hint")?.unwrap_or_default(),
             handler: Arc::new(move |invocation| {
                 let lua = shared.lock().unwrap();
-                let actions = with_budget(&lua, HANDLER_BUDGET, |lua| {
+                let actions = with_budget(&lua, handler_budget, |lua| {
                     let f: Function = lua.registry_value(&handler)?;
                     f.call::<Value>(invocation.raw_args.clone())
                 })?;
@@ -419,6 +433,7 @@ impl LuaExtension {
                 .ok_or_else(|| anyhow!("keybinding '{}' needs a 'handler'", chord_texts[0]))?,
         )?;
         let shared = self.lua.clone();
+        let handler_budget = self.handler_budget();
         host.register_keybinding(KeybindingSpec {
             chords,
             chord_text: chord_texts.join(" / "),
@@ -428,7 +443,7 @@ impl LuaExtension {
                 .unwrap_or_default(),
             handler: Arc::new(move |snapshot| {
                 let lua = shared.lock().unwrap();
-                let result = with_budget(&lua, HANDLER_BUDGET, |lua| {
+                let result = with_budget(&lua, handler_budget, |lua| {
                     let f: Function = lua.registry_value(&handler)?;
                     f.call::<Value>(snapshot_table(lua, snapshot)?)
                 })
@@ -498,10 +513,11 @@ impl LuaExtension {
 
         let shared = self.lua.clone();
         let draw_name = name.clone();
+        let draw_budget = self.draw_budget();
         let draw_fn: ekko_ext::SurfaceDrawFn = Arc::new(move |ctx, snapshot| {
             let lua = shared.lock().unwrap();
             let ops: Arc<Mutex<Vec<DrawOp>>> = Arc::default();
-            let called = with_budget(&lua, DRAW_BUDGET, |lua| {
+            let called = with_budget(&lua, draw_budget, |lua| {
                 let f: Function = lua.registry_value(&draw)?;
                 let ctx_table = ops_context_table(lua, ops.clone(), ctx.size(), snapshot.theme)?;
                 f.call::<()>((ctx_table, snapshot_table(lua, snapshot)?))
@@ -521,9 +537,10 @@ impl LuaExtension {
                 Some(f) => {
                     let key = self.stash(lua, f)?;
                     let shared = self.lua.clone();
+                    let handler_budget = self.handler_budget();
                     Some(Arc::new(move |event, snapshot| {
                         let lua = shared.lock().unwrap();
-                        let result = with_budget(&lua, HANDLER_BUDGET, |lua| {
+                        let result = with_budget(&lua, handler_budget, |lua| {
                             let f: Function = lua.registry_value(&key)?;
                             f.call::<Value>((
                                 mouse_event_table(lua, event)?,
@@ -568,9 +585,10 @@ impl LuaExtension {
         };
         let key = self.stash(lua, f)?;
         let shared = self.lua.clone();
+        let draw_budget = self.draw_budget();
         Ok(Some(Arc::new(move |snapshot| {
             let lua = shared.lock().unwrap();
-            with_budget(&lua, DRAW_BUDGET, |lua| {
+            with_budget(&lua, draw_budget, |lua| {
                 let f: Function = lua.registry_value(&key)?;
                 f.call::<bool>(snapshot_table(lua, snapshot)?)
             })
@@ -605,6 +623,9 @@ impl LuaExtension {
         // the overlay is open; the host stores only the opaque key.
         struct LuaOverlayState(RegistryKey);
 
+        let handler_budget = self.handler_budget();
+        let draw_budget = self.draw_budget();
+
         let init_shared = self.lua.clone();
         let init_key = init.clone();
         let init_fn: ekko_ext::OverlayInitFn = Arc::new(move |payload| {
@@ -615,7 +636,7 @@ impl LuaExtension {
                 .unwrap_or(Value::Nil);
             let state_value = match &init_key {
                 None => payload_value,
-                Some(init) => with_budget(&lua, HANDLER_BUDGET, |lua| {
+                Some(init) => with_budget(&lua, handler_budget, |lua| {
                     let f: Function = lua.registry_value(init)?;
                     f.call::<Value>(payload_value.clone())
                 })
@@ -638,7 +659,7 @@ impl LuaExtension {
             };
             let lua = render_shared.lock().unwrap();
             let ops: Arc<Mutex<Vec<DrawOp>>> = Arc::default();
-            let called = with_budget(&lua, DRAW_BUDGET, |lua| {
+            let called = with_budget(&lua, draw_budget, |lua| {
                 let f: Function = lua.registry_value(&render)?;
                 let ctx_table = ops_context_table(lua, ops.clone(), ctx.size(), snapshot.theme)?;
                 let state_value: Value = lua.registry_value(&state.0)?;
@@ -660,7 +681,7 @@ impl LuaExtension {
                 return OverlayOutcome::Close;
             };
             let lua = key_shared.lock().unwrap();
-            let value = match with_budget(&lua, HANDLER_BUDGET, |lua| {
+            let value = match with_budget(&lua, handler_budget, |lua| {
                 let f: Function = lua.registry_value(handle_key)?;
                 let state_value: Value = lua.registry_value(&state.0)?;
                 f.call::<Value>((state_value, lua.create_string(bytes)?))
@@ -723,7 +744,7 @@ impl LuaExtension {
             let shared = self.lua.clone();
             Arc::new(move |registries: &ekko_ext::RegistryView| {
                 let lua = shared.lock().unwrap();
-                let value = with_budget(&lua, HANDLER_BUDGET, |lua| {
+                let value = with_budget(&lua, handler_budget, |lua| {
                     let f: Function = lua.registry_value(&key)?;
                     f.call::<Value>(registry_view_table(lua, registries)?)
                 })
@@ -775,13 +796,16 @@ impl LuaExtension {
         // in the native signature needs no extra plumbing here.
         struct LuaModeState(RegistryKey);
 
+        let handler_budget = self.handler_budget();
+        let draw_budget = self.draw_budget();
+
         let init_shared = self.lua.clone();
         let init_fn: ekko_ext::ModeInitFn = Arc::new(move || {
             let lua = init_shared.lock().unwrap();
             let state_value = match &init {
                 // No init: fresh empty table, so on_key can always index it.
                 None => lua.create_table().map(Value::Table).unwrap_or(Value::Nil),
-                Some(init) => with_budget(&lua, HANDLER_BUDGET, |lua| {
+                Some(init) => with_budget(&lua, handler_budget, |lua| {
                     let f: Function = lua.registry_value(init)?;
                     f.call::<Value>(())
                 })
@@ -802,7 +826,7 @@ impl LuaExtension {
                 return ModeOutcome::Exit;
             };
             let lua = key_shared.lock().unwrap();
-            let value = match with_budget(&lua, HANDLER_BUDGET, |lua| {
+            let value = match with_budget(&lua, handler_budget, |lua| {
                 let f: Function = lua.registry_value(&on_key)?;
                 let state_value: Value = lua.registry_value(&state.0)?;
                 f.call::<Value>((
@@ -831,7 +855,7 @@ impl LuaExtension {
                     let state = state.downcast_ref::<LuaModeState>()?;
                     let lua = shared.lock().unwrap();
                     let ops: Arc<Mutex<Vec<DrawOp>>> = Arc::default();
-                    let result = with_budget(&lua, DRAW_BUDGET, |lua| {
+                    let result = with_budget(&lua, draw_budget, |lua| {
                         let f: Function = lua.registry_value(&render)?;
                         let ctx_table =
                             ops_context_table(lua, ops.clone(), ctx.size(), snapshot.theme)?;
@@ -908,11 +932,12 @@ impl LuaExtension {
                 .ok_or_else(|| anyhow!("session grouper '{name}' needs a 'group' function"))?,
         )?;
         let shared = self.lua.clone();
+        let handler_budget = self.handler_budget();
         host.register_session_grouper(SessionGrouperSpec {
             name,
             group: Arc::new(move |sessions| {
                 let lua = shared.lock().unwrap();
-                let claims = with_budget(&lua, HANDLER_BUDGET, |lua| {
+                let claims = with_budget(&lua, handler_budget, |lua| {
                     let f: Function = lua.registry_value(&group)?;
                     f.call::<Value>(session_entries_table(lua, &sessions)?)
                 })
@@ -945,11 +970,12 @@ impl LuaExtension {
                 .ok_or_else(|| anyhow!("session namer '{name}' needs a 'generate' function"))?,
         )?;
         let shared = self.lua.clone();
+        let handler_budget = self.handler_budget();
         host.register_session_namer(SessionNamerSpec {
             name,
             generate: Arc::new(move |input| {
                 let lua = shared.lock().unwrap();
-                with_budget(&lua, HANDLER_BUDGET, |lua| {
+                with_budget(&lua, handler_budget, |lua| {
                     let f: Function = lua.registry_value(&generate)?;
                     let t = lua.create_table()?;
                     t.set("cwd", input.cwd.display().to_string())?;
@@ -986,12 +1012,13 @@ impl LuaExtension {
                 .ok_or_else(|| anyhow!("subscribe('{event_name}') needs a handler"))?,
         )?;
         let shared = self.lua.clone();
+        let handler_budget = self.handler_budget();
         host.subscribe(EventHandlerRegistration {
             event: kind,
             label: format!("{}:{event_name}", self.manifest.id),
             handler: Arc::new(move |event| {
                 let lua = shared.lock().unwrap();
-                let value = with_budget(&lua, HANDLER_BUDGET, |lua| {
+                let value = with_budget(&lua, handler_budget, |lua| {
                     let f: Function = lua.registry_value(&handler)?;
                     f.call::<Value>(payload_table(lua, &event.payload)?)
                 })?;

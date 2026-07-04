@@ -110,8 +110,8 @@ action can take a list of chords). Leader entries rebind as
 ## Configuration
 
 `~/.config/ekko/init.lua`, when present, supersedes `config.toml` as the
-settings source. It evaluates — under the same instruction budget as any
-script — to a table congruent with the config schema:
+settings source. It evaluates — under an instruction budget, in a throwaway
+Lua state — to a table congruent with the config schema:
 
 ```lua
 return {
@@ -119,8 +119,17 @@ return {
   ui = { sidebar_width = 28 },
   keybinds = { detach = "ctrl+q", session_next = { "ctrl+j", "ctrl+down" } },
   extensions = { disabled = { "ekko-builtins.sidebar" } },
+  lua = { draw_budget = 200000, handler_budget = 2000000 },
 }
 ```
+
+The `lua` section sets the instruction budgets scripts run under:
+`draw_budget` for render-path callbacks (draw / `visible` / `wants_tick`),
+`handler_budget` for everything else (commands, keybindings, events,
+`register()` itself). Bootstrap exception: `init.lua` and a script's
+top-level chunk are evaluated before any config applies, so they always run
+under the defaults shown above — config can raise the budgets scripts run
+under, but not the budget it is itself read under.
 
 Being Lua, conditionals and env dispatch come for free; ekko only ever sees
 the returned table (config declares data — it cannot register callbacks).

@@ -18,6 +18,8 @@ pub const SIDEBAR_WIDTH_DEFAULT: u16 = 36;
 pub const SIDEBAR_WIDTH_MIN: u16 = 8;
 pub const SIDEBAR_WIDTH_MAX: u16 = 120;
 pub const SCROLLBACK_LINES_DEFAULT: usize = 10_000;
+pub const LUA_DRAW_BUDGET_DEFAULT: u32 = 200_000;
+pub const LUA_HANDLER_BUDGET_DEFAULT: u32 = 2_000_000;
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 #[serde(default)]
@@ -27,6 +29,7 @@ pub struct Config {
     /// Action name -> binding text(s), e.g. `detach = "ctrl+q"`.
     pub keybinds: BTreeMap<String, Keybind>,
     pub extensions: Extensions,
+    pub lua: LuaLimits,
 }
 
 /// Extension loading controls. Manifest ids listed in `disabled` are skipped
@@ -35,6 +38,28 @@ pub struct Config {
 #[serde(default)]
 pub struct Extensions {
     pub disabled: Vec<String>,
+}
+
+/// Instruction budgets for the Lua bridge (`ekko-lua`). Draw-path callbacks
+/// run on the client's frame pass and get the tight budget; handler
+/// callbacks (commands, keybindings, events) get the loose one, since the
+/// host already bounds them with wall-clock timeouts. Bootstrap exception:
+/// `init.lua` itself and a script's top-level chunk are evaluated before any
+/// config applies, so they always run under the hard-coded defaults.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(default)]
+pub struct LuaLimits {
+    pub draw_budget: u32,
+    pub handler_budget: u32,
+}
+
+impl Default for LuaLimits {
+    fn default() -> Self {
+        Self {
+            draw_budget: LUA_DRAW_BUDGET_DEFAULT,
+            handler_budget: LUA_HANDLER_BUDGET_DEFAULT,
+        }
+    }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -150,6 +175,13 @@ impl Config {
         if self.general.scrollback_lines == 0 {
             self.general.scrollback_lines = SCROLLBACK_LINES_DEFAULT;
         }
+        // A zero budget would abort every callback on its first instruction.
+        if self.lua.draw_budget == 0 {
+            self.lua.draw_budget = LUA_DRAW_BUDGET_DEFAULT;
+        }
+        if self.lua.handler_budget == 0 {
+            self.lua.handler_budget = LUA_HANDLER_BUDGET_DEFAULT;
+        }
     }
 }
 
@@ -205,6 +237,16 @@ mod tests {
             config.bindings_for("session_prev", &["ctrl+k"]),
             vec!["ctrl+k".to_string()]
         );
+    }
+
+    #[test]
+    fn lua_budgets_parse_and_zero_is_normalized() {
+        let mut config: Config =
+            toml::from_str("[lua]\ndraw_budget = 500000\nhandler_budget = 0\n").unwrap();
+        config.normalize();
+        assert_eq!(config.lua.draw_budget, 500_000);
+        assert_eq!(config.lua.handler_budget, LUA_HANDLER_BUDGET_DEFAULT);
+        assert_eq!(Config::default().lua.draw_budget, LUA_DRAW_BUDGET_DEFAULT);
     }
 
     #[test]
