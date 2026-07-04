@@ -7,6 +7,7 @@
 //! - `BeforePtySpawn` overrides reach the spawned shell,
 //! - a blocked handler cannot wedge the hub (never-block regression),
 //! - the bare harness (zero extensions) works and writes no manifests,
+//! - a `host = "server"` Lua script drives the same seam end-to-end,
 //!
 //! plus end-to-end input checks that need the same real daemon + PTY:
 //! - cursor keys are re-encoded to match the child's DECCKM state.
@@ -393,6 +394,87 @@ fn pty_spawn_override_reaches_the_shell() {
             ))
             .is_some(),
         "expected the overridden environment variable in shell output"
+    );
+
+    kill_and_join(client, daemon, &env.session_name);
+}
+
+/// The B-acceptance proof for server-side Lua: `examples/spawn-hook.lua`
+/// (`host = "server"`) drives the real daemon end-to-end. Its
+/// `before_pty_spawn` override reaches the spawned shell's environment, and
+/// the `session_created` payload it stashes comes back over the wire as a
+/// `Notice` on attach. A client-only script in the same extensions dir must
+/// not load in the daemon.
+#[test]
+fn lua_spawn_hook_example_overrides_a_real_spawn() {
+    let env = TestEnv::new("t-lua-hook");
+    let ext_dir = tempfile::tempdir().expect("tempdir for extensions");
+    std::fs::copy(
+        concat!(env!("CARGO_MANIFEST_DIR"), "/../../examples/spawn-hook.lua"),
+        ext_dir.path().join("spawn-hook.lua"),
+    )
+    .unwrap();
+    std::fs::write(
+        ext_dir.path().join("client-only.lua"),
+        r#"
+        local ext = { id = "test.client-only" }
+        function ext.register(ekko)
+          ekko.subscribe("before_pty_spawn", function()
+            return { spawn_override = { env = { EKKO_SPAWN_HOOK = "client-script-leaked" } } }
+          end)
+        end
+        return ext
+        "#,
+    )
+    .unwrap();
+    let extensions = ekko_lua::load_extensions(ext_dir.path(), ekko_lua::HostKind::Server);
+    assert_eq!(
+        extensions.len(),
+        1,
+        "only the host = \"server\" script may load in the daemon"
+    );
+    let runtime = RuntimeBuilder::new()
+        .register_boxed_extensions(extensions)
+        .build()
+        .unwrap();
+    let daemon = spawn_daemon_with(env.session_name.clone(), runtime);
+
+    let mut client = TestClient::connect(&env.session_name);
+    client.attach(env.cwd());
+    assert!(
+        client
+            .wait_for(Duration::from_secs(5), |m| matches!(
+                m,
+                ServerToClient::Attached { .. }
+            ))
+            .is_some()
+    );
+
+    // The stashed session_created payload arrives as a Notice after attach.
+    let Some(ServerToClient::Notice(notice)) = client.wait_for(Duration::from_secs(5), |m| {
+        matches!(m, ServerToClient::Notice(_))
+    }) else {
+        panic!("expected the spawn-hook's client_attached notice");
+    };
+    assert_eq!(notice.source, "user.spawn-hook:client_attached");
+    assert!(
+        notice.message.contains("'t-lua-hook'") && notice.message.contains("/bin/sh"),
+        "notice must carry the session_created payload, got: {}",
+        notice.message
+    );
+
+    // The before_pty_spawn override reached the real child environment.
+    client.send(&ClientToServer::Key(
+        b"printf \"%s\" \"$EKKO_SPAWN_HOOK\"\n".to_vec(),
+    ));
+    assert!(
+        client
+            .wait_for(Duration::from_secs(10), |m| grid_contains(
+                m,
+                "lua:t-lua-hook"
+            ))
+            .is_some(),
+        "expected the lua-injected environment variable in shell output"
     );
 
     kill_and_join(client, daemon, &env.session_name);

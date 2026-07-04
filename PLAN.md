@@ -87,12 +87,23 @@ and `nix flake check` green after each (doctrine 7).
       that script block on the lock, hit their own dispatch timeout, and
       are skipped, while other scripts (separate Lua states) answer
       normally.
-- [ ] B-acceptance ← **next**: server seam test (`crates/ekko-server/tests/extensions.rs`)
-      driving a `host = "server"` script through `SessionCreated` +
-      `BeforePtySpawn` end-to-end; `examples/spawn-hook.lua`. (Host
-      filtering itself is already pinned at the `load_extensions` level in
-      `bridge.rs`.)
-- [ ] WS-C, WS-D not started.
+- [x] B-acceptance — landed. `examples/spawn-hook.lua` (`host = "server"`)
+      gates `BeforePtySpawn` (env stamp from the payload) and, because
+      `SessionCreated` fires before any client is attached (hub dispatches
+      it before `attached.insert` — a notice there is dropped), stashes the
+      payload and surfaces it as a `Notice` on `ClientAttached`. The seam
+      test (`crates/ekko-server/tests/extensions.rs`) loads the example
+      through `load_extensions(_, HostKind::Server)` from a real extensions
+      dir (a coexisting `host = "client"` script is asserted not to load),
+      then asserts the injected env var in real shell output and the notice
+      over the wire (`ServerNotice.source` is the handler *label*,
+      `"id:event"`, not the bare manifest id). **WS-B is complete.**
+      Gotcha: the flake's `src = self` excludes untracked files — a test
+      referencing a new `examples/*.lua` passes locally but fails
+      `nix build` until the file is at least staged.
+- [ ] WS-C ← **next**: start with C1/C2 (`load_config` in `ekko-lua`,
+      cascade helper, `ekko.config` table).
+- [ ] WS-D not started.
 
 Tree note: `crates/ekko-lua/tests/which_key_real.rs` (pinned to a local
 `~/.config/ekko` path), `examples/window-frame.lua`, and `.claude/` are
