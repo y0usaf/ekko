@@ -427,7 +427,11 @@ fn lua_spawn_hook_example_overrides_a_real_spawn() {
         "#,
     )
     .unwrap();
-    let extensions = ekko_lua::load_extensions(ext_dir.path(), ekko_lua::HostKind::Server);
+    let extensions = ekko_lua::load_extensions(
+        ext_dir.path(),
+        ekko_lua::HostKind::Server,
+        &ekko_config::Config::default(),
+    );
     assert_eq!(
         extensions.len(),
         1,

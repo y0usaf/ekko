@@ -38,10 +38,10 @@ Corollaries:
 | `ekko-grid` | Cell surface, damage tracking, optimizing ANSI diff renderer | core |
 | `ekko-tui` | Terminal primitives: raw mode, color probing, cell-width math, spinner math | core |
 | `ekko-pty` | PTY spawn/IO/reaping | core |
-| `ekko-config` | Dumb TOML store. Holds binding *strings*; binding *meanings* live in builtins | core |
+| `ekko-config` | Config schema + TOML parsing; the `init.lua` settings source that supersedes `config.toml` is evaluated in `ekko-lua` (the schema crate stays dependency-free). Holds binding *strings*; binding *meanings* live in builtins | core |
 | `ekko-resurrection` | Manifest I/O library (used by the resurrection builtin and by `ekko ls`) | core (I/O) |
 | `ekko-keycast` | Keystroke display (`:keycast`). The WS8 extension: lives outside the builtins, depends only on `ekko-ext` | **policy** |
-| `ekko-lua` | Lua scripting bridge: `~/.config/ekko/extensions/*.lua` scripts become `Extension`s, guarded by instruction budgets + buffered draw ops | core (bridge) |
+| `ekko-lua` | Lua scripting bridge: `~/.config/ekko/extensions/*.lua` scripts become `Extension`s, guarded by instruction budgets + buffered draw ops; also evaluates `init.lua` into `ekko_config::Config` and exposes the resolved config to scripts as `ekko.config` | core (bridge) |
 
 ## Extension surface contract
 

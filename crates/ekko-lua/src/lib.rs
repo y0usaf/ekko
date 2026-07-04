@@ -44,9 +44,17 @@
 //! `"both"` means the script is evaluated independently in each process —
 //! two separate Lua states with no shared state, ever; anything the two
 //! halves need to exchange goes through events like every other extension.
+//!
+//! The bridge is also the config evaluator: [`load_config_cascade`] reads
+//! `~/.config/ekko/init.lua` — superseding `config.toml` — into an
+//! [`ekko_config::Config`], and every script sees the resolved config as a
+//! read-only `ekko.config` table.
 
+mod config;
 mod convert;
 mod draw;
+
+pub use config::{load_config, load_config_cascade, load_config_cascade_in};
 
 use std::path::Path;
 use std::sync::{Arc, Mutex};
@@ -58,7 +66,7 @@ use ekko_ext::{
     OverlaySpec, OverlayState, SessionGrouperSpec, SessionNamerSpec, SpinnerSpec, SurfaceSpec,
     ThemeSpec, parse_key_chords,
 };
-use mlua::{Function, Lua, RegistryKey, Table, Value};
+use mlua::{Function, Lua, LuaSerdeExt, RegistryKey, Table, Value};
 
 use convert::{
     actions_from_value, cursor_from_value, event_kind_from_name, event_return_from_value,
@@ -129,6 +137,9 @@ pub struct LuaExtension {
     host: ScriptHost,
     lua: SharedLua,
     register_fn: RegistryKey,
+    /// The resolved host config, exposed to the script as `ekko.config`.
+    /// Defaults until [`Self::set_config`]; [`load_extensions`] always sets it.
+    config: ekko_config::Config,
 }
 
 impl LuaExtension {
@@ -192,6 +203,7 @@ impl LuaExtension {
             host,
             lua: Arc::new(Mutex::new(lua)),
             register_fn,
+            config: ekko_config::Config::default(),
         })
     }
 
@@ -201,6 +213,13 @@ impl LuaExtension {
             std::fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
         Self::from_source(&path.display().to_string(), &source)
     }
+
+    /// Provide the resolved host config the script will see as
+    /// `ekko.config`. The table is a per-state serialized copy — mutating it
+    /// from Lua changes nothing outside the script's own view.
+    pub fn set_config(&mut self, config: &ekko_config::Config) {
+        self.config = config.clone();
+    }
 }
 
 /// Load every `*.lua` file in `dir` (sorted by name) whose `host`
@@ -208,8 +227,13 @@ impl LuaExtension {
 /// warning — scripts that fail to evaluate, so one broken user script
 /// degrades to a warning instead of an unusable terminal. Registration
 /// conflicts (duplicate names) still fail the runtime build loudly,
-/// exactly as they do for native extensions.
-pub fn load_extensions(dir: &Path, host: HostKind) -> Vec<Box<dyn Extension>> {
+/// exactly as they do for native extensions. `config` is the resolved host
+/// config, handed to every script as `ekko.config`.
+pub fn load_extensions(
+    dir: &Path,
+    host: HostKind,
+    config: &ekko_config::Config,
+) -> Vec<Box<dyn Extension>> {
     let Ok(entries) = std::fs::read_dir(dir) else {
         return Vec::new();
     };
@@ -221,7 +245,10 @@ pub fn load_extensions(dir: &Path, host: HostKind) -> Vec<Box<dyn Extension>> {
     paths
         .into_iter()
         .filter_map(|path| match LuaExtension::from_file(&path) {
-            Ok(ext) if ext.host.matches(host) => Some(Box::new(ext) as Box<dyn Extension>),
+            Ok(mut ext) if ext.host.matches(host) => {
+                ext.set_config(config);
+                Some(Box::new(ext) as Box<dyn Extension>)
+            }
             Ok(ext) => {
                 log::debug!(
                     "not loading lua extension {} here: host = {:?}, loading for {host:?}",
@@ -277,8 +304,13 @@ impl Extension for LuaExtension {
                 )
                 .set_name("ekko-lua collector")
                 .eval()?;
+            let ekko_table: Table = regs.get("ekko")?;
+            // The resolved host config, readable by the script. A serialized
+            // copy per Lua state: effectively read-only, since mutating it
+            // reaches no other state and certainly not the host.
+            ekko_table.set("config", lua.to_value(&self.config)?)?;
             let register: Function = lua.registry_value(&self.register_fn)?;
-            register.call::<()>(regs.get::<Table>("ekko")?)?;
+            register.call::<()>(ekko_table)?;
             Ok(regs)
         })
         .with_context(|| format!("running register() of '{}'", self.manifest.id))?;

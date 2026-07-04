@@ -116,6 +116,7 @@ fn build_runtime(
     let builder = builder.register_boxed_extensions(ekko_lua::load_extensions(
         &ekko_config::config_dir().join("extensions"),
         ekko_lua::HostKind::Client,
+        config,
     ));
     builder.build()
 }
@@ -128,6 +129,12 @@ fn build_runtime(
 /// navigation) and left an orphaned stdin reader that ate the next
 /// keystroke.
 pub fn run(options: ClientOptions) -> Result<()> {
+    // `init.lua` supersedes `config.toml`; a broken `init.lua` refuses to
+    // start rather than silently running on defaults. Loaded before raw
+    // mode, so the error prints normally.
+    #[cfg(feature = "lua")]
+    let config = ekko_lua::load_config_cascade()?;
+    #[cfg(not(feature = "lua"))]
     let config = Config::load_default().unwrap_or_default();
 
     // Restore the terminal from anywhere a panic unwinds through, since the
