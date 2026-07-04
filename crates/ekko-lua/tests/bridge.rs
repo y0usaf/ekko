@@ -1350,7 +1350,11 @@ fn load_extensions_skips_broken_files_and_loads_good_ones() {
     std::fs::write(dir.join("broken.lua"), "not lua at all").unwrap();
     std::fs::write(dir.join("ignored.txt"), "not a script").unwrap();
 
-    let extensions = ekko_lua::load_extensions(&dir, ekko_lua::HostKind::Client);
+    let extensions = ekko_lua::load_extensions(
+        &dir,
+        ekko_lua::HostKind::Client,
+        &ekko_config::Config::default(),
+    );
     assert_eq!(extensions.len(), 1);
     assert_eq!(extensions[0].manifest().id, "user.good");
 
@@ -1378,7 +1382,7 @@ fn host_declaration_filters_where_a_script_loads() {
     .unwrap();
 
     let ids = |host| -> Vec<String> {
-        ekko_lua::load_extensions(&dir, host)
+        ekko_lua::load_extensions(&dir, host, &ekko_config::Config::default())
             .iter()
             .map(|e| e.manifest().id)
             .collect()

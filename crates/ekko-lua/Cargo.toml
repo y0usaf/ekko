@@ -7,8 +7,14 @@ license.workspace = true
 [dependencies]
 anyhow.workspace = true
 log.workspace = true
-mlua = { version = "0.10", features = ["lua54", "vendored", "send"] }
+mlua = { version = "0.10", features = ["lua54", "vendored", "send", "serialize"] }
+ekko-config.workspace = true
 ekko-ext.workspace = true
+
+[dev-dependencies]
+# For the end-to-end proof that init.lua can disable a builtin and a script
+# can take over its name.
+ekko-builtins.workspace = true
 
 [lints]
 workspace = true

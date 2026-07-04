@@ -101,15 +101,39 @@ and `nix flake check` green after each (doctrine 7).
       Gotcha: the flake's `src = self` excludes untracked files — a test
       referencing a new `examples/*.lua` passes locally but fails
       `nix build` until the file is at least staged.
-- [ ] WS-C ← **next**: start with C1/C2 (`load_config` in `ekko-lua`,
-      cascade helper, `ekko.config` table).
-- [ ] WS-D not started.
+- [x] WS-C — landed in one slice (C1+C2+C3+acceptance). `ekko-lua` gains a
+      `config` module: `load_config(path)` evaluates `init.lua` under
+      `HANDLER_BUDGET` in a throwaway state and deserializes the returned
+      table straight into `Config` via mlua's `serialize` feature (untagged
+      `Keybind` round-trips fine), then runs `normalize()` (now `pub`);
+      `load_config_cascade()` (+ `load_config_cascade_in(dir)`, the test
+      seam) is called by both processes' `run()` behind `#[cfg(feature =
+      "lua")]`. Broken `init.lua` is a hard error (no TOML fall-through);
+      broken TOML still degrades to defaults (now with a warning) as
+      before. Unknown top-level keys warn; unknown *nested* keys are
+      silently ignored by serde — accepted. `ekko.config` is a serialized
+      copy set on the collector's ekko table (`LuaExtension::set_config`;
+      `load_extensions` grew a `&Config` param — all call sites updated).
+      `crates/ekko-lua/tests/config.rs` (9 tests) covers round-trip,
+      normalize, unknown keys, hard errors + budget, cascade precedence,
+      no-fall-through, `ekko.config` (custom + default), and the
+      end-to-end disable-and-replace (init.lua disables
+      `ekko-builtins.scroll-mode`, the example script re-registers
+      "scroll"; build success proves it, since duplicate names are hard
+      errors — needed `ekko-builtins` as a dev-dep of `ekko-lua`).
+      **WS-C is complete** — README `## Configuration` section + crate
+      rows and DESIGN.md crate map updated.
+- [ ] WS-D ← **next**: promote the two Lua budgets to a `[lua]` config
+      section (see WS-D below). Note the bootstrap exception: `init.lua`
+      itself is still evaluated under the hard-coded `HANDLER_BUDGET`.
 
 Tree note: `crates/ekko-lua/tests/which_key_real.rs` (pinned to a local
 `~/.config/ekko` path), `examples/window-frame.lua`, and `.claude/` are
 deliberately-untracked local scratch — not part of this plan's work; a
 dirty-looking `git status` showing only these is fine. (`result` is now
-gitignored; `nix build` no longer dirties the tree.)
+gitignored; `nix build` no longer dirties the tree.) A pre-existing
+clippy warning in ekko-client (`items_after_test_module`, lib.rs ~287)
+predates WS-C and does not gate the flake — ignore or fix as a drive-by.
 
 ---
 

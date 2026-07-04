@@ -1,8 +1,11 @@
-//! ekko configuration: a single TOML file shared by client and server.
+//! ekko configuration: the settings schema shared by client and server.
 //!
 //! Loaded once at process start; a missing file yields `Config::default()`.
-//! Keybind values stay as raw strings here — chord parsing lives in the
-//! client's input layer, which owns the key vocabulary.
+//! This crate parses only TOML (`config.toml`) — the `init.lua` settings
+//! source that supersedes it lives in `ekko-lua`, which deserializes the
+//! returned table into the same [`Config`], so this crate stays a dumb,
+//! dependency-free store. Keybind values stay as raw strings here — chord
+//! parsing lives in the client's input layer, which owns the key vocabulary.
 
 use std::collections::BTreeMap;
 use std::fs;
@@ -141,7 +144,9 @@ impl Config {
         defaults.iter().map(|s| s.to_string()).collect()
     }
 
-    fn normalize(&mut self) {
+    /// Repair nonsense values after deserializing (from TOML here, or from
+    /// an `init.lua` table in `ekko-lua`).
+    pub fn normalize(&mut self) {
         if self.general.scrollback_lines == 0 {
             self.general.scrollback_lines = SCROLLBACK_LINES_DEFAULT;
         }

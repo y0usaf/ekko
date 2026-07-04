@@ -55,7 +55,7 @@ bare harness: attach, raw key passthrough, fullscreen grid, nothing else.
 | `ekko-lua` | Lua scripting bridge: `~/.config/ekko/extensions/*.lua` become extensions, with instruction budgets and buffered draw ops |
 | `ekko-grid` | Cell surface, damage tracking, diffed ANSI renderer (from phi-grid) |
 | `ekko-tui` | Raw mode, terminal caps, cell-width/spinner primitives (from phi-tui / pi-harness) |
-| `ekko-config` | `~/.config/ekko/config.toml` (`[keybinds]`, `[extensions] disabled`) |
+| `ekko-config` | Config schema (`keybinds`, `extensions.disabled`, …); parses `config.toml` — `init.lua` evaluation lives in `ekko-lua` |
 
 `ref/` holds local checkouts of zellij, phi, and pi-harness used as design
 references; it is not part of the build.
@@ -106,6 +106,35 @@ screen. All keybinds are configurable under `[keybinds]` in the config
 mode-scoped bindings like the leader map — bare printables and `space`; one
 action can take a list of chords). Leader entries rebind as
 `"leader.<action>" = "<key>"`, the chord itself as `leader = "..."`.
+
+## Configuration
+
+`~/.config/ekko/init.lua`, when present, supersedes `config.toml` as the
+settings source. It evaluates — under the same instruction budget as any
+script — to a table congruent with the config schema:
+
+```lua
+return {
+  general = { default_shell = "/run/current-system/sw/bin/nu", scrollback_lines = 50000 },
+  ui = { sidebar_width = 28 },
+  keybinds = { detach = "ctrl+q", session_next = { "ctrl+j", "ctrl+down" } },
+  extensions = { disabled = { "ekko-builtins.sidebar" } },
+}
+```
+
+Being Lua, conditionals and env dispatch come for free; ekko only ever sees
+the returned table (config declares data — it cannot register callbacks).
+Unknown keys warn and are ignored, since config files outlive binaries, but
+a *broken* `init.lua` is a hard error: refusing to start beats silently
+running on defaults, so there is no fall-through to a coexisting
+`config.toml`. Without `init.lua`, `config.toml` applies (same schema,
+TOML spelling); without either, defaults. The client and the per-session
+daemon load the same cascade, and scripts read the resolved result as a
+read-only `ekko.config` table.
+
+Disabling a builtin under `extensions.disabled` and re-registering its name
+from a script is the supported way to replace any stock feature wholesale —
+every registry (modes, spinners, the session grouper included) is bridged.
 
 ## Lua extensions
 

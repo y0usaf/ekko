@@ -37,6 +37,7 @@ fn build_runtime(config: &ekko_config::Config) -> anyhow::Result<ekko_ext::AppRu
     let builder = builder.register_boxed_extensions(ekko_lua::load_extensions(
         &ekko_config::config_dir().join("extensions"),
         ekko_lua::HostKind::Server,
+        config,
     ));
     builder.build()
 }
@@ -48,6 +49,11 @@ fn build_runtime(config: &ekko_config::Config) -> anyhow::Result<ekko_ext::AppRu
 /// redirected to `~/.cache/ekko/logs/<session_name>.log`) and only the child
 /// process's call returns; the parent exits from inside `daemonize::start`.
 pub fn run(session_name: &str, daemonize: bool) -> anyhow::Result<()> {
+    // `init.lua` supersedes `config.toml`; a broken `init.lua` refuses to
+    // start rather than silently running on defaults.
+    #[cfg(feature = "lua")]
+    let config = ekko_lua::load_config_cascade()?;
+    #[cfg(not(feature = "lua"))]
     let config = ekko_config::Config::load_default().unwrap_or_default();
     let runtime = build_runtime(&config).context("building extension runtime")?;
     run_with_runtime(session_name, daemonize, config, runtime)
