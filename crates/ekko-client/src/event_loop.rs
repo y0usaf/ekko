@@ -14,7 +14,7 @@ use std::time::{Duration, Instant};
 use anyhow::Result;
 use ekko_ext::{
     AppRuntime, ClientSnapshot, EventKind, EventPayload, EventReturn, KeyIntercept, ModeOutcome,
-    NoteKind, OverlayOutcome, ProjectGroup, ResolvedLayout, SessionEntry, ThemePalette, UiAction,
+    NoteKind, OverlayOutcome, ResolvedLayout, ThemePalette, UiAction, fallback_group,
     resolve_layout,
 };
 use ekko_grid::ansi::AnsiRenderer;
@@ -1120,19 +1120,6 @@ impl App<'_> {
             state: init_state(payload),
         });
     }
-}
-
-/// Grouping fallback when no session grouper is registered (bare harness):
-/// one flat, name-sorted group.
-fn fallback_group(mut sessions: Vec<SessionEntry>) -> Vec<ProjectGroup> {
-    if sessions.is_empty() {
-        return Vec::new();
-    }
-    sessions.sort_by(|a, b| a.name.cmp(&b.name));
-    vec![ProjectGroup {
-        name: "sessions".to_string(),
-        sessions,
-    }]
 }
 
 fn now_millis() -> u64 {

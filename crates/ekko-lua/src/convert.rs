@@ -6,7 +6,8 @@
 use anyhow::{Result, anyhow, bail};
 use ekko_ext::{
     ClientSnapshot, Color, EventKind, EventPayload, EventReturn, KeyIntercept, ModeOutcome,
-    NoteKind, NoticeLevel, RegistryView, SurfaceMouseEvent, ThemePalette, UiAction,
+    NoteKind, NoticeLevel, ProjectGroup, RegistryView, SessionEntry, SurfaceMouseEvent,
+    ThemePalette, UiAction,
 };
 use mlua::{Lua, Table, Value};
 
@@ -53,25 +54,31 @@ pub fn snapshot_table(lua: &Lua, snapshot: &ClientSnapshot) -> mlua::Result<Tabl
     for (i, project) in snapshot.projects.iter().enumerate() {
         let p = lua.create_table()?;
         p.set("name", project.name.clone())?;
-        let sessions = lua.create_table()?;
-        for (j, session) in project.sessions.iter().enumerate() {
-            let s = lua.create_table()?;
-            s.set("name", session.name.clone())?;
-            s.set("cwd", session.cwd.display().to_string())?;
-            s.set(
-                "state",
-                match session.state {
-                    ekko_ext::SessionState::Alive => "alive",
-                    ekko_ext::SessionState::Gone => "gone",
-                },
-            )?;
-            s.set("created_at_secs", session.created_at_secs)?;
-            sessions.set(j + 1, s)?;
-        }
-        p.set("sessions", sessions)?;
+        p.set("sessions", session_entries_table(lua, &project.sessions)?)?;
         projects.set(i + 1, p)?;
     }
     t.set("projects", projects)?;
+    Ok(t)
+}
+
+/// Session entries as an array of plain tables — the grouper's input and
+/// the per-project session lists inside the snapshot.
+pub fn session_entries_table(lua: &Lua, sessions: &[SessionEntry]) -> mlua::Result<Table> {
+    let t = lua.create_table()?;
+    for (i, session) in sessions.iter().enumerate() {
+        let s = lua.create_table()?;
+        s.set("name", session.name.clone())?;
+        s.set("cwd", session.cwd.display().to_string())?;
+        s.set(
+            "state",
+            match session.state {
+                ekko_ext::SessionState::Alive => "alive",
+                ekko_ext::SessionState::Gone => "gone",
+            },
+        )?;
+        s.set("created_at_secs", session.created_at_secs)?;
+        t.set(i + 1, s)?;
+    }
     Ok(t)
 }
 
@@ -395,6 +402,65 @@ pub fn cursor_from_value(value: &Value) -> Option<(i32, i32)> {
     let row = t.get::<Option<i32>>("row").ok()??;
     let col = t.get::<Option<i32>>("col").ok()??;
     Some((row, col))
+}
+
+/// Parse a grouper's return: an array of `{ name =, sessions = { ... } }`
+/// tables where sessions are referenced **by name** — scripts cannot
+/// fabricate entries, only arrange the ones they were given.
+pub fn group_claims_from_value(value: &Value) -> Result<Vec<(String, Vec<String>)>> {
+    let Value::Table(t) = value else {
+        bail!("expected an array of groups, got {value:?}");
+    };
+    let mut claims = Vec::new();
+    for entry in t.clone().sequence_values::<Table>() {
+        let group = entry?;
+        let name: String = group
+            .get::<Option<String>>("name")?
+            .ok_or_else(|| anyhow!("group table needs a 'name'"))?;
+        let sessions: Vec<String> = match group.get::<Option<Table>>("sessions")? {
+            Some(t) => t.sequence_values::<String>().collect::<mlua::Result<_>>()?,
+            None => Vec::new(),
+        };
+        claims.push((name, sessions));
+    }
+    Ok(claims)
+}
+
+/// Rehydrate name claims against the real input entries. Unknown names and
+/// repeat claims are dropped; groups left empty are dropped; every input
+/// session no group claimed lands in a trailing "ungrouped" group, so a
+/// buggy script cannot make sessions vanish from the sidebar.
+pub fn rehydrate_groups(
+    claims: Vec<(String, Vec<String>)>,
+    sessions: Vec<SessionEntry>,
+) -> Vec<ProjectGroup> {
+    let index: std::collections::HashMap<String, usize> = sessions
+        .iter()
+        .enumerate()
+        .map(|(i, s)| (s.name.clone(), i))
+        .collect();
+    let mut pool: Vec<Option<SessionEntry>> = sessions.into_iter().map(Some).collect();
+    let mut groups = Vec::new();
+    for (name, session_names) in claims {
+        let members: Vec<SessionEntry> = session_names
+            .iter()
+            .filter_map(|n| pool[*index.get(n)?].take())
+            .collect();
+        if !members.is_empty() {
+            groups.push(ProjectGroup {
+                name,
+                sessions: members,
+            });
+        }
+    }
+    let unclaimed: Vec<SessionEntry> = pool.into_iter().flatten().collect();
+    if !unclaimed.is_empty() {
+        groups.push(ProjectGroup {
+            name: "ungrouped".to_string(),
+            sessions: unclaimed,
+        });
+    }
+    groups
 }
 
 /// Normalize a subscription handler's return into an [`EventReturn`].
