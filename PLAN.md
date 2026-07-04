@@ -65,11 +65,20 @@ and `nix flake check` green after each (doctrine 7).
       reload paragraph; DESIGN.md deferred-hooks list rewritten: the stale
       "modes/spinners/grouper not bridged" and "server-side Lua deferred"
       bullets replaced by the hot-reload caveat).
-- [ ] B3 payload marshaling audit ← **next**: audit `payload_table` in
-      `convert.rs` against every `EventPayload` variant; unrenderable
-      variants become explicit `nil` payloads, not errors.
-- [ ] B4 failure-containment tests (budget blowout on `BeforePtySpawn`
-      degrades to no-override; abandoned `SharedLua` lock fails cleanly).
+- [x] B3 payload marshaling audit — landed. Audit result: no gaps to fill —
+      `payload_table`'s match is already exhaustive with no wildcard (all 17
+      `EventPayload` variants render; a new variant is a compile error until
+      it does), and `event_return_from_value` covers all 4 `EventReturn`
+      shapes. The "unrenderable → explicit nil" contingency was never
+      needed. What was missing was pinning: bridge.rs gains a table-driven
+      test dispatching every payload variant through a real subscription
+      (handler echoes the payload as a sorted `key=value` notice; also pins
+      `exit_code = nil` when `None`, and that every `EventKind::ALL` name is
+      subscribable), plus a `spawn_override` return test (shell/cwd/env) —
+      `EmitNotice`/`PtySpawnOverride` previously had zero test coverage.
+- [ ] B4 failure-containment tests ← **next** (budget blowout on
+      `BeforePtySpawn` degrades to no-override; abandoned `SharedLua` lock
+      fails cleanly).
 - [ ] B-acceptance: server seam test (`crates/ekko-server/tests/extensions.rs`)
       driving a `host = "server"` script through `SessionCreated` +
       `BeforePtySpawn` end-to-end; `examples/spawn-hook.lua`. (Host

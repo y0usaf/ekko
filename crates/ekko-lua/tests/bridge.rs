@@ -3,10 +3,12 @@
 //! dispatch paths, and the guard rails (instruction budgets, buffered draw
 //! ops) actually hold.
 
+use std::path::Path;
+
 use ekko_ext::{
     AppRuntime, ClientSnapshot, Color, CommandDispatch, DrawContext, EventKind, EventPayload,
-    EventReturn, KeyIntercept, NoteKind, Rect, RuntimeBuilder, SessionEntry, SessionState,
-    SurfaceSize, ThemePalette, UiAction,
+    EventReturn, KeyIntercept, NoteKind, Rect, RuntimeBuilder, SessionEntry, SessionExitReason,
+    SessionState, SurfaceSize, ThemePalette, UiAction,
 };
 use ekko_lua::LuaExtension;
 
@@ -475,6 +477,238 @@ fn subscriptions_observe_and_gate() {
     assert!(
         matches!(&returns[0], EventReturn::KeyIntercept(KeyIntercept::Transform(b)) if b == b"b")
     );
+}
+
+#[test]
+fn every_event_payload_marshals_to_lua() {
+    // `payload_table`'s match is exhaustive, so a new `EventPayload` variant
+    // fails compilation until it renders; this pins the table shape each
+    // existing variant presents to scripts. One handler subscribed to every
+    // canonical event name echoes the payload back as a sorted `key=value`
+    // line through the `notice` return.
+    let names: String = EventKind::ALL
+        .iter()
+        .map(|kind| format!("\"{}\", ", kind.name()))
+        .collect();
+    let source = r#"
+        local ext = { id = "user.echo" }
+        function ext.register(ekko)
+          local function describe(payload)
+            local keys = {}
+            for key in pairs(payload) do keys[#keys + 1] = key end
+            table.sort(keys)
+            local parts = {}
+            for _, key in ipairs(keys) do
+              parts[#parts + 1] = key .. "=" .. tostring(payload[key])
+            end
+            return table.concat(parts, " ")
+          end
+          for _, name in ipairs({ EVENT_NAMES }) do
+            ekko.subscribe(name, function(payload)
+              return { notice = { message = describe(payload) } }
+            end)
+          end
+        end
+        return ext
+        "#
+    .replace("EVENT_NAMES", &names);
+    let runtime = runtime(&source);
+
+    let cases: Vec<(EventKind, EventPayload, &str)> = vec![
+        (EventKind::ClientReady, EventPayload::Empty, ""),
+        (
+            EventKind::SessionAttached,
+            EventPayload::SessionAttached {
+                session_name: "main".into(),
+                wire_version: 3,
+            },
+            "session_name=main wire_version=3",
+        ),
+        (
+            EventKind::BeforeSessionDetach,
+            EventPayload::BeforeSessionDetach {
+                session_name: "main".into(),
+            },
+            "session_name=main",
+        ),
+        (
+            EventKind::BeforeSessionSwitch,
+            EventPayload::SessionSwitch {
+                from: "a".into(),
+                to: "b".into(),
+            },
+            "from=a to=b",
+        ),
+        (
+            EventKind::GridUpdated,
+            EventPayload::GridUpdated {
+                epoch: 7,
+                cols: 80,
+                rows: 24,
+            },
+            "cols=80 epoch=7 rows=24",
+        ),
+        (
+            EventKind::Resize,
+            EventPayload::Resize {
+                cols: 120,
+                rows: 40,
+            },
+            "cols=120 rows=40",
+        ),
+        (
+            EventKind::Tick,
+            EventPayload::Tick { now_ms: 99 },
+            "now_ms=99",
+        ),
+        (
+            EventKind::KeyInput,
+            EventPayload::KeyInput {
+                bytes: b"x".to_vec(),
+            },
+            "bytes=x",
+        ),
+        (
+            EventKind::ModeChanged,
+            EventPayload::ModeChanged {
+                from: "normal".into(),
+                to: "scroll".into(),
+            },
+            "from=normal to=scroll",
+        ),
+        (
+            EventKind::CommandInvoked,
+            EventPayload::CommandInvoked {
+                name: "split".into(),
+                raw_args: "-h".into(),
+            },
+            "name=split raw_args=-h",
+        ),
+        (
+            EventKind::BeforePtySpawn,
+            EventPayload::PtySpawn {
+                session_name: "main".into(),
+                shell: "/bin/sh".into(),
+                cwd: "/tmp".into(),
+                cols: 80,
+                rows: 24,
+            },
+            "cols=80 cwd=/tmp rows=24 session_name=main shell=/bin/sh",
+        ),
+        (
+            EventKind::SessionCreated,
+            EventPayload::SessionCreated {
+                session_name: "main".into(),
+                shell: "/bin/sh".into(),
+                cwd: "/tmp".into(),
+            },
+            "cwd=/tmp session_name=main shell=/bin/sh",
+        ),
+        (
+            EventKind::ClientAttached,
+            EventPayload::ClientAttached {
+                session_name: "main".into(),
+                client_id: 7,
+                cols: 80,
+                rows: 24,
+            },
+            "client_id=7 cols=80 rows=24 session_name=main",
+        ),
+        (
+            EventKind::ClientDetached,
+            EventPayload::ClientDetached {
+                session_name: "main".into(),
+                client_id: 7,
+            },
+            "client_id=7 session_name=main",
+        ),
+        (
+            EventKind::SessionExited,
+            EventPayload::SessionExited {
+                session_name: "main".into(),
+                exit_code: Some(0),
+                reason: SessionExitReason::ShellExited,
+            },
+            "exit_code=0 reason=shell_exited session_name=main",
+        ),
+        // A `None` exit code is an absent key, not an error or a 0.
+        (
+            EventKind::SessionExited,
+            EventPayload::SessionExited {
+                session_name: "main".into(),
+                exit_code: None,
+                reason: SessionExitReason::Killed,
+            },
+            "reason=killed session_name=main",
+        ),
+        (
+            EventKind::PtyResized,
+            EventPayload::PtyResized {
+                session_name: "main".into(),
+                cols: 80,
+                rows: 24,
+            },
+            "cols=80 rows=24 session_name=main",
+        ),
+        (
+            EventKind::Heartbeat,
+            EventPayload::Heartbeat {
+                session_name: "main".into(),
+            },
+            "session_name=main",
+        ),
+        (
+            EventKind::Bell,
+            EventPayload::Bell {
+                session_name: "main".into(),
+            },
+            "session_name=main",
+        ),
+    ];
+    for (kind, payload, expected) in cases {
+        let returns = runtime.dispatch(kind, payload);
+        let [EventReturn::EmitNotice { message, .. }] = returns.as_slice() else {
+            panic!("expected one notice for {kind:?}, got {returns:?}");
+        };
+        assert_eq!(message, expected, "payload table for {kind:?}");
+    }
+}
+
+#[test]
+fn spawn_override_returns_marshal_shell_cwd_and_env() {
+    let runtime = runtime(
+        r#"
+        local ext = { id = "user.spawnhook" }
+        function ext.register(ekko)
+          ekko.subscribe("before_pty_spawn", function(payload)
+            return {
+              spawn_override = {
+                shell = "/bin/zsh",
+                cwd = "/tmp",
+                env = { EKKO_HOOKED = payload.session_name },
+              },
+            }
+          end)
+        end
+        return ext
+        "#,
+    );
+    let returns = runtime.dispatch(
+        EventKind::BeforePtySpawn,
+        EventPayload::PtySpawn {
+            session_name: "main".into(),
+            shell: "/bin/sh".into(),
+            cwd: "/home".into(),
+            cols: 80,
+            rows: 24,
+        },
+    );
+    let [EventReturn::PtySpawnOverride { shell, cwd, env }] = returns.as_slice() else {
+        panic!("expected a spawn override, got {returns:?}");
+    };
+    assert_eq!(shell.as_deref(), Some(Path::new("/bin/zsh")));
+    assert_eq!(cwd.as_deref(), Some(Path::new("/tmp")));
+    assert_eq!(env, &[("EKKO_HOOKED".to_string(), "main".to_string())]);
 }
 
 #[test]
