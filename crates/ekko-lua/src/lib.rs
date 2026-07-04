@@ -37,6 +37,13 @@
 //! `visible`/`wants_tick`/`on_mouse`), overlays (with `build_payload`),
 //! modes, themes, spinners, the session grouper, the session namer, and
 //! event subscriptions — every `ExtensionHost` registry.
+//!
+//! A script declares which process hosts it via an optional `host` manifest
+//! field: `"client"` (the default), `"server"`, or `"both"`.
+//! [`load_extensions`] filters on the loading process's [`HostKind`].
+//! `"both"` means the script is evaluated independently in each process —
+//! two separate Lua states with no shared state, ever; anything the two
+//! halves need to exchange goes through events like every other extension.
 
 mod convert;
 mod draw;
@@ -88,9 +95,38 @@ fn with_budget<R>(lua: &Lua, budget: u32, f: impl FnOnce(&Lua) -> mlua::Result<R
     result.map_err(|e| anyhow!("{e}"))
 }
 
+/// Which process is loading scripts. Scripts declare where they run via the
+/// manifest's `host` field; [`load_extensions`] keeps only the ones matching
+/// the loading process.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum HostKind {
+    Client,
+    Server,
+}
+
+/// A script manifest's `host` declaration: `"client"` (default), `"server"`,
+/// or `"both"`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ScriptHost {
+    Client,
+    Server,
+    Both,
+}
+
+impl ScriptHost {
+    fn matches(self, host: HostKind) -> bool {
+        match self {
+            Self::Both => true,
+            Self::Client => host == HostKind::Client,
+            Self::Server => host == HostKind::Server,
+        }
+    }
+}
+
 /// One `.lua` script, loaded and evaluated, ready to register.
 pub struct LuaExtension {
     manifest: ExtensionManifest,
+    host: ScriptHost,
     lua: SharedLua,
     register_fn: RegistryKey,
 }
@@ -123,6 +159,28 @@ impl LuaExtension {
             description: field("description", ""),
             id,
         };
+        // Unlike the descriptive fields above, a mistyped `host` must not
+        // silently default: a server hook quietly loading client-side is a
+        // correctness bug, not a cosmetic one.
+        let host = match ext.get::<Value>("host")? {
+            Value::Nil => ScriptHost::Client,
+            Value::String(s) => match s.to_str()?.as_ref() {
+                "client" => ScriptHost::Client,
+                "server" => ScriptHost::Server,
+                "both" => ScriptHost::Both,
+                other => {
+                    return Err(anyhow!(
+                        "lua extension '{origin}' declares unknown host '{other}' \
+                         (expected \"client\", \"server\", or \"both\")"
+                    ));
+                }
+            },
+            _ => {
+                return Err(anyhow!(
+                    "lua extension '{origin}' 'host' field must be a string"
+                ));
+            }
+        };
         let register: Function = ext
             .get::<Option<Function>>("register")
             .ok()
@@ -131,6 +189,7 @@ impl LuaExtension {
         let register_fn = lua.create_registry_value(register)?;
         Ok(Self {
             manifest,
+            host,
             lua: Arc::new(Mutex::new(lua)),
             register_fn,
         })
@@ -144,12 +203,13 @@ impl LuaExtension {
     }
 }
 
-/// Load every `*.lua` file in `dir` (sorted by name), skipping — with a
-/// logged warning — scripts that fail to evaluate, so one broken user
-/// script degrades to a warning instead of an unusable terminal.
-/// Registration conflicts (duplicate names) still fail the runtime build
-/// loudly, exactly as they do for native extensions.
-pub fn load_extensions(dir: &Path) -> Vec<Box<dyn Extension>> {
+/// Load every `*.lua` file in `dir` (sorted by name) whose `host`
+/// declaration matches the loading process, skipping — with a logged
+/// warning — scripts that fail to evaluate, so one broken user script
+/// degrades to a warning instead of an unusable terminal. Registration
+/// conflicts (duplicate names) still fail the runtime build loudly,
+/// exactly as they do for native extensions.
+pub fn load_extensions(dir: &Path, host: HostKind) -> Vec<Box<dyn Extension>> {
     let Ok(entries) = std::fs::read_dir(dir) else {
         return Vec::new();
     };
@@ -161,7 +221,15 @@ pub fn load_extensions(dir: &Path) -> Vec<Box<dyn Extension>> {
     paths
         .into_iter()
         .filter_map(|path| match LuaExtension::from_file(&path) {
-            Ok(ext) => Some(Box::new(ext) as Box<dyn Extension>),
+            Ok(ext) if ext.host.matches(host) => Some(Box::new(ext) as Box<dyn Extension>),
+            Ok(ext) => {
+                log::debug!(
+                    "not loading lua extension {} here: host = {:?}, loading for {host:?}",
+                    path.display(),
+                    ext.host,
+                );
+                None
+            }
             Err(err) => {
                 log::warn!("skipping lua extension {}: {err:#}", path.display());
                 None

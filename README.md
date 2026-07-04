@@ -148,6 +148,15 @@ callback runs under an instruction budget, and draw calls are buffered ops
 replayed only if the callback returns cleanly — a runaway script errors out
 instead of wedging the terminal.
 
+A manifest's optional `host` field declares which process runs the script:
+`"client"` (the default), `"server"` for the per-session daemon (e.g.
+gating `before_pty_spawn`), or `"both"`. A `"both"` script is evaluated
+independently in each process — two Lua states sharing nothing; the halves
+communicate through events like any other extensions. The daemon evaluates
+scripts once at session start: editing a server script takes effect on the
+next session (`ekko kill` + resurrection is the reload path), while client
+scripts reload on the next attach.
+
 A keybinding registered with `mode = "leader"` becomes a leader-map entry:
 the host dispatches it while the leader mode is active, and the which-key
 panel lists it automatically. `examples/leader-map.lua` shows leaf entries

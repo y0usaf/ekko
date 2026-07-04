@@ -25,12 +25,19 @@ use signal_hook::iterator::Signals;
 
 use hub::{Hub, HubInstruction};
 
-/// Build the daemon's extension runtime: builtins first, filtered by
-/// `[extensions] disabled`.
+/// Build the daemon's extension runtime: builtins first (so user extensions
+/// reusing a name fail loudly), filtered by `[extensions] disabled`. Only
+/// scripts declaring `host = "server"` or `"both"` load here; a `"both"`
+/// script gets its own Lua state per process.
 fn build_runtime(config: &ekko_config::Config) -> anyhow::Result<ekko_ext::AppRuntime> {
     let builder = ekko_ext::RuntimeBuilder::new().with_disabled(&config.extensions.disabled);
     #[cfg(feature = "builtins")]
     let builder = builder.register_boxed_extensions(ekko_builtins::server_extensions());
+    #[cfg(feature = "lua")]
+    let builder = builder.register_boxed_extensions(ekko_lua::load_extensions(
+        &ekko_config::config_dir().join("extensions"),
+        ekko_lua::HostKind::Server,
+    ));
     builder.build()
 }
 

@@ -5,8 +5,9 @@ edition.workspace = true
 license.workspace = true
 
 [features]
-default = ["builtins"]
+default = ["builtins", "lua"]
 builtins = ["dep:ekko-builtins"]
+lua = ["dep:ekko-lua"]
 
 [dependencies]
 anyhow.workspace = true
@@ -17,6 +18,7 @@ interprocess.workspace = true
 log = { workspace = true, features = ["std"] }
 ekko-builtins = { workspace = true, optional = true }
 ekko-config.workspace = true
+ekko-lua = { workspace = true, optional = true }
 ekko-event.workspace = true
 ekko-ext.workspace = true
 ekko-proto.workspace = true
