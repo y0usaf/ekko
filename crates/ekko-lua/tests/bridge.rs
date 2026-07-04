@@ -404,6 +404,74 @@ fn runaway_command_errors_instead_of_hanging() {
 }
 
 #[test]
+fn config_raises_the_instruction_budgets() {
+    // WS-D acceptance: the budgets are `[lua]` config, not constants. One
+    // loop heavy enough to blow both defaults (3M iterations is > the 2M
+    // handler budget and >> the 200k draw budget) fails under
+    // `Config::default()` and completes once the config raises the budgets
+    // — pinning both that the defaults still bind and that the raise
+    // actually reaches every callback path.
+    let script = r#"
+        local ext = { id = "user.heavy" }
+        local function grind()
+          local n = 0
+          for i = 1, 3000000 do n = n + 1 end
+          return n
+        end
+        function ext.register(ekko)
+          ekko.register_command({
+            name = "heavy",
+            handler = function(args)
+              return { { set_status_note = { text = "n=" .. grind(), kind = "ok", ttl_ms = 1000 } } }
+            end,
+          })
+          ekko.register_surface({
+            name = "heavy-bar", dock = "bottom", size = 1,
+            draw = function(ctx, snapshot)
+              ctx.put_text(0, 0, 20, "text", "surface", "n=" .. grind())
+            end,
+          })
+        end
+        return ext
+    "#;
+
+    let default_runtime = runtime(script);
+    match default_runtime.invoke_command(":heavy") {
+        CommandDispatch::Failed(message) => {
+            assert!(message.contains("instruction budget exceeded"), "{message}");
+        }
+        other => panic!("expected Failed under default budget, got {other:?}"),
+    }
+    let mut recorder = Recorder::default();
+    (default_runtime.surface("heavy-bar").unwrap().draw)(&mut recorder, &snapshot());
+    assert!(recorder.calls.is_empty());
+
+    let mut ext = LuaExtension::from_source("heavy.lua", script).expect("script loads");
+    let mut config = ekko_config::Config::default();
+    config.lua.handler_budget = 50_000_000;
+    config.lua.draw_budget = 50_000_000;
+    ext.set_config(&config);
+    let raised_runtime = RuntimeBuilder::new()
+        .register_boxed_extension(Box::new(ext))
+        .build()
+        .expect("runtime builds");
+    assert_eq!(
+        raised_runtime.invoke_command(":heavy"),
+        CommandDispatch::Invoked(vec![UiAction::SetStatusNote {
+            text: "n=3000000".into(),
+            kind: NoteKind::Ok,
+            ttl_ms: 1000,
+        }])
+    );
+    let mut recorder = Recorder::default();
+    (raised_runtime.surface("heavy-bar").unwrap().draw)(&mut recorder, &snapshot());
+    assert_eq!(
+        recorder.calls,
+        vec!["styled 0 0 n=3000000 r=false b=false".to_string()]
+    );
+}
+
+#[test]
 fn surface_visibility_predicate_is_bridged() {
     let runtime = runtime(
         r#"

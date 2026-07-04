@@ -1,8 +1,10 @@
 //! `init.lua` config loading: the Lua settings source.
 //!
 //! `~/.config/ekko/init.lua`, when present, supersedes `config.toml`. It
-//! evaluates — under the same instruction budget as any script, in a
-//! throwaway Lua state — to a table congruent with [`ekko_config::Config`];
+//! evaluates — in a throwaway Lua state, under the hard-coded bootstrap
+//! budget (config can raise the `[lua]` budgets scripts run under, but not
+//! the budget it is itself read under) — to a table congruent with
+//! [`ekko_config::Config`];
 //! being Lua, users get conditionals and env dispatch for free, and ekko
 //! only ever sees the returned table. Evaluation lives here rather than in
 //! `ekko-config` so the config crate stays a dumb, dependency-free store.
@@ -16,7 +18,7 @@ use std::path::Path;
 use anyhow::{Context, Result};
 use mlua::{Lua, LuaSerdeExt, Table, Value};
 
-use crate::{HANDLER_BUDGET, with_budget};
+use crate::{BOOTSTRAP_BUDGET, with_budget};
 
 /// Load config per the cascade both processes share: `init.lua` if present,
 /// else `config.toml`, else defaults. Only the `init.lua` arm is a hard
@@ -53,12 +55,12 @@ pub fn load_config(path: &Path) -> Result<ekko_config::Config> {
 
 fn config_from_source(origin: &str, source: &str) -> Result<ekko_config::Config> {
     let lua = Lua::new();
-    let table: Table = with_budget(&lua, HANDLER_BUDGET, |lua| {
+    let table: Table = with_budget(&lua, BOOTSTRAP_BUDGET, |lua| {
         lua.load(source).set_name(origin).eval()
     })
     .context("evaluating (must return a table)")?;
 
-    const KNOWN: [&str; 4] = ["general", "ui", "keybinds", "extensions"];
+    const KNOWN: [&str; 5] = ["general", "ui", "keybinds", "extensions", "lua"];
     for pair in table.pairs::<Value, Value>() {
         let (key, _) = pair?;
         let name = match &key {

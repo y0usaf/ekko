@@ -35,6 +35,7 @@ fn init_lua_round_trips_every_section() {
           ui = { sidebar_width = 28 },
           keybinds = { detach = "ctrl+q", session_next = { "ctrl+j", "ctrl+down" } },
           extensions = { disabled = { "ekko-builtins.sidebar" } },
+          lua = { draw_budget = 500000, handler_budget = 4000000 },
         }
         "#,
     )
@@ -51,17 +52,29 @@ fn init_lua_round_trips_every_section() {
         vec!["ctrl+j".to_string(), "ctrl+down".to_string()]
     );
     assert_eq!(config.extensions.disabled, vec!["ekko-builtins.sidebar"]);
+    assert_eq!(config.lua.draw_budget, 500_000);
+    assert_eq!(config.lua.handler_budget, 4_000_000);
 }
 
 #[test]
 fn missing_sections_default_and_nonsense_is_normalized() {
-    // Same normalize() pass the TOML path runs: 0 scrollback → default.
-    let config = load_source("normalize", "return { general = { scrollback_lines = 0 } }").unwrap();
+    // Same normalize() pass the TOML path runs: 0 scrollback / 0 budget
+    // (which would abort every callback on its first instruction) → default.
+    let config = load_source(
+        "normalize",
+        "return { general = { scrollback_lines = 0 }, lua = { handler_budget = 0 } }",
+    )
+    .unwrap();
     assert_eq!(
         config.general.scrollback_lines,
         ekko_config::SCROLLBACK_LINES_DEFAULT
     );
     assert_eq!(config.sidebar_width(), ekko_config::SIDEBAR_WIDTH_DEFAULT);
+    assert_eq!(
+        config.lua.handler_budget,
+        ekko_config::LUA_HANDLER_BUDGET_DEFAULT
+    );
+    assert_eq!(config.lua.draw_budget, ekko_config::LUA_DRAW_BUDGET_DEFAULT);
 }
 
 #[test]

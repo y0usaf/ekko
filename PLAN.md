@@ -123,9 +123,27 @@ and `nix flake check` green after each (doctrine 7).
       errors — needed `ekko-builtins` as a dev-dep of `ekko-lua`).
       **WS-C is complete** — README `## Configuration` section + crate
       rows and DESIGN.md crate map updated.
-- [ ] WS-D ← **next**: promote the two Lua budgets to a `[lua]` config
-      section (see WS-D below). Note the bootstrap exception: `init.lua`
-      itself is still evaluated under the hard-coded `HANDLER_BUDGET`.
+- [x] WS-D — landed. `Config` gains a `lua` section (`LuaLimits`:
+      `draw_budget` / `handler_budget`, defaults = the old constants, now
+      `ekko_config::LUA_*_BUDGET_DEFAULT`; `normalize()` repairs 0 → default
+      since a zero budget would abort every callback instantly). The bridge
+      reads budgets from the extension's config at register time (closures
+      capture the plain `u32`s); the sole remaining constant is
+      `BOOTSTRAP_BUDGET` for the two paths no config can govern — evaluating
+      `init.lua` itself and a script's top-level chunk (both run before any
+      config attaches; `register()` runs after `set_config`, so it *is*
+      config-governed). D-acceptance pinned in `bridge.rs::
+      config_raises_the_instruction_budgets`: one 3M-iteration loop fails a
+      command handler and draws nothing under `Config::default()`, then
+      completes on both paths once config raises the budgets — proving the
+      defaults still bind *and* the raise reaches the callbacks. Config
+      round-trip + zero-repair covered in the config tests; `"lua"` added to
+      the known-top-level-keys warn list.
+
+**All four workstreams are complete.** The answer to "what can't Lua
+configure?" is now exactly the irreducible list at the top of this file.
+Remaining known wart: the pre-existing ekko-client clippy warning noted
+below (non-gating).
 
 Tree note: `crates/ekko-lua/tests/which_key_real.rs` (pinned to a local
 `~/.config/ekko` path), `examples/window-frame.lua`, and `.claude/` are
