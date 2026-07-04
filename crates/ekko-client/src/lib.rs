@@ -115,6 +115,7 @@ fn build_runtime(
     #[cfg(feature = "lua")]
     let builder = builder.register_boxed_extensions(ekko_lua::load_extensions(
         &ekko_config::config_dir().join("extensions"),
+        ekko_lua::HostKind::Client,
     ));
     builder.build()
 }

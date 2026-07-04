@@ -983,9 +983,63 @@ fn load_extensions_skips_broken_files_and_loads_good_ones() {
     std::fs::write(dir.join("broken.lua"), "not lua at all").unwrap();
     std::fs::write(dir.join("ignored.txt"), "not a script").unwrap();
 
-    let extensions = ekko_lua::load_extensions(&dir);
+    let extensions = ekko_lua::load_extensions(&dir, ekko_lua::HostKind::Client);
     assert_eq!(extensions.len(), 1);
     assert_eq!(extensions[0].manifest().id, "user.good");
 
     std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn host_declaration_filters_where_a_script_loads() {
+    let dir = std::env::temp_dir().join(format!("ekko-lua-host-test-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(
+        dir.join("client.lua"),
+        r#"return { id = "user.client", register = function(ekko) end }"#,
+    )
+    .unwrap();
+    std::fs::write(
+        dir.join("server.lua"),
+        r#"return { id = "user.server", host = "server", register = function(ekko) end }"#,
+    )
+    .unwrap();
+    std::fs::write(
+        dir.join("shared.lua"),
+        r#"return { id = "user.shared", host = "both", register = function(ekko) end }"#,
+    )
+    .unwrap();
+
+    let ids = |host| -> Vec<String> {
+        ekko_lua::load_extensions(&dir, host)
+            .iter()
+            .map(|e| e.manifest().id)
+            .collect()
+    };
+    // No `host` field defaults to client-only; "both" loads everywhere.
+    assert_eq!(
+        ids(ekko_lua::HostKind::Client),
+        ["user.client", "user.shared"]
+    );
+    assert_eq!(
+        ids(ekko_lua::HostKind::Server),
+        ["user.server", "user.shared"]
+    );
+
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn unknown_host_declarations_are_load_errors() {
+    let bad_value = r#"return { id = "user.x", host = "daemon", register = function(ekko) end }"#;
+    let err = LuaExtension::from_source("bad-host.lua", bad_value)
+        .map(|_| ())
+        .unwrap_err();
+    assert!(err.to_string().contains("unknown host 'daemon'"), "{err}");
+
+    let bad_type = r#"return { id = "user.x", host = true, register = function(ekko) end }"#;
+    let err = LuaExtension::from_source("bad-host-type.lua", bad_type)
+        .map(|_| ())
+        .unwrap_err();
+    assert!(err.to_string().contains("must be a string"), "{err}");
 }

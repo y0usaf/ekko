@@ -53,8 +53,28 @@ and `nix flake check` green after each (doctrine 7).
       no-ops (0/1/0); `hide_below = { cols =, rows = }`, missing fields → 0).
       **WS-A is complete** — full client registry + draw parity; README's
       Lua section now lists the whole bridged surface.
-- [ ] WS-B (server-side Lua) ← **next**: start with B1 (`host` field on the
-      manifest + `HostKind` filter in `load_extensions`).
+- [x] B1 `host` manifest field — landed (`"client"` default / `"server"` /
+      `"both"`; unknown value or non-string is a load error — a server hook
+      silently loading client-side would be a correctness bug;
+      `load_extensions(dir, HostKind)` filters, client passes
+      `HostKind::Client`).
+- [x] B2 server wiring — landed (`lua` feature in ekko-server's defaults,
+      mirroring the client; `build_runtime` loads `HostKind::Server`
+      scripts after builtins).
+- [x] B5 restart-story docs — landed alongside B1/B2 (README `host` +
+      reload paragraph; DESIGN.md deferred-hooks list rewritten: the stale
+      "modes/spinners/grouper not bridged" and "server-side Lua deferred"
+      bullets replaced by the hot-reload caveat).
+- [ ] B3 payload marshaling audit ← **next**: audit `payload_table` in
+      `convert.rs` against every `EventPayload` variant; unrenderable
+      variants become explicit `nil` payloads, not errors.
+- [ ] B4 failure-containment tests (budget blowout on `BeforePtySpawn`
+      degrades to no-override; abandoned `SharedLua` lock fails cleanly).
+- [ ] B-acceptance: server seam test (`crates/ekko-server/tests/extensions.rs`)
+      driving a `host = "server"` script through `SessionCreated` +
+      `BeforePtySpawn` end-to-end; `examples/spawn-hook.lua`. (Host
+      filtering itself is already pinned at the `load_extensions` level in
+      `bridge.rs`.)
 - [ ] WS-C, WS-D not started.
 
 Tree note: `crates/ekko-lua/tests/which_key_real.rs` (pinned to a local

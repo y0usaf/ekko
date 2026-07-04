@@ -386,6 +386,7 @@ dependencies = [
  "ekko-config",
  "ekko-event",
  "ekko-ext",
+ "ekko-lua",
  "ekko-proto",
  "ekko-pty",
  "ekko-resurrection",

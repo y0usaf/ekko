@@ -86,13 +86,12 @@ event loop are the only translation points (e.g. `EventReturn::EmitNotice`
   thread-per-dispatch.
 - **Server-side Key/Paste interception**: every keystroke would pay a
   dispatch round trip; the client owns input policy.
-- **Lua modes / spinners / session grouper**: `ekko-lua` (WS9) bridges
-  commands, keybindings, surfaces, overlays, themes, the session namer,
-  and event subscriptions; the remaining registries follow the same
-  stash-function/budgeted-call pattern when a script needs them.
-- **Server-side Lua**: the bridge terminates in the shared traits, so the
-  daemon *can* host scripts; only the client loads them today. Wiring the
-  server's loader is deliberate, not structural.
+- **Lua hot reload**: both processes evaluate scripts once at runtime
+  build. The client re-reads them on the next attach; the daemon on the
+  next session (`ekko kill` + resurrection is the reload path). A script
+  declares where it runs via the manifest's `host` field (`"client"`
+  default / `"server"` / `"both"` — the latter is two independent Lua
+  states, one per process, sharing nothing).
 
 ## Workstreams
 
