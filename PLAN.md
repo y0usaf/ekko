@@ -76,10 +76,18 @@ and `nix flake check` green after each (doctrine 7).
       `exit_code = nil` when `None`, and that every `EventKind::ALL` name is
       subscribable), plus a `spawn_override` return test (shell/cwd/env) —
       `EmitNotice`/`PtySpawnOverride` previously had zero test coverage.
-- [ ] B4 failure-containment tests ← **next** (budget blowout on
-      `BeforePtySpawn` degrades to no-override; abandoned `SharedLua` lock
-      fails cleanly).
-- [ ] B-acceptance: server seam test (`crates/ekko-server/tests/extensions.rs`)
+- [x] B4 failure-containment tests — landed, no production code needed
+      (dispatch timeouts + budgets already bound both failures). bridge.rs
+      pins: a runaway `BeforePtySpawn` gate budget-aborts and degrades to
+      no-override while a later gate in the *same* script still answers
+      (budget abort releases the lock cleanly); and the one hole budgets
+      can't cover — a single C call (pathological pattern backtracking)
+      never yields to the instruction hook, outlives the dispatch timeout,
+      and abandons the script's lock — is contained: later callbacks into
+      that script block on the lock, hit their own dispatch timeout, and
+      are skipped, while other scripts (separate Lua states) answer
+      normally.
+- [ ] B-acceptance ← **next**: server seam test (`crates/ekko-server/tests/extensions.rs`)
       driving a `host = "server"` script through `SessionCreated` +
       `BeforePtySpawn` end-to-end; `examples/spawn-hook.lua`. (Host
       filtering itself is already pinned at the `load_extensions` level in
