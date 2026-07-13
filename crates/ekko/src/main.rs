@@ -29,6 +29,9 @@ enum Command {
     },
     /// Create and attach a new session.
     New { name: Option<String> },
+    /// Ask one attached ekko client to request focus/attention from its host
+    /// terminal (e.g. BEL → XDG activation urgency in foot).
+    Activate,
     /// List live and resurrectable sessions.
     Ls,
     /// Kill a session.
@@ -53,6 +56,7 @@ fn main() -> Result<()> {
             force,
         ),
         Some(Command::New { name }) => attach(name, true, false),
+        Some(Command::Activate) => ekko_client::activate(),
         Some(Command::Ls) => {
             for summary in ekko_server::list_sessions()? {
                 let state = match (summary.alive, summary.attached) {

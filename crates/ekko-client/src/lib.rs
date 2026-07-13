@@ -19,6 +19,7 @@ use std::path::PathBuf;
 
 use anyhow::{Context, Result, bail};
 use ekko_config::Config;
+use ekko_ext::SessionState;
 use ekko_proto::{AttachRejectReason, ClientToServer, ServerToClient, WIRE_VERSION, socket_path};
 use interprocess::local_socket::traits::Stream as StreamTrait;
 
@@ -191,6 +192,33 @@ pub fn run(options: ClientOptions) -> Result<()> {
                 resume_mode = mode;
             }
         }
+    }
+}
+
+/// `ekko activate`: ask one already-attached client to request focus/attention
+/// from its host terminal (e.g. BEL → XDG activation urgency in foot).
+pub fn activate() -> Result<()> {
+    for entry in sessions::scan_sessions() {
+        if entry.state == SessionState::Alive && request_activate(&entry.name).unwrap_or(false) {
+            return Ok(());
+        }
+    }
+    bail!("no attached ekko client to activate")
+}
+
+fn request_activate(session_name: &str) -> Result<bool> {
+    let stream = ekko_proto::ipc_connect(&socket_path(session_name))?;
+    let (recv_half, send_half) = stream.split();
+    let mut recv: Box<dyn Read + Send> = Box::new(recv_half);
+    let mut send: Box<dyn std::io::Write + Send> = Box::new(send_half);
+    ekko_proto::write_msg(&mut send, &ClientToServer::Activate)
+        .context("sending activate request")?;
+    match ekko_proto::read_msg::<_, ServerToClient>(&mut recv)
+        .context("waiting for activate reply")?
+    {
+        Some(ServerToClient::ActivateResult { delivered }) => Ok(delivered),
+        Some(other) => bail!("unexpected reply to activate request: {other:?}"),
+        None => bail!("connection closed before activate reply arrived"),
     }
 }
 
