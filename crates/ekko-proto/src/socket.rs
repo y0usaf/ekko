@@ -36,7 +36,10 @@ use interprocess::local_socket::{
 /// v6: `Attach` gained `terminal_colors` — the client's OSC 10/11/4 probe
 /// result, so the server can answer the child's color queries (OSC 10/11/4
 /// with `?`) on the host terminal's behalf.
-pub const WIRE_VERSION: u32 = 6;
+///
+/// v7: added `ClientToServer::Activate` and
+/// `ServerToClient::{Activate, ActivateResult}` for `ekko activate`.
+pub const WIRE_VERSION: u32 = 7;
 
 fn wire_dir_name() -> String {
     format!("wire_v{WIRE_VERSION}")

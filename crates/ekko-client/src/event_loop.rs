@@ -496,6 +496,15 @@ impl App<'_> {
                 );
                 None
             }
+            // `ekko activate`: ask the host terminal for attention/focus.
+            // On Wayland the terminal owns the surface, so BEL is the
+            // portable handoff (e.g. foot `bell.urgent=yes`).
+            ServerToClient::Activate => {
+                let mut stdout = std::io::stdout();
+                let _ = stdout.write_all(b"\x07");
+                let _ = stdout.flush();
+                None
+            }
             ServerToClient::Notice(notice) => {
                 let kind = match notice.level {
                     ekko_proto::NoticeLevel::Info => NoteKind::Ok,
@@ -507,6 +516,7 @@ impl App<'_> {
             ServerToClient::Exit(reason) => Some(self.map_exit_reason(reason)),
             ServerToClient::Attached { .. }
             | ServerToClient::AttachRejected(_)
+            | ServerToClient::ActivateResult { .. }
             | ServerToClient::Pong => None,
         }
     }

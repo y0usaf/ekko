@@ -437,6 +437,86 @@ fn ping_gets_pong() {
 }
 
 #[test]
+fn activate_reports_undelivered_without_an_attached_client() {
+    let env = TestEnv::new("t-activate-empty");
+    let daemon = spawn_daemon(env.session_name.clone());
+
+    let mut client = TestClient::connect(&env.session_name);
+    client.send(&ClientToServer::Activate);
+    assert!(
+        client
+            .wait_for(Duration::from_secs(5), |m| matches!(
+                m,
+                ServerToClient::ActivateResult { delivered: false }
+            ))
+            .is_some(),
+        "expected ActivateResult {{ delivered: false }}"
+    );
+
+    kill_and_join(client, daemon, &env.session_name);
+}
+
+#[test]
+fn activate_is_relayed_to_one_attached_client() {
+    let env = TestEnv::new("t-activate");
+    let daemon = spawn_daemon(env.session_name.clone());
+
+    let mut viewer1 = TestClient::connect(&env.session_name);
+    viewer1.attach(env.cwd(), false);
+    assert!(
+        viewer1
+            .wait_for(Duration::from_secs(5), |m| matches!(
+                m,
+                ServerToClient::Attached { .. }
+            ))
+            .is_some(),
+        "expected first viewer to attach"
+    );
+
+    let mut viewer2 = TestClient::connect(&env.session_name);
+    viewer2.attach(env.cwd(), false);
+    assert!(
+        viewer2
+            .wait_for(Duration::from_secs(5), |m| matches!(
+                m,
+                ServerToClient::Attached { .. }
+            ))
+            .is_some(),
+        "expected second viewer to attach"
+    );
+
+    let mut requester = TestClient::connect(&env.session_name);
+    requester.send(&ClientToServer::Activate);
+    assert!(
+        requester
+            .wait_for(Duration::from_secs(5), |m| matches!(
+                m,
+                ServerToClient::ActivateResult { delivered: true }
+            ))
+            .is_some(),
+        "expected ActivateResult {{ delivered: true }}"
+    );
+
+    let got1 = viewer1
+        .wait_for(Duration::from_secs(2), |m| {
+            matches!(m, ServerToClient::Activate)
+        })
+        .is_some();
+    let got2 = viewer2
+        .wait_for(Duration::from_secs(2), |m| {
+            matches!(m, ServerToClient::Activate)
+        })
+        .is_some();
+    assert_eq!(
+        u8::from(got1) + u8::from(got2),
+        1,
+        "expected exactly one attached client to receive Activate"
+    );
+
+    kill_and_join(requester, daemon, &env.session_name);
+}
+
+#[test]
 fn shell_exit_ends_session_and_daemon() {
     let env = TestEnv::new("t-exit");
     let daemon = spawn_daemon(env.session_name.clone());

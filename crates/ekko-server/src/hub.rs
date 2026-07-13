@@ -277,6 +277,17 @@ impl Hub {
         }
     }
 
+    /// Relay to exactly one attached client. Used for out-of-band requests
+    /// like `ekko activate`, where one terminal should request attention, not
+    /// every viewer.
+    fn send_to_one_attached(&self, msg: ServerToClient) -> bool {
+        let Some(id) = self.attached.keys().min().copied() else {
+            return false;
+        };
+        self.send_to(id, msg);
+        true
+    }
+
     // -- client messages --------------------------------------------------
 
     fn on_client_msg(&mut self, id: ClientId, msg: ClientToServer) {
@@ -313,7 +324,13 @@ impl Hub {
             }
             ClientToServer::KillSession(name) => self.on_kill_session(id, &name),
             ClientToServer::Ping => self.send_to(id, ServerToClient::Pong),
+            ClientToServer::Activate => self.on_activate(id),
         }
+    }
+
+    fn on_activate(&mut self, id: ClientId) {
+        let delivered = self.send_to_one_attached(ServerToClient::Activate);
+        self.send_to(id, ServerToClient::ActivateResult { delivered });
     }
 
     fn on_attach(&mut self, id: ClientId, req: AttachRequest) {

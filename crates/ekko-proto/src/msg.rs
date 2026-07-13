@@ -41,6 +41,10 @@ pub enum ClientToServer {
     KillSession(String),
     /// Liveness check.
     Ping,
+    /// `ekko activate`: ask the daemon to have one attached client request
+    /// focus/attention from its host terminal (e.g. BEL → XDG activation
+    /// urgency in foot).
+    Activate,
 }
 
 /// Messages sent from the server to a client.
@@ -70,6 +74,12 @@ pub enum ServerToClient {
     /// The child wrote to the clipboard (OSC 52). The payload is the
     /// still-base64-encoded data, ready to re-emit to the host terminal.
     ClipboardCopy(Vec<u8>),
+    /// `ekko activate` relayed by the daemon: this client should ask its
+    /// host terminal for attention/focus (e.g. BEL → XDG activation urgency).
+    Activate,
+    /// Reply to `ClientToServer::Activate`: whether the request was handed to
+    /// an attached client.
+    ActivateResult { delivered: bool },
 }
 
 /// An extension-originated message surfaced to the attached client.
