@@ -90,7 +90,7 @@ impl PtyIo {
             .spawn(move || pty_io::run(fd, &reader_tx, &reader_backlog, &reader_retired, pane))
             .context("spawning pane PTY reader")?;
 
-        let (writer_tx, writer_rx) = crossbeam_channel::unbounded();
+        let (writer_tx, writer_rx) = crossbeam_channel::bounded(pty_writer::MAILBOX_CAPACITY);
         let writer_retired = Arc::clone(&retired);
         let writer_thread = match std::thread::Builder::new()
             .name(pty_thread_name("writer", pane))
@@ -115,12 +115,22 @@ impl PtyIo {
     }
 
     fn send(&self, instruction: PtyWriterInstruction) {
-        let _ = self.writer_tx.send(instruction);
+        if matches!(&instruction, PtyWriterInstruction::Write(bytes) if bytes.len() > pty_writer::MAX_PENDING_BYTES)
+        {
+            log::error!(
+                "pty-writer: dropping oversized write above {} byte cap",
+                pty_writer::MAX_PENDING_BYTES
+            );
+            return;
+        }
+        if self.writer_tx.try_send(instruction).is_err() {
+            log::warn!("pty-writer: bounded instruction mailbox full/closed; dropping instruction");
+        }
     }
 
     fn retire(&mut self) {
         self.retired.store(true, Ordering::Release);
-        let _ = self.writer_tx.send(PtyWriterInstruction::Shutdown);
+        let _ = self.writer_tx.try_send(PtyWriterInstruction::Shutdown);
         if let Some(thread) = self.writer_thread.take() {
             let _ = thread.join();
         }
@@ -404,26 +414,25 @@ impl TerminalPane {
     }
 
     #[cfg(test)]
-    pub(crate) fn test_pane(
-        key: PaneKey,
-        hub_tx: Sender<HubInstruction>,
-    ) -> (Self, std::os::unix::net::UnixStream) {
-        use std::os::fd::OwnedFd;
-        let (master, peer) = std::os::unix::net::UnixStream::pair().unwrap();
-        let handle = PtyHandle {
-            master_fd: OwnedFd::from(master),
-            child_pid: Pid::from_raw(std::process::id() as i32),
-            terminal_id: 0,
-        };
-        (
-            Self::from_pty_handle(key, handle, 2, 8, 16, None, hub_tx).unwrap(),
-            peer,
-        )
+    pub(crate) fn reserve_backlog_for_test(&self, bytes: usize) {
+        self.pty.io.backlog.reserve_for_test(bytes);
     }
 
     #[cfg(test)]
-    pub(crate) fn reserve_backlog_for_test(&self, bytes: usize) {
-        self.pty.io.backlog.reserve_for_test(bytes);
+    pub(crate) fn workers_live_for_test(&self) -> bool {
+        self.pty.io.master_fd.is_some()
+            && self
+                .pty
+                .io
+                .reader_thread
+                .as_ref()
+                .is_some_and(|thread| !thread.is_finished())
+            && self
+                .pty
+                .io
+                .writer_thread
+                .as_ref()
+                .is_some_and(|thread| !thread.is_finished())
     }
 
     #[cfg(test)]
@@ -607,6 +616,20 @@ mod tests {
             assert_eq!(pane_key_from_pty_thread_name(&name), Some(key));
         }
         assert_eq!(pane_key_from_pty_thread_name("client-writer-42"), None);
+    }
+
+    #[test]
+    fn writer_instruction_mailbox_is_bounded() {
+        let key = PaneKey {
+            id: PaneId(1),
+            generation: PaneGeneration(1),
+        };
+        let (master, _peer) = std::os::unix::net::UnixStream::pair().unwrap();
+        let (hub_tx, _hub_rx) = crossbeam_channel::unbounded();
+        let mut io = PtyIo::start(OwnedFd::from(master), key, hub_tx).unwrap();
+
+        assert_eq!(io.writer_tx.capacity(), Some(pty_writer::MAILBOX_CAPACITY));
+        io.retire();
     }
 
     #[test]
