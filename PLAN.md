@@ -524,17 +524,26 @@ block the pane threshold.
 
 ### P1. Extract the one-pane actor — **serial**
 
-- [ ] Introduce stable `PaneId` and a server-owned terminal-pane object that
+- [x] Introduce stable `PaneId` and a server-owned terminal-pane object that
       contains the current parser/callback state, VT compatibility filter, PTY
       handle, writer sender, backlog counter, title, render diff base, and
       force-full state.
-- [ ] Tag PTY bytes/exits/panics with pane identity + generation so output from
+- [x] Tag PTY bytes/exits/panics with pane identity + generation so output from
       a retired pane cannot mutate a replacement.
-- [ ] Move the hub from flattened singular fields to a one-entry pane map while
+- [x] Move the hub from flattened singular fields to a one-entry pane map while
       preserving the current wire and visible behavior exactly.
-- [ ] Prove: existing daemon tests stay green; pane exit reclaims writer/reader
+- [x] Prove: existing daemon tests stay green; pane exit reclaims writer/reader
       resources; stale output is ignored; byte caps remain per pane; one-pane
       detach/attach and no-builtins tests still pass.
+
+P1 landed in `e00818f`. `TerminalPane` now owns parser/callback + VT state,
+PTY fd/pid and joined reader/writer workers, per-pane read/write bounds, title,
+and render scheduling/diff state. `PaneKey` pairs the stable ID with a monotonic
+generation on bytes, exits, and PTY-thread panics; stale-event tests prove a
+retired generation cannot affect the live pane. Integrated acceptance passed:
+`cargo test -p ekko-server --no-default-features` (38 unit + 12 daemon + 7
+extension), `cargo fmt --all -- --check`, `cargo test --workspace`, `nix build`,
+and `nix flake check`.
 
 This gate is intentionally behavior-preserving. Multi-pane state must not be
 built on duplicated copies of the current flattened hub.
