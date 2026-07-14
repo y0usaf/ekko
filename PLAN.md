@@ -550,20 +550,32 @@ built on duplicated copies of the current flattened hub.
 
 ### P2. Add canonical topology + multi-PTY lifecycle — **serial after P1**
 
-- [ ] Add a pure binary split tree (`Leaf(PaneId)` / horizontal or vertical
+- [x] Add a pure binary split tree (`Leaf(PaneId)` / horizontal or vertical
       split with ratio) and deterministic rect resolver. Split is transactional:
       reject dimensions below the minimum without spawning/leaking a child.
-- [ ] Add pure mutations: split focused leaf right/down, remove leaf + promote
+- [x] Add pure mutations: split focused leaf right/down, remove leaf + promote
       sibling, and directional neighbor selection based on resolved geometry.
-- [ ] Store focus per attached `ClientId`; attach chooses a valid pane, detach
+- [x] Store focus per attached `ClientId`; attach chooses a valid pane, detach
       drops only that focus, and pane removal repairs every client's focus.
-- [ ] Generalize spawn, resize, PTY input/replies, scrollback, bell/title/
+- [x] Generalize spawn, resize, PTY input/replies, scrollback, bell/title/
       clipboard, dirty scheduling, diff bases, and exit cleanup to N panes.
       Last-pane exit retains current session-exit semantics.
-- [ ] Prove topology invariants/property cases: every live pane appears exactly
+- [x] Prove topology invariants/property cases: every live pane appears exactly
       once, rects are non-overlapping/in-bounds, removal leaves no unary split,
       all focused IDs are live, and every successful split owns one fully wired
       PTY.
+
+P2 landed in `bd8f7cc`. `PaneTopology` is the canonical ratio-bearing split tree;
+its exhaustive small-tree tests pin deterministic viable geometry, unique leaves,
+bounds/non-overlap, sibling promotion, and directional neighbors. The hub now owns
+monotonic pane identities, N `TerminalPane`s, canonical canvas geometry, and focus
+per attached client. Server-local real-PTY seams prove transactional rejection,
+fully wired successful splits, focused routing, pane-local output/rendering, focus
+repair, stale-generation rejection, and non-last exit cleanup; the existing daemon
+and bare-harness seams preserve one-pane behavior. Integrated acceptance passed:
+`cargo test -p ekko-server --no-default-features` (51 unit + 12 daemon + 7
+extension), `cargo fmt --all -- --check`, `cargo test --workspace`, `nix build`,
+and `nix flake check`.
 
 No client-facing controls yet; focused internal operations are exercised through
 hub seams. This keeps topology/lifecycle failures separate from protocol and UI.
