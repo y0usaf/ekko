@@ -12,13 +12,16 @@ use std::time::{Duration, Instant};
 use crossbeam_channel::{Receiver, RecvTimeoutError};
 
 /// Maximum bytes buffered for one pane's PTY.
-const MAX_PENDING_BYTES: usize = 4 * 1024 * 1024;
+pub(crate) const MAX_PENDING_BYTES: usize = 4 * 1024 * 1024;
 
 /// Only apply one resize per this window, keeping the latest.
 const RESIZE_DEBOUNCE: Duration = Duration::from_millis(50);
 
 /// Poll interval while there's pending work.
 const DRAIN_TIMEOUT: Duration = Duration::from_millis(10);
+
+/// Bounds instructions waiting ahead of the writer's byte-capped queue.
+pub(crate) const MAILBOX_CAPACITY: usize = 256;
 
 #[derive(Debug)]
 pub(crate) enum PtyWriterInstruction {

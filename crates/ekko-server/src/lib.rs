@@ -13,6 +13,7 @@ mod logging;
 mod pty_io;
 mod pty_writer;
 mod terminal_pane;
+mod topology;
 mod vt_compat;
 
 use std::thread;
