@@ -1,4 +1,4 @@
-# PLAN — Lua everywhere
+# PLAN — Lua everywhere (complete) → tiled panes (next)
 
 Goal: everything in ekko that is user-configurable is configurable from Lua.
 Two concrete end states:
@@ -497,3 +497,128 @@ fine as constants; an unused knob is just surface area.
 After C, the answer to "what can't Lua configure?" is exactly the
 irreducible list at the top of this file — the bootstrap contract and
 nothing else.
+
+
+---
+
+## WS-P — Tiled pane MVP
+
+Goal: cross the threshold from a detachable single terminal to a real terminal
+multiplexer with the smallest coherent pane model. `DESIGN.md` “Pane MVP
+contract” is locked for this workstream.
+
+### MVP user journey
+
+1. Start a session: one full-canvas shell, unchanged from today.
+2. Split the focused pane right or down: a second independent shell starts.
+3. Focus left/right/up/down: subsequent key, paste, scroll, cursor, and mouse
+   behavior belongs to that pane.
+4. Close the focused pane, or let its child exit: its sibling absorbs the space.
+5. Detach/re-attach: all live panes and topology remain. Closing/exiting the last
+   pane ends the session as the single PTY does today.
+
+Explicitly deferred: floating panes, tabs, stacks, pane move/rename/zoom,
+manual ratio resize, arbitrary layout files, synchronized input, exact topology
+resurrection after daemon death, and live-process cwd inheritance. These do not
+block the pane threshold.
+
+### P1. Extract the one-pane actor — **serial**
+
+- [ ] Introduce stable `PaneId` and a server-owned terminal-pane object that
+      contains the current parser/callback state, VT compatibility filter, PTY
+      handle, writer sender, backlog counter, title, render diff base, and
+      force-full state.
+- [ ] Tag PTY bytes/exits/panics with pane identity + generation so output from
+      a retired pane cannot mutate a replacement.
+- [ ] Move the hub from flattened singular fields to a one-entry pane map while
+      preserving the current wire and visible behavior exactly.
+- [ ] Prove: existing daemon tests stay green; pane exit reclaims writer/reader
+      resources; stale output is ignored; byte caps remain per pane; one-pane
+      detach/attach and no-builtins tests still pass.
+
+This gate is intentionally behavior-preserving. Multi-pane state must not be
+built on duplicated copies of the current flattened hub.
+
+### P2. Add canonical topology + multi-PTY lifecycle — **serial after P1**
+
+- [ ] Add a pure binary split tree (`Leaf(PaneId)` / horizontal or vertical
+      split with ratio) and deterministic rect resolver. Split is transactional:
+      reject dimensions below the minimum without spawning/leaking a child.
+- [ ] Add pure mutations: split focused leaf right/down, remove leaf + promote
+      sibling, and directional neighbor selection based on resolved geometry.
+- [ ] Store focus per attached `ClientId`; attach chooses a valid pane, detach
+      drops only that focus, and pane removal repairs every client's focus.
+- [ ] Generalize spawn, resize, PTY input/replies, scrollback, bell/title/
+      clipboard, dirty scheduling, diff bases, and exit cleanup to N panes.
+      Last-pane exit retains current session-exit semantics.
+- [ ] Prove topology invariants/property cases: every live pane appears exactly
+      once, rects are non-overlapping/in-bounds, removal leaves no unary split,
+      all focused IDs are live, and every successful split owns one fully wired
+      PTY.
+
+No client-facing controls yet; focused internal operations are exercised through
+hub seams. This keeps topology/lifecycle failures separate from protocol and UI.
+
+### P3. Carry pane workspaces over the wire — **serial after P2**
+
+- [ ] Bump `WIRE_VERSION`. Replace the singular visual contract with a workspace
+      update containing complete pane metadata (`PaneId`, rect, title), the
+      receiving client's focused pane, and optional sparse/full `GridUpdate`
+      data per pane. Complete metadata makes removal/topology recovery
+      idempotent; grid payloads remain incremental.
+- [ ] Add client→server split-right, split-down, focus-direction, focus-by-id,
+      and close-focused requests. Requests from unattached clients and unknown
+      IDs are ignored safely.
+- [ ] Generalize slow-client recovery/coalescing: a dropped workspace frame
+      forces full grids for every live pane on that client’s next update;
+      coalescing may not lose a pane’s earlier row patches or newer topology.
+- [ ] Replace client singular `GridState` with a pane-state map. Compose each
+      pane grid at its server-provided rect inside the terminal region; show the
+      hardware cursor/title/modes for only the focused pane.
+- [ ] Route mouse hit-testing/selection to pane-local coordinates. Clicking a
+      pane focuses it before forwarding; keyboard, paste, and scroll use server
+      focus. Resize reports the client terminal-pane canvas and the daemon
+      resizes every resolved child PTY.
+- [ ] Prove round-trip/framing, workspace merge/resync, stale epoch rejection,
+      multi-grid composition, independent client focus, and one-pane visual
+      equivalence.
+
+### P4. Expose stock pane management through the public API — **serial after P3**
+
+- [ ] Add public `UiAction` forms for split right/down, focus direction, and
+      close focused pane. `apply_ui_action` remains the client’s only action
+      interpreter and translates these to wire requests.
+- [ ] Bridge every new action through `ekko-lua` in the same action dialect and
+      expose immutable pane metadata + focused ID in `ClientSnapshot` /
+      `snapshot_table`.
+- [ ] Add `ekko-builtins` commands and leader-map entries through ordinary
+      command/keybinding registration. Suggested minimum: `:split right|down`,
+      `:pane-focus <direction>`, `:pane-close`; leader `|`, `-`, `h/j/k/l`, `x`.
+      Resolve collisions explicitly rather than granting pane policy priority.
+- [ ] Grow status/help/which-key only from live registries/snapshot data. No
+      pane-specific branch in core rendering or input.
+- [ ] Prove disable-and-replace from a file-backed Lua extension and retain the
+      no-builtins one-pane harness.
+
+### P5. End-to-end pane acceptance — **serial after P4**
+
+- [ ] A daemon seam test starts two distinguishable shells, verifies independent
+      output, switches focus and routes input correctly, closes/exits either
+      child, and confirms sibling expansion + last-pane session exit.
+- [ ] Detach/re-attach preserves both live children, topology, scrollback, and
+      valid focus. Two simultaneous clients may focus different panes without
+      redirecting each other’s input.
+- [ ] Terminal resize reaches every pane with its resolved dimensions; a
+      resize/split flood stays bounded and converges to the latest geometry.
+- [ ] Mouse-aware child, bracketed paste, selection/OSC52, title, cursor shape,
+      focus reporting, and alternate-screen wheel behavior are pinned to the
+      focused/hit pane rather than regressing to session-global state.
+- [ ] `cargo fmt --check`, focused suites, `cargo test --workspace`,
+      `nix build`, and `nix flake check` pass; the exact commands/outcomes are
+      recorded before this workstream closes.
+
+### Dependency order
+
+`P1 → P2 → P3 → P4 → P5`. All are serial because each evolves the same hub,
+wire, or action contract. Parallel waves become safe only after P3 if follow-up
+features own disjoint consumers; do not invent concurrency inside the MVP.
