@@ -139,3 +139,45 @@ event loop are the only translation points (e.g. `EventReturn::EmitNotice`
       itself is policy: registry entries under `mode = "leader"`
       (`crates/ekko-builtins/src/leader.rs`, user side
       `examples/leader-map.lua`)
+
+
+## Pane MVP contract (next milestone)
+
+Panes are the next core multiplexer mechanism. The minimum useful vertical
+slice is deliberately smaller than Zellij: tiled terminal panes with split,
+directional focus, and close. Floating panes, tabs, stacks, pane
+rename/move/zoom, layout files, synchronized input, and restoring an exact pane
+topology after daemon death are follow-ups.
+
+Locked ownership and boundaries:
+
+- **Daemon owns the pane set.** A session hub owns stable `PaneId`s, one PTY +
+  parser + bounded reader/writer path per pane, a binary split tree, and focus
+  per attached client. Detach must preserve all panes. The client never owns
+  canonical topology or PTY state.
+- **Core owns mechanism, builtins own product policy.** Core implements pane
+  identity, split-tree mutation/geometry, directional neighbor selection,
+  lifecycle cleanup, wire transport, and action application. `ekko-builtins`
+  alone chooses stock commands/chords and presentation. Pane operations enter
+  through public `UiAction`s and are bridged to Lua; no builtin-only hub path.
+- **Snapshot in, actions out.** Client extensions read pane metadata from
+  `ClientSnapshot` and request split/focus/close through returned actions. The
+  client translates those actions to versioned wire requests; the hub is the
+  single canonical write path.
+- **Thin client.** The wire carries a workspace snapshot: complete pane
+  metadata/topology projection each frame, sparse/full grid payloads per pane,
+  and the receiving client's focused pane. Client state is a discardable cache
+  used for composition, mouse hit-testing, and selection.
+- **One canonical canvas.** As today, the daemon sizes a session to the
+  smallest attached terminal-pane area. All viewers receive the same pane
+  geometry, while each viewer may focus a different pane. Keyboard/paste/scroll
+  route through that client's focus; a mouse hit names the target pane.
+- **Bare behavior stays real.** Without builtins, a session still starts with
+  one full-canvas pane, supports raw passthrough, detach/attach, and renders
+  correctly. It has no stock gesture for creating more panes.
+
+The initial split policy is an explicit 50/50 split of the focused leaf to the
+right or downward, with a minimum viable child size; invalid splits are
+rejected without mutating topology. New panes start the configured shell in the
+session cwd. Inheriting the live foreground process cwd is deferred because it
+requires platform-specific process inspection rather than pane mechanism.
