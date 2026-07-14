@@ -12,6 +12,7 @@ mod input_compat;
 mod logging;
 mod pty_io;
 mod pty_writer;
+mod terminal_pane;
 mod vt_compat;
 
 use std::thread;
@@ -149,10 +150,20 @@ fn install_panic_hook(hub_tx: Sender<HubInstruction>) {
             return;
         }
         let message = panic_message(info);
-        let _ = hub_tx.send(HubInstruction::ThreadPanicked {
-            thread_name,
-            message,
-        });
+        let instruction =
+            if let Some(pane) = terminal_pane::pane_key_from_pty_thread_name(&thread_name) {
+                HubInstruction::PtyThreadPanicked {
+                    pane,
+                    thread_name,
+                    message,
+                }
+            } else {
+                HubInstruction::ThreadPanicked {
+                    thread_name,
+                    message,
+                }
+            };
+        let _ = hub_tx.send(instruction);
     }));
 }
 
