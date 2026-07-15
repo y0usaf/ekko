@@ -97,7 +97,7 @@ pub fn blit_grid(
             let style = PackedStyle::new(
                 fg,
                 bg,
-                false,
+                cell.attrs & GridCell::BOLD != 0,
                 cell.attrs & GridCell::UNDERLINE != 0,
                 false,
                 false,
@@ -207,6 +207,29 @@ mod tests {
             &palette,
         );
         assert_eq!(fg, brighten(Color::rgb(10, 10, 10), 18));
+    }
+
+    #[test]
+    fn blit_preserves_bold_style() {
+        let palette = palette();
+        let mut surface = CellSurface::new(1, 1, gc(palette.term_fg), gc(palette.term_bg));
+        let rows = vec![GridRow {
+            cells: vec![cell(
+                WireColor::Rgb(10, 10, 10),
+                WireColor::Default,
+                GridCell::BOLD,
+            )],
+        }];
+        blit_grid(
+            &mut surface,
+            CellRect::new(0, 0, 1, 1),
+            &rows,
+            1,
+            1,
+            &palette,
+            None,
+        );
+        assert!(surface.cell(0, 0).unwrap().style.bold());
     }
 
     #[test]
