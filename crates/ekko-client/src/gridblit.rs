@@ -42,7 +42,8 @@ pub fn resolve_cell_colors(cell: &GridCell, palette: &ThemePalette) -> (Color, C
 /// Blit `rows` (the last known full grid, `grid_cols` x `grid_rows`) into
 /// `rect` of `surface`. Any area of `rect` beyond the grid's own bounds is
 /// filled with the terminal background. Cells covered by `selection` (in
-/// grid-local coordinates) render with fg/bg swapped.
+/// grid-local coordinates) use the theme's dedicated selection fg/bg, matching
+/// Zellij's explicit text-selection palette rather than inverting cell colors.
 pub fn blit_grid(
     surface: &mut CellSurface,
     rect: CellRect,
@@ -82,13 +83,15 @@ pub fn blit_grid(
             if cell.attrs & GridCell::WIDE_CONT != 0 {
                 continue;
             }
-            let (mut fg, mut bg) = resolve_cell_colors(cell, palette);
-            if let Some((start, width)) = selected
+            let cell_colors = resolve_cell_colors(cell, palette);
+            let (fg, bg) = if let Some((start, width)) = selected
                 && (c as u16) >= start
                 && (c as u16) < start + width
             {
-                std::mem::swap(&mut fg, &mut bg);
-            }
+                (gc(palette.selection_fg), gc(palette.selection_bg))
+            } else {
+                cell_colors
+            };
             let span = if cell.attrs & GridCell::WIDE != 0 {
                 2
             } else {
@@ -271,8 +274,10 @@ mod tests {
     }
 
     #[test]
-    fn selection_swaps_cell_colors() {
-        let palette = palette();
+    fn selection_uses_theme_colors_without_inverting_cell() {
+        let mut palette = palette();
+        palette.selection_fg = ekko_ext::Color::rgb(220, 221, 222);
+        palette.selection_bg = ekko_ext::Color::rgb(60, 61, 62);
         let mut surface = CellSurface::new(4, 2, gc(palette.term_fg), gc(palette.term_bg));
         let rows = vec![GridRow {
             cells: vec![
@@ -294,10 +299,11 @@ mod tests {
             Some(range),
         );
         let selected = surface.cell(0, 0).unwrap();
-        assert_eq!(selected.style.fg(), Color::rgb(9, 9, 9));
-        assert_eq!(selected.style.bg(), Color::rgb(1, 1, 1));
+        assert_eq!(selected.style.fg(), gc(palette.selection_fg));
+        assert_eq!(selected.style.bg(), gc(palette.selection_bg));
         let unselected = surface.cell(1, 0).unwrap();
         assert_eq!(unselected.style.fg(), Color::rgb(1, 1, 1));
+        assert_eq!(unselected.style.bg(), Color::rgb(9, 9, 9));
     }
 
     #[test]

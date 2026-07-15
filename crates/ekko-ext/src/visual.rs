@@ -103,6 +103,10 @@ pub struct ThemePalette {
     pub success: Color,
     pub term_fg: Color,
     pub term_bg: Color,
+    /// Foreground used for mouse-selected terminal text.
+    pub selection_fg: Color,
+    /// Opaque background used for mouse-selected terminal text.
+    pub selection_bg: Color,
     pub ansi: [Color; 16],
 }
 
@@ -131,6 +135,8 @@ impl ThemePalette {
             success: fg,
             term_fg: fg,
             term_bg: Color::TRANSPARENT,
+            selection_fg: fg,
+            selection_bg: dim,
             ansi: std::array::from_fn(|i| Color::ansi_index(i as u8)),
         }
     }

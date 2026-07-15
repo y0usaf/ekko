@@ -831,11 +831,21 @@ impl App<'_> {
                         .selection
                         .update_focus(ekko_grid::selection::SelectionPoint {
                             row: local_row as u16,
-                            col: (local_col + 1) as u16,
+                            col: local_col as u16,
                         });
                 }
             }
             MouseKind::LeftRelease => {
+                // The release report is the authoritative final hovered cell;
+                // motion events can be coalesced before the button comes up.
+                if self.state.selection.is_active() {
+                    self.state
+                        .selection
+                        .update_focus(ekko_grid::selection::SelectionPoint {
+                            row: local_row as u16,
+                            col: local_col as u16,
+                        });
+                }
                 self.state.selection.end_drag();
                 if let Some(range) = self.state.selection.normalized() {
                     let text = self.state.grid.selected_text(range);

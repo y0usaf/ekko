@@ -26,6 +26,10 @@ pub struct Theme {
     pub foreground: Rgb,
     /// Terminal background.
     pub background: Rgb,
+    /// Foreground for selected terminal text.
+    pub selection_foreground: Rgb,
+    /// Opaque, neutral background for selected terminal text.
+    pub selection_background: Rgb,
     /// Muted / secondary text.
     pub muted: Rgb,
 
@@ -106,6 +110,8 @@ pub fn generate_theme(colors: &TerminalColors) -> Theme {
         // Core
         foreground: fg,
         background: bg,
+        selection_foreground: fg,
+        selection_background: grays[7],
         muted,
 
         // Surfaces
@@ -364,6 +370,8 @@ mod tests {
         assert_eq!(theme.warning, theme.ansi[3]);
         assert_eq!(theme.running, theme.ansi[10]);
         assert_eq!(theme.foreground, Rgb(220, 220, 220));
+        assert_eq!(theme.selection_foreground, theme.foreground);
+        assert_eq!(theme.selection_background, theme.border);
     }
 
     #[test]

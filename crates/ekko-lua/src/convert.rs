@@ -532,6 +532,8 @@ pub fn resolve_color(word: &str, palette: &ThemePalette) -> Result<Color> {
         "success" => palette.success,
         "term_fg" => palette.term_fg,
         "term_bg" => palette.term_bg,
+        "selection_fg" => palette.selection_fg,
+        "selection_bg" => palette.selection_bg,
         "transparent" => Color::TRANSPARENT,
         hex => parse_hex_color(hex)?,
     })
@@ -584,6 +586,8 @@ pub fn palette_from_table(table: Option<Table>) -> Result<ThemePalette> {
         success,
         term_fg,
         term_bg,
+        selection_fg,
+        selection_bg,
     );
     Ok(palette)
 }
