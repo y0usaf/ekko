@@ -955,6 +955,18 @@ mod tests {
     }
 
     #[test]
+    fn bold_emits_sgr_1() {
+        let mut renderer = AnsiRenderer::default();
+        let mut surface = CellSurface::new(4, 1, DEFAULT_FG, DEFAULT_BG);
+        frame(&mut renderer, &mut surface);
+        let style =
+            crate::packed::PackedStyle::new(DEFAULT_FG, DEFAULT_BG, true, false, false, false);
+        surface.put_span_packed(0, 0, 1, "x", style);
+        let diff = frame(&mut renderer, &mut surface);
+        assert!(diff.contains("\x1b[1m"), "diff={diff:?}");
+    }
+
+    #[test]
     fn scroll_detection_skipped_when_sidebar_shares_row_band() {
         // 6-wide, 3-tall grid; terminal pane is cols 2..6 (a sidebar occupies
         // cols 0..2 in the same rows). DECSTBM is full-width so a scroll escape
