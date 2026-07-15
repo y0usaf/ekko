@@ -1234,7 +1234,12 @@ fn themes_register_with_hex_overrides() {
         function ext.register(ekko)
           ekko.register_theme({
             name = "lua-dark",
-            palette = { text = "#aabbcc", accent = "#010203" },
+            palette = {
+              text = "#aabbcc",
+              accent = "#010203",
+              selection_fg = "#f0f1f2",
+              selection_bg = "#303132",
+            },
           })
         end
         return ext
@@ -1243,6 +1248,8 @@ fn themes_register_with_hex_overrides() {
     let theme = runtime.theme("lua-dark").expect("theme registered");
     assert_eq!(theme.palette.text, Color::rgb(0xaa, 0xbb, 0xcc));
     assert_eq!(theme.palette.accent, Color::rgb(0x01, 0x02, 0x03));
+    assert_eq!(theme.palette.selection_fg, Color::rgb(0xf0, 0xf1, 0xf2));
+    assert_eq!(theme.palette.selection_bg, Color::rgb(0x30, 0x31, 0x32));
     // Untouched fields keep the fallback.
     assert_eq!(theme.palette.muted, ThemePalette::fallback().muted);
 }

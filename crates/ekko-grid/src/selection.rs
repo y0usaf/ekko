@@ -1,6 +1,6 @@
 //! Mouse selection over the embedded terminal (port of pi-harness
-//! `terminal::selection`): screen-space anchor/focus pair normalized into a
-//! row-major range.
+//! `terminal::selection`): inclusive screen-cell anchor/focus points normalized
+//! into a half-open row-major range.
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct SelectionPoint {
@@ -77,21 +77,24 @@ impl TerminalSelection {
         }
     }
 
+    /// Normalize the two hovered cells into a half-open range.
+    ///
+    /// Both cells are included regardless of drag direction. Keeping this
+    /// conversion here avoids the direction-dependent `+ 1` adjustment that
+    /// otherwise drops column zero when a drag moves right-to-left.
     pub fn normalized(&self) -> Option<SelectionRange> {
         let (anchor, focus) = (self.anchor?, self.focus?);
         if anchor == focus {
-            None
-        } else if (anchor.row, anchor.col) <= (focus.row, focus.col) {
-            Some(SelectionRange {
-                start: anchor,
-                end: focus,
-            })
-        } else {
-            Some(SelectionRange {
-                start: focus,
-                end: anchor,
-            })
+            return None;
         }
+
+        let (start, mut end) = if (anchor.row, anchor.col) <= (focus.row, focus.col) {
+            (anchor, focus)
+        } else {
+            (focus, anchor)
+        };
+        end.col = end.col.saturating_add(1);
+        Some(SelectionRange { start, end })
     }
 }
 
@@ -154,14 +157,49 @@ mod tests {
     }
 
     #[test]
-    fn normalized_orders_endpoints_and_drops_empty() {
+    fn normalized_orders_endpoints_and_includes_both_cells() {
         let mut selection = TerminalSelection::default();
         selection.set(point(2, 5));
         assert_eq!(selection.normalized(), None);
         selection.update_focus(point(1, 3));
         let range = selection.normalized().unwrap();
         assert_eq!(range.start, point(1, 3));
-        assert_eq!(range.end, point(2, 5));
+        assert_eq!(range.end, point(2, 6));
+    }
+
+    #[test]
+    fn backward_drag_to_line_start_keeps_column_zero() {
+        let mut selection = TerminalSelection::default();
+        selection.set(point(0, 5));
+        selection.update_focus(point(0, 0));
+
+        let range = selection.normalized().unwrap();
+        assert_eq!(
+            range,
+            SelectionRange {
+                start: point(0, 0),
+                end: point(0, 6)
+            }
+        );
+        assert_eq!(selection_span(Some(range), 0, 10), Some((0, 6)));
+    }
+
+    #[test]
+    fn forward_drag_from_line_start_keeps_column_zero_across_rows() {
+        let mut selection = TerminalSelection::default();
+        selection.set(point(0, 0));
+        selection.update_focus(point(1, 2));
+
+        let range = selection.normalized().unwrap();
+        assert_eq!(
+            range,
+            SelectionRange {
+                start: point(0, 0),
+                end: point(1, 3)
+            }
+        );
+        assert_eq!(selection_span(Some(range), 0, 10), Some((0, 10)));
+        assert_eq!(selection_span(Some(range), 1, 10), Some((0, 3)));
     }
 
     #[test]
@@ -199,7 +237,7 @@ mod tests {
         selection.shift_rows(3);
         let range = selection.normalized().unwrap();
         assert_eq!(range.start, point(5, 0));
-        assert_eq!(range.end, point(7, 5));
+        assert_eq!(range.end, point(7, 6));
     }
 
     #[test]
@@ -211,7 +249,7 @@ mod tests {
         selection.shift_rows(3);
         let range = selection.normalized().unwrap();
         assert_eq!(range.start, point(4, 5)); // focus stayed (smaller)
-        assert_eq!(range.end, point(5, 0)); // anchor moved down
+        assert_eq!(range.end, point(5, 1)); // shifted anchor cell is included
     }
 
     #[test]
@@ -223,7 +261,7 @@ mod tests {
         selection.shift_rows(-10);
         let range = selection.normalized().unwrap();
         assert_eq!(range.start, point(0, 0));
-        assert_eq!(range.end, point(0, 5));
+        assert_eq!(range.end, point(0, 6));
     }
 
     #[test]
@@ -235,7 +273,7 @@ mod tests {
         selection.shift_rows(0);
         let range = selection.normalized().unwrap();
         assert_eq!(range.start, point(2, 0));
-        assert_eq!(range.end, point(4, 5));
+        assert_eq!(range.end, point(4, 6));
     }
 
     #[test]
@@ -250,9 +288,9 @@ mod tests {
         selection.update_focus(point(3, 5));
         selection.shift_rows(2);
         // dragging is true, so only anchor moves: anchor (1,0) -> (3,0).
-        // focus stays at (3,5). Normalized: start=(3,0), end=(3,5).
+        // Focus stays at (3,5); the half-open end includes that cell.
         let range = selection.normalized().unwrap();
         assert_eq!(range.start, point(3, 0));
-        assert_eq!(range.end, point(3, 5));
+        assert_eq!(range.end, point(3, 6));
     }
 }

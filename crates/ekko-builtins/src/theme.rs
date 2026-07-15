@@ -41,6 +41,8 @@ pub fn terminal_palette(colors: &TerminalColors) -> ThemePalette {
         success: color(t.success),
         term_fg: color(t.foreground),
         term_bg: Color::TRANSPARENT,
+        selection_fg: color(t.selection_foreground),
+        selection_bg: color(t.selection_background),
         ansi: t.ansi.map(color),
     }
 }
@@ -106,6 +108,8 @@ mod tests {
 
         assert_eq!(palette.text, Color::rgb(220, 220, 220));
         assert_eq!(palette.term_fg, palette.text);
+        assert_eq!(palette.selection_fg, palette.term_fg);
+        assert_eq!(palette.selection_bg, palette.border);
         assert_eq!(palette.accent, palette.ansi[6]);
         assert_eq!(palette.accent_2, palette.ansi[5]);
         assert_eq!(palette.error, palette.ansi[1]);
