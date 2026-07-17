@@ -361,14 +361,17 @@ impl App<'_> {
 
     fn snapshot(&self) -> ClientSnapshot {
         let (cols, rows) = self.last_size;
+        // Snapshot pane fields describe the focused pane (input routing
+        // target); the full pane projection lands with the P4 API surface.
+        let focused = self.state.workspace.focused_grid();
         ClientSnapshot {
             session_name: self.state.session_name.clone(),
             mode: self.state.mode.clone(),
             cols,
             rows,
-            grid_cols: self.state.grid.cols,
-            grid_rows: self.state.grid.rows,
-            scrollback: self.state.grid.scrollback,
+            grid_cols: focused.map_or(0, |grid| grid.cols),
+            grid_rows: focused.map_or(0, |grid| grid.rows),
+            scrollback: focused.map_or(0, |grid| grid.scrollback),
             projects: self.state.projects.clone(),
             status_note: self
                 .state
@@ -415,7 +418,12 @@ impl App<'_> {
         // Mirror the child's DECSCUSR cursor shape on the host terminal. A
         // mode drawing its own cursor (e.g. the `:` line) gets the default.
         let desired_shape = if self.state.in_normal_mode() {
-            self.state.grid.cursor.map(|c| c.shape).unwrap_or(0)
+            self.state
+                .workspace
+                .focused_grid()
+                .and_then(|grid| grid.cursor)
+                .map(|c| c.shape)
+                .unwrap_or(0)
         } else {
             0
         };
@@ -437,30 +445,54 @@ impl App<'_> {
 
     fn handle_server_message(&mut self, msg: ServerToClient) -> Option<ClientOutcome> {
         match msg {
-            ServerToClient::Grid(update) => {
-                // A full snapshot replaces the pane wholesale; drop the
+            ServerToClient::Workspace(update) => {
+                // A full snapshot replaces that pane wholesale; drop the
                 // renderer's scroll-detection history so unrelated content
                 // can't be mistaken for a shift.
-                if matches!(update.payload, ekko_proto::GridPayload::Full(_)) {
+                if update
+                    .grids
+                    .iter()
+                    .any(|grid| matches!(grid.update.payload, ekko_proto::GridPayload::Full(_)))
+                {
                     self.renderer.invalidate();
                 }
-                let scrollback_before = self.state.grid.scrollback;
-                if self.state.grid.apply(update) {
-                    // Keep the selection highlight glued to its content as
-                    // the scrollback view moves.
-                    let shift =
-                        i64::from(self.state.grid.scrollback) - i64::from(scrollback_before);
-                    if shift != 0 && self.state.selection.is_active() {
-                        self.state.selection.shift_rows(shift as i32);
+                let scrollback_before = self
+                    .state
+                    .workspace
+                    .focused_grid()
+                    .map_or(0, |grid| grid.scrollback);
+                let selection_on_focused =
+                    self.state.selection_pane == Some(self.state.workspace.focused);
+                if self.state.workspace.apply(update) {
+                    // Drop the highlight with its pane; otherwise keep it
+                    // glued to its content as the scrollback view moves.
+                    let selection_pane_gone = self
+                        .state
+                        .selection_pane
+                        .is_some_and(|pane| !self.state.workspace.panes.contains_key(&pane));
+                    if selection_pane_gone {
+                        self.state.selection.clear();
+                        self.state.selection_pane = None;
+                    } else if selection_on_focused {
+                        let scrollback_after = self
+                            .state
+                            .workspace
+                            .focused_grid()
+                            .map_or(0, |grid| grid.scrollback);
+                        let shift = i64::from(scrollback_after) - i64::from(scrollback_before);
+                        if shift != 0 && self.state.selection.is_active() {
+                            self.state.selection.shift_rows(shift as i32);
+                        }
                     }
                     self.state.dirty = true;
                     if self.runtime.has_subscribers(EventKind::GridUpdated) {
+                        let focused = self.state.workspace.focused_grid();
                         self.runtime.dispatch(
                             EventKind::GridUpdated,
                             EventPayload::GridUpdated {
-                                epoch: self.state.grid.epoch,
-                                cols: self.state.grid.cols,
-                                rows: self.state.grid.rows,
+                                epoch: self.state.workspace.epoch,
+                                cols: focused.map_or(0, |grid| grid.cols),
+                                rows: focused.map_or(0, |grid| grid.rows),
                             },
                         );
                     }
@@ -606,7 +638,12 @@ impl App<'_> {
         // forward them only when the child asked for them, never let them
         // reach the keybinding/mode pipeline.
         if crate::input::is_focus_event(token) {
-            if self.state.grid.modes.focus_reporting {
+            if self
+                .state
+                .workspace
+                .focused_grid()
+                .is_some_and(|grid| grid.modes.focus_reporting)
+            {
                 self.flush_pty(pty_bytes)?;
                 self.send_message(ClientToServer::Key(token.to_vec()))?;
             }
@@ -774,10 +811,12 @@ impl App<'_> {
         self.apply_ui_actions(actions, 0)
     }
 
-    /// Mouse input over the terminal pane. Precedence: a mouse-aware child
-    /// on the live screen gets the event verbatim; otherwise the wheel
-    /// scrolls (history, or arrow keys on the alternate screen) and the left
-    /// button drives selection + OSC 52 copy.
+    /// Mouse input over the terminal region. The hit names the target pane:
+    /// any press inside a pane focuses it (server-confirmed) before the event
+    /// is handled, and all coordinates become pane-local. Precedence within
+    /// the hit pane: a mouse-aware child on the live screen gets the event
+    /// verbatim; otherwise the wheel scrolls (history, or arrow keys on the
+    /// alternate screen) and the left button drives selection + OSC 52 copy.
     fn handle_terminal_mouse(
         &mut self,
         mouse: crate::input::MouseEvent,
@@ -785,10 +824,27 @@ impl App<'_> {
     ) -> Result<Option<ClientOutcome>> {
         use crate::input::MouseKind;
 
-        let local_col = (mouse.col - terminal.col).max(0);
-        let local_row = (mouse.row - terminal.row).max(0);
-        let live = self.state.grid.scrollback == 0;
-        let modes = self.state.grid.modes;
+        // Resolve the hit pane and pane-local coordinates from the client's
+        // workspace cache (topology projection of the last frame).
+        let hit = self.state.workspace.panes.iter().find_map(|(&id, pane)| {
+            let col = mouse.col - terminal.col - i32::from(pane.rect.x);
+            let row = mouse.row - terminal.row - i32::from(pane.rect.y);
+            (col >= 0
+                && col < i32::from(pane.rect.cols)
+                && row >= 0
+                && row < i32::from(pane.rect.rows))
+            .then_some((id, col, row, pane.grid.modes, pane.grid.scrollback))
+        });
+        let Some((pane_id, local_col, local_row, modes, scrollback)) = hit else {
+            return Ok(None);
+        };
+        // A mouse hit focuses its pane before anything is forwarded, so a
+        // click-into + child-mouse-report sequence reaches the right PTY.
+        if self.state.workspace.focused != pane_id {
+            self.send_message(ClientToServer::FocusPane { pane: pane_id })?;
+            self.state.workspace.focused = pane_id;
+        }
+        let live = scrollback == 0;
 
         if live && modes.mouse_mode != ekko_proto::MouseMode::None {
             if let Some(bytes) =
@@ -824,9 +880,10 @@ impl App<'_> {
                         row: local_row as u16,
                         col: local_col as u16,
                     });
+                self.state.selection_pane = Some(pane_id);
             }
             MouseKind::LeftDrag => {
-                if self.state.selection.is_active() {
+                if self.state.selection.is_active() && self.state.selection_pane == Some(pane_id) {
                     self.state
                         .selection
                         .update_focus(ekko_grid::selection::SelectionPoint {
@@ -838,7 +895,7 @@ impl App<'_> {
             MouseKind::LeftRelease => {
                 // The release report is the authoritative final hovered cell;
                 // motion events can be coalesced before the button comes up.
-                if self.state.selection.is_active() {
+                if self.state.selection.is_active() && self.state.selection_pane == Some(pane_id) {
                     self.state
                         .selection
                         .update_focus(ekko_grid::selection::SelectionPoint {
@@ -848,7 +905,13 @@ impl App<'_> {
                 }
                 self.state.selection.end_drag();
                 if let Some(range) = self.state.selection.normalized() {
-                    let text = self.state.grid.selected_text(range);
+                    let text = self
+                        .state
+                        .workspace
+                        .panes
+                        .get(&pane_id)
+                        .map(|pane| pane.grid.selected_text(range))
+                        .unwrap_or_default();
                     if !text.is_empty() {
                         let mut stdout = std::io::stdout();
                         let _ = stdout.write_all(&clipboard::osc52_set_clipboard(text.as_bytes()));
@@ -862,6 +925,7 @@ impl App<'_> {
                 } else {
                     // A plain click without a drag clears any old highlight.
                     self.state.selection.clear();
+                    self.state.selection_pane = None;
                 }
             }
             MouseKind::Other => {}

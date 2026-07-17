@@ -141,6 +141,20 @@ mod tests {
         roundtrip(ClientToServer::Key(vec![0x1b, b'[', b'A']));
         roundtrip(ClientToServer::Paste(b"hello world".to_vec()));
         roundtrip(ClientToServer::Scroll { delta: -3 });
+        roundtrip(ClientToServer::SplitPane {
+            direction: SplitDirection::Right,
+        });
+        roundtrip(ClientToServer::SplitPane {
+            direction: SplitDirection::Down,
+        });
+        roundtrip(ClientToServer::FocusDirection {
+            direction: Direction::Left,
+        });
+        roundtrip(ClientToServer::FocusDirection {
+            direction: Direction::Down,
+        });
+        roundtrip(ClientToServer::FocusPane { pane: 7 });
+        roundtrip(ClientToServer::CloseFocusedPane);
         roundtrip(ClientToServer::ScrollReset);
         roundtrip(ClientToServer::KillCurrentSession);
         roundtrip(ClientToServer::KillSession("main".into()));
@@ -159,53 +173,87 @@ mod tests {
         roundtrip(ServerToClient::AttachRejected(
             AttachRejectReason::SpawnFailed("boom".into()),
         ));
-        roundtrip(ServerToClient::Grid(GridUpdate {
+        roundtrip(ServerToClient::Workspace(WorkspaceUpdate {
             epoch: 42,
-            cols: 80,
-            rows: 24,
-            cursor: Some(CursorState {
-                row: 1,
-                col: 2,
-                visible: true,
-                shape: 6,
-            }),
-            modes: TermModes {
-                alt_screen: true,
-                app_cursor: true,
-                mouse_mode: MouseMode::ButtonMotion,
-                mouse_encoding: MouseEncoding::Sgr,
-                focus_reporting: true,
-            },
-            scrollback: 0,
-            payload: GridPayload::Full(vec![GridRow {
-                cells: vec![GridCell {
-                    ch: 'x',
-                    extra: vec!['\u{0301}'],
-                    fg: WireColor::Default,
-                    bg: WireColor::Rgb(1, 2, 3),
-                    attrs: GridCell::BOLD | GridCell::UNDERLINE,
-                }],
-            }]),
-        }));
-        roundtrip(ServerToClient::Grid(GridUpdate {
-            epoch: 43,
-            cols: 80,
-            rows: 24,
-            cursor: None,
-            modes: TermModes::default(),
-            scrollback: 120,
-            payload: GridPayload::Rows(vec![(
-                3,
-                GridRow {
-                    cells: vec![GridCell {
-                        ch: ' ',
-                        extra: Vec::new(),
-                        fg: WireColor::Indexed(5),
-                        bg: WireColor::Default,
-                        attrs: 0,
-                    }],
+            panes: vec![
+                PaneMeta {
+                    id: 1,
+                    rect: PaneRect {
+                        x: 0,
+                        y: 0,
+                        cols: 40,
+                        rows: 24,
+                    },
+                    title: None,
                 },
-            )]),
+                PaneMeta {
+                    id: 2,
+                    rect: PaneRect {
+                        x: 40,
+                        y: 0,
+                        cols: 40,
+                        rows: 24,
+                    },
+                    title: Some("shell".into()),
+                },
+            ],
+            focused: 2,
+            grids: vec![
+                PaneGrid {
+                    pane: 1,
+                    update: GridUpdate {
+                        epoch: 42,
+                        cols: 40,
+                        rows: 24,
+                        cursor: Some(CursorState {
+                            row: 1,
+                            col: 2,
+                            visible: true,
+                            shape: 6,
+                        }),
+                        modes: TermModes {
+                            alt_screen: true,
+                            app_cursor: true,
+                            mouse_mode: MouseMode::ButtonMotion,
+                            mouse_encoding: MouseEncoding::Sgr,
+                            focus_reporting: true,
+                        },
+                        scrollback: 0,
+                        payload: GridPayload::Full(vec![GridRow {
+                            cells: vec![GridCell {
+                                ch: 'x',
+                                extra: vec!['\u{0301}'],
+                                fg: WireColor::Default,
+                                bg: WireColor::Rgb(1, 2, 3),
+                                attrs: GridCell::BOLD | GridCell::UNDERLINE,
+                            }],
+                        }]),
+                    },
+                },
+                PaneGrid {
+                    pane: 2,
+                    update: GridUpdate {
+                        epoch: 42,
+                        cols: 40,
+                        rows: 24,
+                        cursor: None,
+                        modes: TermModes::default(),
+                        scrollback: 120,
+                        payload: GridPayload::Rows(vec![(
+                            3,
+                            GridRow {
+                                cells: vec![GridCell {
+                                    ch: ' ',
+                                    extra: Vec::new(),
+                                    fg: WireColor::Indexed(5),
+                                    bg: WireColor::Default,
+                                    attrs: 0,
+                                }],
+                            },
+                        )]),
+                    },
+                },
+            ],
         }));
         roundtrip(ServerToClient::Bell);
         roundtrip(ServerToClient::Exit(ExitReason::Normal));

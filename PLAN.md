@@ -582,27 +582,54 @@ hub seams. This keeps topology/lifecycle failures separate from protocol and UI.
 
 ### P3. Carry pane workspaces over the wire — **serial after P2**
 
-- [ ] Bump `WIRE_VERSION`. Replace the singular visual contract with a workspace
+- [x] Bump `WIRE_VERSION`. Replace the singular visual contract with a workspace
       update containing complete pane metadata (`PaneId`, rect, title), the
       receiving client's focused pane, and optional sparse/full `GridUpdate`
       data per pane. Complete metadata makes removal/topology recovery
       idempotent; grid payloads remain incremental.
-- [ ] Add client→server split-right, split-down, focus-direction, focus-by-id,
+- [x] Add client→server split-right, split-down, focus-direction, focus-by-id,
       and close-focused requests. Requests from unattached clients and unknown
       IDs are ignored safely.
-- [ ] Generalize slow-client recovery/coalescing: a dropped workspace frame
+- [x] Generalize slow-client recovery/coalescing: a dropped workspace frame
       forces full grids for every live pane on that client’s next update;
       coalescing may not lose a pane’s earlier row patches or newer topology.
-- [ ] Replace client singular `GridState` with a pane-state map. Compose each
+- [x] Replace client singular `GridState` with a pane-state map. Compose each
       pane grid at its server-provided rect inside the terminal region; show the
       hardware cursor/title/modes for only the focused pane.
-- [ ] Route mouse hit-testing/selection to pane-local coordinates. Clicking a
+- [x] Route mouse hit-testing/selection to pane-local coordinates. Clicking a
       pane focuses it before forwarding; keyboard, paste, and scroll use server
       focus. Resize reports the client terminal-pane canvas and the daemon
       resizes every resolved child PTY.
-- [ ] Prove round-trip/framing, workspace merge/resync, stale epoch rejection,
+- [x] Prove round-trip/framing, workspace merge/resync, stale epoch rejection,
       multi-grid composition, independent client focus, and one-pane visual
       equivalence.
+
+P3 landed. `WIRE_VERSION` is 8. `ServerToClient::Workspace(WorkspaceUpdate)`
+carries the complete `PaneMeta` projection (`id`, canvas-local `PaneRect`,
+title), the receiving client's `focused` id, and per-pane `PaneGrid` payloads
+(wrapping the existing `GridUpdate`, epoch shared with the workspace).
+`ClientToServer` gains `SplitPane { direction: SplitDirection }`,
+`FocusDirection { direction: Direction }`, `FocusPane { pane }`, and
+`CloseFocusedPane`. The hub broadcasts one workspace per attached client per
+pass; `needs_full` (attach or a dropped frame) now forces `Full` grids for
+every live pane, retried promptly only on the transition. `client_io`
+coalesces consecutive workspace frames: newest metadata/focus wins, per-pane
+grid payloads stack, removed panes' patches drop. The client keeps a
+`WorkspaceState` (BTreeMap of `PaneState` = rect + title + `GridState`);
+scene composition blits each pane at its server rect inside the terminal
+region (filling the remainder), shows the hardware cursor/cursor-shape/modes
+for the focused pane only, and routes mouse hits pane-locally — a hit first
+sends `FocusPane` (keyboard/paste/scroll keep using server focus), selection
+tracks its pane and dies with it. Found and fixed in the sandbox: a
+metadata-only change (focus move, title) produces steady grids, whose frames
+were previously dropped, so the workspace carrying the new `focused`/title
+never shipped — the hub now marks `workspace_dirty` on focus/topology/title
+changes and emits even when all grids are steady (hub regression test
+`focus_move_emits_a_metadata_frame_even_when_grids_are_steady`). Integrated
+acceptance passed: `cargo test -p ekko-server --no-default-features` (55 unit
++ 13 daemon + 7 extension, incl. the wire-driven
+`panes_split_focus_and_close_over_the_wire` daemon test), `cargo fmt --all
+-- --check`, `cargo test --workspace`, `nix build`, and `nix flake check`.
 
 ### P4. Expose stock pane management through the public API — **serial after P3**
 

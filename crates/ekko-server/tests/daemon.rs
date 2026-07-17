@@ -9,8 +9,8 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use ekko_proto::{
-    ClientToServer, ExitReason, GridPayload, GridUpdate, ServerToClient, WIRE_VERSION, read_msg,
-    write_msg,
+    ClientToServer, ExitReason, GridPayload, GridUpdate, ServerToClient, WIRE_VERSION,
+    WorkspaceUpdate, read_msg, write_msg,
 };
 use interprocess::local_socket::Stream as LocalSocketStream;
 use interprocess::local_socket::traits::Stream as _;
@@ -201,8 +201,27 @@ fn grid_lines(update: &GridUpdate) -> Vec<String> {
     }
 }
 
+/// Every pane grid carried by a workspace frame, as line strings per pane.
+fn workspace_grid_lines(update: &WorkspaceUpdate) -> Vec<Vec<String>> {
+    update
+        .grids
+        .iter()
+        .map(|grid| grid_lines(&grid.update))
+        .collect()
+}
+
 fn grid_contains(msg: &ServerToClient, needle: &str) -> bool {
-    matches!(msg, ServerToClient::Grid(update) if grid_lines(update).iter().any(|l| l.contains(needle)))
+    matches!(msg, ServerToClient::Workspace(update) if workspace_grid_lines(update).iter().flatten().any(|l| l.contains(needle)))
+}
+
+/// The grid of the frame's focused pane, for assertions that care about the
+/// focused pane's view (scrollback, modes, size).
+fn focused_grid(update: &WorkspaceUpdate) -> Option<&GridUpdate> {
+    update
+        .grids
+        .iter()
+        .find(|grid| grid.pane == update.focused)
+        .map(|grid| &grid.update)
 }
 
 #[test]
@@ -380,18 +399,17 @@ fn session_sizes_to_smallest_attached_client() {
     );
 
     // A smaller client joins: the session shrinks to fit it, and the larger
-    // client is told via a grid update at the new size.
+    // client is told via a workspace frame at the new canvas size.
     let mut client2 = TestClient::connect(&env.session_name);
     client2.attach_with_size(env.cwd(), false, 60, 20);
     assert!(
         client1
             .wait_for(Duration::from_secs(5), |m| matches!(
                 m,
-                ServerToClient::Grid(GridUpdate {
-                    cols: 60,
-                    rows: 20,
-                    ..
-                })
+                ServerToClient::Workspace(update)
+                    if update.panes.len() == 1
+                        && update.panes[0].rect.cols == 60
+                        && update.panes[0].rect.rows == 20
             ))
             .is_some(),
         "expected the session to shrink to the smallest attached client"
@@ -403,11 +421,10 @@ fn session_sizes_to_smallest_attached_client() {
         client1
             .wait_for(Duration::from_secs(5), |m| matches!(
                 m,
-                ServerToClient::Grid(GridUpdate {
-                    cols: 80,
-                    rows: 24,
-                    ..
-                })
+                ServerToClient::Workspace(update)
+                    if update.panes.len() == 1
+                        && update.panes[0].rect.cols == 80
+                        && update.panes[0].rect.rows == 24
             ))
             .is_some(),
         "expected the session to grow back after the small client detached"
@@ -595,7 +612,8 @@ fn scroll_messages_move_the_scrollback_view() {
         client
             .wait_for(Duration::from_secs(5), |m| matches!(
                 m,
-                ServerToClient::Grid(update) if update.scrollback == 5
+                ServerToClient::Workspace(update)
+                    if focused_grid(update).is_some_and(|grid| grid.scrollback == 5)
             ))
             .is_some(),
         "expected a grid update with the view scrolled back by 5"
@@ -606,7 +624,8 @@ fn scroll_messages_move_the_scrollback_view() {
         client
             .wait_for(Duration::from_secs(5), |m| matches!(
                 m,
-                ServerToClient::Grid(update) if update.scrollback == 0
+                ServerToClient::Workspace(update)
+                    if focused_grid(update).is_some_and(|grid| grid.scrollback == 0)
             ))
             .is_some(),
         "expected the view to return to the live screen"
@@ -679,13 +698,122 @@ fn child_mouse_mode_requests_are_reported_to_the_client() {
         client
             .wait_for(Duration::from_secs(10), |m| matches!(
                 m,
-                ServerToClient::Grid(update)
-                    if update.modes.mouse_mode == ekko_proto::MouseMode::ButtonMotion
-                        && update.modes.mouse_encoding == ekko_proto::MouseEncoding::Sgr
-                        && update.modes.focus_reporting
+                ServerToClient::Workspace(update)
+                    if focused_grid(update).is_some_and(|grid|
+                        grid.modes.mouse_mode == ekko_proto::MouseMode::ButtonMotion
+                            && grid.modes.mouse_encoding == ekko_proto::MouseEncoding::Sgr
+                            && grid.modes.focus_reporting)
             ))
             .is_some(),
         "expected the child's mouse/focus mode requests on the wire"
+    );
+
+    kill_and_join(client, daemon, &env.session_name);
+}
+
+#[test]
+fn panes_split_focus_and_close_over_the_wire() {
+    let env = TestEnv::new("t-panes");
+    let daemon = spawn_daemon(env.session_name.clone());
+
+    let mut client = TestClient::connect(&env.session_name);
+    client.attach(env.cwd(), false);
+    let first = client
+        .wait_for(
+            Duration::from_secs(10),
+            |m| matches!(m, ServerToClient::Workspace(update) if update.panes.len() == 1),
+        )
+        .and_then(|m| match m {
+            ServerToClient::Workspace(update) => Some(update),
+            _ => None,
+        })
+        .expect("expected the initial one-pane workspace");
+    let initial = first.panes[0].id;
+    assert_eq!(first.focused, initial);
+    assert_eq!(first.panes[0].rect.cols, 80);
+
+    // Split right: a second pane appears to the right, focused, at half the
+    // canvas; the sibling keeps the left half.
+    client.send(&ClientToServer::SplitPane {
+        direction: ekko_proto::SplitDirection::Right,
+    });
+    let split = client
+        .wait_for(
+            Duration::from_secs(10),
+            |m| matches!(m, ServerToClient::Workspace(update) if update.panes.len() == 2),
+        )
+        .and_then(|m| match m {
+            ServerToClient::Workspace(update) => Some(update),
+            _ => None,
+        })
+        .expect("expected a two-pane workspace after the split");
+    let child = split.focused;
+    assert_ne!(child, initial);
+    let left = split.panes.iter().find(|p| p.id == initial).unwrap();
+    let right = split.panes.iter().find(|p| p.id == child).unwrap();
+    assert_eq!((left.rect.x, left.rect.cols), (0, 40));
+    assert_eq!((right.rect.x, right.rect.cols), (40, 40));
+
+    // Output typed into the focused (right) pane lands in its grid only.
+    client.send(&ClientToServer::Key(b"printf rightpane\n".to_vec()));
+    assert!(
+        client
+            .wait_for(Duration::from_secs(10), |m| matches!(
+                m,
+                ServerToClient::Workspace(update)
+                    if update.grids.iter().any(|grid| grid.pane == child
+                        && grid_lines(&grid.update).iter().any(|l| l.contains("rightpane")))
+            ))
+            .is_some(),
+        "expected the right pane's output in its own grid"
+    );
+
+    // Focus moves back left directionally, then right by id.
+    client.send(&ClientToServer::FocusDirection {
+        direction: ekko_proto::Direction::Left,
+    });
+    let mut seen: Vec<String> = Vec::new();
+    let moved = client.wait_for(Duration::from_secs(10), |m| {
+        if let ServerToClient::Workspace(update) = m {
+            seen.push(format!(
+                "epoch={} focused={} panes={:?} grids={}",
+                update.epoch,
+                update.focused,
+                update.panes.iter().map(|p| p.id).collect::<Vec<_>>(),
+                update.grids.len()
+            ));
+        }
+        matches!(m, ServerToClient::Workspace(update) if update.focused == initial)
+    });
+    assert!(
+        moved.is_some(),
+        "expected directional focus back to the left pane; frames: {seen:?}"
+    );
+    client.send(&ClientToServer::FocusPane { pane: child });
+    assert!(
+        client
+            .wait_for(Duration::from_secs(10), |m| matches!(
+                m,
+                ServerToClient::Workspace(update) if update.focused == child
+            ))
+            .is_some(),
+        "expected focus-by-id back to the right pane"
+    );
+
+    // Closing the focused (right) pane removes it and expands the sibling.
+    client.send(&ClientToServer::CloseFocusedPane);
+    assert!(
+        client
+            .wait_for(Duration::from_secs(10), |m| matches!(
+                m,
+                ServerToClient::Workspace(update)
+                    if update.panes.len() == 1
+                        && update.panes[0].id == initial
+                        && update.panes[0].rect.cols == 80
+                        && update.focused == initial
+            ))
+            .is_some(),
+        "expected the sibling to absorb the closed pane's space"
     );
 
     kill_and_join(client, daemon, &env.session_name);

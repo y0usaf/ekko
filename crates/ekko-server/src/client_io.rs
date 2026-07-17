@@ -11,7 +11,8 @@ use std::time::Duration;
 
 use crossbeam_channel::{Receiver, Sender};
 use ekko_proto::{
-    ClientToServer, GridPayload, GridRow, GridUpdate, ServerToClient, read_msg, write_msg,
+    ClientToServer, GridPayload, GridRow, GridUpdate, PaneGrid, ServerToClient, WorkspaceUpdate,
+    read_msg, write_msg,
 };
 use interprocess::local_socket::Stream as LocalSocketStream;
 use interprocess::local_socket::prelude::*;
@@ -20,9 +21,8 @@ use interprocess::local_socket::traits::SendHalf as _;
 use crate::hub::HubInstruction;
 
 pub type ClientId = u64;
-
-/// Depth of the per-client outgoing message queue. `Grid` frames are
-/// coalesced by the writer thread (see [`coalesce_grid_frames`]) so this
+/// Depth of the per-client outgoing message queue. `Workspace` frames are
+/// coalesced by the writer thread (see [`coalesce_workspace_frames`]) so this
 /// only needs to absorb a burst, not the full backlog of a slow client.
 const CLIENT_QUEUE_DEPTH: usize = 128;
 
@@ -78,7 +78,7 @@ fn writer_loop(
         while let Ok(msg) = rx.try_recv() {
             batch.push(msg);
         }
-        for msg in coalesce_grid_frames(batch) {
+        for msg in coalesce_workspace_frames(batch) {
             if let Err(e) = write_msg(&mut send_half, &msg) {
                 log::debug!("client-writer[{id}]: write failed, evicting: {e}");
                 let _ = hub_tx.send(HubInstruction::ClientWriteFailed(id));
@@ -106,28 +106,67 @@ fn router_loop(id: ClientId, mut recv_half: impl std::io::Read, hub_tx: Sender<H
     let _ = hub_tx.send(HubInstruction::ClientDisconnected(id));
 }
 
-/// Collapse consecutive `Grid` frames in a batch by merging them — sparse
-/// `Rows` diffs stack, so simply keeping the newest frame would lose the rows
-/// carried only by earlier frames. Relative order with non-`Grid` messages
-/// (e.g. `Exit`) is preserved.
-fn coalesce_grid_frames(batch: Vec<ServerToClient>) -> Vec<ServerToClient> {
+/// Collapse consecutive `Workspace` frames in a batch by merging them.
+/// Metadata and focus are complete projections, so the newest wins; per-pane
+/// grid payloads merge like standalone grid frames so a pane's sparse `Rows`
+/// patches are never lost to a later frame that didn't touch that pane.
+/// Relative order with non-`Workspace` messages (e.g. `Exit`) is preserved.
+fn coalesce_workspace_frames(batch: Vec<ServerToClient>) -> Vec<ServerToClient> {
     let mut out = Vec::with_capacity(batch.len());
     let mut iter = batch.into_iter().peekable();
     while let Some(msg) = iter.next() {
-        if let ServerToClient::Grid(update) = msg {
+        if let ServerToClient::Workspace(update) = msg {
             let mut merged = update;
-            while matches!(iter.peek(), Some(ServerToClient::Grid(_))) {
-                let Some(ServerToClient::Grid(next)) = iter.next() else {
-                    unreachable!("peeked Grid");
+            while matches!(iter.peek(), Some(ServerToClient::Workspace(_))) {
+                let Some(ServerToClient::Workspace(next)) = iter.next() else {
+                    unreachable!("peeked Workspace");
                 };
-                merged = merge_grid_updates(merged, next);
+                merged = merge_workspace_updates(merged, next);
             }
-            out.push(ServerToClient::Grid(merged));
+            out.push(ServerToClient::Workspace(merged));
         } else {
             out.push(msg);
         }
     }
     out
+}
+
+/// Merge two consecutive workspace updates into one equivalent update. The
+/// newer frame's metadata and focus are authoritative (complete projections);
+/// grids merge per pane: a pane untouched by the newer frame keeps its
+/// earlier payload, a pane present in both stacks via [`merge_grid_updates`],
+/// and a pane the newer metadata removed drops its moot patches.
+fn merge_workspace_updates(older: WorkspaceUpdate, newer: WorkspaceUpdate) -> WorkspaceUpdate {
+    let mut grids: Vec<PaneGrid> = older
+        .grids
+        .into_iter()
+        .filter(|grid| newer.panes.iter().any(|meta| meta.id == grid.pane))
+        .collect();
+    for next in newer.grids {
+        if let Some(existing) = grids.iter_mut().find(|grid| grid.pane == next.pane) {
+            let previous = std::mem::replace(
+                &mut existing.update,
+                GridUpdate {
+                    epoch: 0,
+                    cols: 0,
+                    rows: 0,
+                    cursor: None,
+                    modes: Default::default(),
+                    scrollback: 0,
+                    payload: GridPayload::Rows(Vec::new()),
+                },
+            );
+            existing.update = merge_grid_updates(previous, next.update);
+        } else {
+            grids.push(next);
+        }
+    }
+    WorkspaceUpdate {
+        epoch: newer.epoch,
+        panes: newer.panes,
+        focused: newer.focused,
+        grids,
+    }
 }
 
 /// Merge two consecutive grid updates into one equivalent update. The hub
@@ -167,24 +206,56 @@ fn merge_grid_updates(older: GridUpdate, newer: GridUpdate) -> GridUpdate {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ekko_proto::{ExitReason, GridPayload, GridUpdate, TermModes};
+    use ekko_proto::{ExitReason, PaneMeta, PaneRect, TermModes};
 
-    fn grid(epoch: u64) -> ServerToClient {
-        ServerToClient::Grid(GridUpdate {
+    fn update(epoch: u64, payload: GridPayload) -> GridUpdate {
+        GridUpdate {
             epoch,
             cols: 1,
             rows: 1,
             cursor: None,
             modes: TermModes::default(),
             scrollback: 0,
-            payload: GridPayload::Full(vec![]),
+            payload,
+        }
+    }
+
+    fn workspace(epoch: u64, panes: &[u64], grids: Vec<PaneGrid>) -> ServerToClient {
+        ServerToClient::Workspace(WorkspaceUpdate {
+            epoch,
+            panes: panes
+                .iter()
+                .map(|&id| PaneMeta {
+                    id,
+                    rect: PaneRect {
+                        x: 0,
+                        y: 0,
+                        cols: 1,
+                        rows: 1,
+                    },
+                    title: None,
+                })
+                .collect(),
+            focused: panes[0],
+            grids,
         })
     }
 
+    fn grid(epoch: u64) -> ServerToClient {
+        workspace(
+            epoch,
+            &[1],
+            vec![PaneGrid {
+                pane: 1,
+                update: update(epoch, GridPayload::Full(vec![])),
+            }],
+        )
+    }
+
     #[test]
-    fn coalesces_consecutive_grid_frames_keeping_the_last() {
+    fn coalesces_consecutive_workspace_frames_keeping_the_last() {
         let batch = vec![grid(1), grid(2), grid(3)];
-        let out = coalesce_grid_frames(batch);
+        let out = coalesce_workspace_frames(batch);
         assert_eq!(out, vec![grid(3)]);
     }
 
@@ -201,15 +272,14 @@ mod tests {
     }
 
     fn rows_update(epoch: u64, patches: Vec<(u16, ekko_proto::GridRow)>) -> ServerToClient {
-        ServerToClient::Grid(GridUpdate {
+        workspace(
             epoch,
-            cols: 1,
-            rows: 3,
-            cursor: None,
-            modes: TermModes::default(),
-            scrollback: 0,
-            payload: GridPayload::Rows(patches),
-        })
+            &[1],
+            vec![PaneGrid {
+                pane: 1,
+                update: update(epoch, GridPayload::Rows(patches)),
+            }],
+        )
     }
 
     #[test]
@@ -218,7 +288,7 @@ mod tests {
             rows_update(1, vec![(0, row('a'))]),
             rows_update(2, vec![(1, row('b'))]),
         ];
-        let out = coalesce_grid_frames(batch);
+        let out = coalesce_workspace_frames(batch);
         assert_eq!(
             out,
             vec![rows_update(2, vec![(0, row('a')), (1, row('b'))])]
@@ -227,46 +297,99 @@ mod tests {
 
     #[test]
     fn applies_row_diffs_onto_a_preceding_full_frame() {
-        let full = ServerToClient::Grid(GridUpdate {
-            epoch: 1,
-            cols: 1,
-            rows: 2,
-            cursor: None,
-            modes: TermModes::default(),
-            scrollback: 0,
-            payload: GridPayload::Full(vec![row('a'), row('b')]),
-        });
+        let full = workspace(
+            1,
+            &[1],
+            vec![PaneGrid {
+                pane: 1,
+                update: GridUpdate {
+                    rows: 2,
+                    payload: GridPayload::Full(vec![row('a'), row('b')]),
+                    ..update(1, GridPayload::Rows(vec![]))
+                },
+            }],
+        );
         let batch = vec![full, rows_update(2, vec![(1, row('z'))])];
-        let out = coalesce_grid_frames(batch);
-        let [ServerToClient::Grid(merged)] = out.as_slice() else {
-            panic!("expected one grid frame");
+        let out = coalesce_workspace_frames(batch);
+        let [ServerToClient::Workspace(merged)] = out.as_slice() else {
+            panic!("expected one workspace frame");
         };
-        let GridPayload::Full(rows) = &merged.payload else {
+        let GridPayload::Full(rows) = &merged.grids[0].update.payload else {
             panic!("expected merged full payload");
         };
         assert_eq!(merged.epoch, 2);
+        assert_eq!(merged.grids[0].update.epoch, 2);
         assert_eq!(rows[0].cells[0].ch, 'a');
         assert_eq!(rows[1].cells[0].ch, 'z');
     }
 
     #[test]
     fn newer_full_frame_supersedes_older_diffs() {
-        let full = ServerToClient::Grid(GridUpdate {
-            epoch: 2,
-            cols: 1,
-            rows: 1,
-            cursor: None,
-            modes: TermModes::default(),
-            scrollback: 0,
-            payload: GridPayload::Full(vec![row('n')]),
-        });
+        let full = workspace(
+            2,
+            &[1],
+            vec![PaneGrid {
+                pane: 1,
+                update: update(2, GridPayload::Full(vec![row('n')])),
+            }],
+        );
         let batch = vec![rows_update(1, vec![(0, row('a'))]), full.clone()];
-        let out = coalesce_grid_frames(batch);
+        let out = coalesce_workspace_frames(batch);
         assert_eq!(out, vec![full]);
     }
 
     #[test]
-    fn preserves_order_around_non_grid_messages() {
+    fn merge_stacks_live_panes_and_drops_removed_panes_patches() {
+        let older = workspace(
+            1,
+            &[1, 2, 3],
+            vec![
+                PaneGrid {
+                    pane: 1,
+                    update: update(1, GridPayload::Rows(vec![(0, row('a'))])),
+                },
+                PaneGrid {
+                    pane: 2,
+                    update: update(1, GridPayload::Rows(vec![(3, row('x'))])),
+                },
+                PaneGrid {
+                    pane: 3,
+                    update: update(1, GridPayload::Rows(vec![(5, row('q'))])),
+                },
+            ],
+        );
+        let newer = workspace(
+            2,
+            &[1, 2],
+            vec![PaneGrid {
+                pane: 2,
+                update: update(2, GridPayload::Rows(vec![(4, row('y'))])),
+            }],
+        );
+        let out = coalesce_workspace_frames(vec![older, newer]);
+        let [ServerToClient::Workspace(merged)] = out.as_slice() else {
+            panic!("expected one workspace frame");
+        };
+        // Topology: pane 3 is gone, and only the newest metadata survives.
+        assert_eq!(merged.panes.len(), 2);
+        assert_eq!(merged.focused, 1);
+        assert_eq!(merged.epoch, 2);
+        // Pane 1 (untouched) keeps its earlier rows; pane 2's rows stack;
+        // pane 3's patches vanish with it.
+        assert_eq!(merged.grids.len(), 2);
+        let GridPayload::Rows(pane1) = &merged.grids[0].update.payload else {
+            panic!("expected carried rows for pane 1");
+        };
+        assert_eq!(pane1[0].1.cells[0].ch, 'a');
+        let GridPayload::Rows(pane2) = &merged.grids[1].update.payload else {
+            panic!("expected stacked rows for pane 2");
+        };
+        let chars: Vec<char> = pane2.iter().map(|(_, row)| row.cells[0].ch).collect();
+        assert_eq!(chars, vec!['x', 'y']);
+    }
+
+    #[test]
+    fn preserves_order_around_non_workspace_messages() {
         let batch = vec![
             grid(1),
             grid(2),
@@ -274,7 +397,7 @@ mod tests {
             grid(3),
             ServerToClient::Exit(ExitReason::Detached),
         ];
-        let out = coalesce_grid_frames(batch);
+        let out = coalesce_workspace_frames(batch);
         assert_eq!(
             out,
             vec![
