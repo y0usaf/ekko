@@ -146,7 +146,7 @@ each pane at its server-provided rect.
       `examples/leader-map.lua`)
 
 
-## Pane MVP contract (next milestone)
+## Pane MVP contract (landed, WS-P)
 
 Panes are the next core multiplexer mechanism. The minimum useful vertical
 slice is deliberately smaller than Zellij: tiled terminal panes with split,
