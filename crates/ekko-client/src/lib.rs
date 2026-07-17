@@ -4,6 +4,7 @@
 //! lives in extensions, stock behavior in `ekko-builtins`), and forwards
 //! keyboard/mouse input.
 
+mod borders;
 mod clipboard;
 mod drawctx;
 mod event_loop;

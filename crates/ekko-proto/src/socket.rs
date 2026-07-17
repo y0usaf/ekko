@@ -39,7 +39,9 @@ use interprocess::local_socket::{
 ///
 /// v7: added `ClientToServer::Activate` and
 /// `ServerToClient::{Activate, ActivateResult}` for `ekko activate`.
-pub const WIRE_VERSION: u32 = 8;
+/// v8: `ServerToClient::Workspace` pane projection + split/focus/close requests.
+/// v9: `WorkspaceUpdate.border_style` (`PaneBorderStyle`).
+pub const WIRE_VERSION: u32 = 9;
 
 fn wire_dir_name() -> String {
     format!("wire_v{WIRE_VERSION}")

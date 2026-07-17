@@ -148,6 +148,44 @@ pub enum SessionStatus {
     Crashed,
 }
 
+/// How pane boundaries are rendered, and how much canvas geometry they
+/// reserve. This is a session-level property: the daemon owns the canvas
+/// and resolves every client's panes from one topology, so the style lives
+/// in the server's config and rides the workspace to clients.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum PaneBorderStyle {
+    /// Panes tile edge to edge; no separator cells exist.
+    #[default]
+    None,
+    /// One shared separator line between panes (zellij compact mode), with
+    /// junction glyphs where lines meet. Reserves one cell per split edge.
+    Compact,
+    /// Every pane draws its own full box frame in the cells ringing its
+    /// content. Reserves one cell around each pane (two between panes,
+    /// one at the canvas edge).
+    Frame,
+}
+
+impl PaneBorderStyle {
+    /// Cells reserved between sibling subtrees at every split.
+    pub fn gap(self) -> u16 {
+        match self {
+            Self::None => 0,
+            Self::Compact => 1,
+            Self::Frame => 2,
+        }
+    }
+
+    /// Cells reserved between the canvas edge and the outermost panes.
+    pub fn margin(self) -> u16 {
+        match self {
+            Self::None | Self::Compact => 0,
+            Self::Frame => 1,
+        }
+    }
+}
+
 /// One frame of the complete pane workspace: full metadata for every live
 /// pane, the receiving client's focused pane, and grid payloads for the
 /// panes that changed since their last sent frame. Metadata is complete on
@@ -162,6 +200,10 @@ pub struct WorkspaceUpdate {
     /// Grid updates for panes with new content only; a pane's last-known
     /// grid persists on the client when it is absent here.
     pub grids: Vec<PaneGrid>,
+    /// Border style the client should draw between/around panes. Constant
+    /// per session; repeated here so clients need no config agreement with
+    /// the daemon.
+    pub border_style: PaneBorderStyle,
 }
 
 /// The server's canonical projection of one tiled pane.

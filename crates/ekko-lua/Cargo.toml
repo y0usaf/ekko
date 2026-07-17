@@ -15,6 +15,7 @@ ekko-ext.workspace = true
 # For the end-to-end proof that init.lua can disable a builtin and a script
 # can take over its name.
 ekko-builtins.workspace = true
+ekko-proto.workspace = true
 
 [lints]
 workspace = true

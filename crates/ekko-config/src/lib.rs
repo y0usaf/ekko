@@ -3,15 +3,18 @@
 //! Loaded once at process start; a missing file yields `Config::default()`.
 //! This crate parses only TOML (`config.toml`) — the `init.lua` settings
 //! source that supersedes it lives in `ekko-lua`, which deserializes the
-//! returned table into the same [`Config`], so this crate stays a dumb,
-//! dependency-free store. Keybind values stay as raw strings here — chord
-//! parsing lives in the client's input layer, which owns the key vocabulary.
+//! returned table into the same [`Config`], so this crate stays a dumb
+//! store (its one dependency beyond serde is `ekko-proto`, for the
+//! `PaneBorderStyle` vocabulary the wire shares). Keybind values stay as
+//! raw strings here — chord parsing lives in the client's input layer,
+//! which owns the key vocabulary.
 
 use std::collections::BTreeMap;
 use std::fs;
 use std::path::PathBuf;
 
 use anyhow::Context;
+use ekko_proto::PaneBorderStyle;
 use serde::{Deserialize, Serialize};
 
 pub const SIDEBAR_WIDTH_DEFAULT: u16 = 36;
@@ -83,12 +86,19 @@ impl Default for General {
 #[serde(default)]
 pub struct Ui {
     pub sidebar_width: u16,
+    /// Pane separator style: `"none"` (default, edge-to-edge),
+    /// `"compact"` (shared zellij-style boundary lines), or `"frame"`
+    /// (a full box frame around every pane). Owned by the daemon — it
+    /// reserves the separator cells in the canvas layout — and announced
+    /// to clients over the wire, so set it where the server reads config.
+    pub pane_borders: PaneBorderStyle,
 }
 
 impl Default for Ui {
     fn default() -> Self {
         Self {
             sidebar_width: SIDEBAR_WIDTH_DEFAULT,
+            pane_borders: PaneBorderStyle::None,
         }
     }
 }

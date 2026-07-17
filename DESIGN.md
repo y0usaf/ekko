@@ -38,7 +38,7 @@ Corollaries:
 | `ekko-grid` | Cell surface, damage tracking, optimizing ANSI diff renderer | core |
 | `ekko-tui` | Terminal primitives: raw mode, color probing, cell-width math, spinner math | core |
 | `ekko-pty` | PTY spawn/IO/reaping | core |
-| `ekko-config` | Config schema + TOML parsing; the `init.lua` settings source that supersedes `config.toml` is evaluated in `ekko-lua` (the schema crate stays dependency-free). Holds binding *strings*; binding *meanings* live in builtins | core |
+| `ekko-config` | Config schema + TOML parsing; the `init.lua` settings source that supersedes `config.toml` is evaluated in `ekko-lua`. Depends on `ekko-proto` for the `PaneBorderStyle` vocabulary the wire shares. Holds binding *strings*; binding *meanings* live in builtins | core |
 | `ekko-resurrection` | Manifest I/O library (used by the resurrection builtin and by `ekko ls`) | core (I/O) |
 | `ekko-keycast` | Keystroke display (`:keycast`). The WS8 extension: lives outside the builtins, depends only on `ekko-ext` | **policy** |
 | `ekko-lua` | Lua scripting bridge: `~/.config/ekko/extensions/*.lua` scripts become `Extension`s, guarded by instruction budgets + buffered draw ops; also evaluates `init.lua` into `ekko_config::Config` and exposes the resolved config to scripts as `ekko.config` | core (bridge) |
@@ -80,7 +80,13 @@ the workspace frame: `ServerToClient::Workspace` carries the complete pane
 metadata projection and the receiving client's focus plus incremental
 per-pane grids; `ClientToServer` carries pane requests (split, focus,
 close). The client holds a discardable `WorkspaceState` cache and composes
-each pane at its server-provided rect.
+each pane at its server-provided rect. `WIRE_VERSION` 9 adds
+`WorkspaceUpdate.border_style`: pane separation is a session-level
+property (the daemon reserves the separator cells in its canvas layout —
+one shared cell per split edge for `compact`, a full ring per pane for
+`frame`), so the style is set in the server's `ui.pane_borders` config and
+rides the workspace to clients, which draw the glyphs (zellij-style box
+drawing, junction-resolved for compact) from `ekko-client/src/borders.rs`.
 
 ## Deferred hooks (and why)
 

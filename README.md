@@ -116,7 +116,7 @@ Lua state — to a table congruent with the config schema:
 ```lua
 return {
   general = { default_shell = "/run/current-system/sw/bin/nu", scrollback_lines = 50000 },
-  ui = { sidebar_width = 28 },
+  ui = { sidebar_width = 28, pane_borders = "compact" }, -- "none" | "compact" | "frame"
   keybinds = { detach = "ctrl+q", session_next = { "ctrl+j", "ctrl+down" } },
   extensions = { disabled = { "ekko-builtins.sidebar" } },
   lua = { draw_budget = 200000, handler_budget = 2000000 },
@@ -140,6 +140,14 @@ running on defaults, so there is no fall-through to a coexisting
 TOML spelling); without either, defaults. The client and the per-session
 daemon load the same cascade, and scripts read the resolved result as a
 read-only `ekko.config` table.
+
+`ui.pane_borders` picks how tiled panes are separated: `"none"` (default,
+edge-to-edge), `"compact"` (zellij-style shared boundary lines with
+junction glyphs), or `"frame"` (a full box frame around every pane). The
+daemon owns the canvas, so it reserves the separator cells in the layout
+and tells clients the style over the wire — set it in the config the
+server reads; the boundary touching the focused pane is tinted with the
+theme's accent color.
 
 Disabling a builtin under `extensions.disabled` and re-registering its name
 from a script is the supported way to replace any stock feature wholesale —

@@ -1,8 +1,9 @@
 //! Frame composition, registry-driven: every chrome region is drawn by the
 //! surface extension that claimed it; each terminal pane is blitted at its
-//! server-provided rect inside what remains; the active mode and overlay
-//! draw their layers last. This module is pure mechanism — it holds no
-//! opinion about which surfaces or pane layouts exist.
+//! server-provided rect inside what remains; pane separators fill the gap
+//! cells the daemon reserved between/around panes; the active mode and
+//! overlay draw their layers last. This module is pure mechanism — it
+//! holds no opinion about which surfaces or pane layouts exist.
 
 use ekko_ext::{AppRuntime, ClientSnapshot, Rect, ResolvedLayout};
 use ekko_grid::cell_surface::CellSurface;
@@ -59,6 +60,35 @@ pub fn render_frame(
             &snapshot.theme,
             selection,
         );
+    }
+
+    // Pane separators ride the cells the daemon reserved in the layout:
+    // shared boundary lines (compact) or per-pane box frames (frame),
+    // tinted with the accent color where they touch the focused pane.
+    if state.workspace.border_style != ekko_proto::PaneBorderStyle::None {
+        let panes: Vec<(u64, ekko_proto::PaneRect)> = state
+            .workspace
+            .panes
+            .iter()
+            .map(|(&id, pane)| (id, pane.rect))
+            .collect();
+        let border_fg = gc(snapshot.theme.border);
+        let focused_fg = gc(snapshot.theme.accent);
+        let bg = gc(snapshot.theme.term_bg);
+        for cell in crate::borders::border_cells(
+            &panes,
+            state.workspace.border_style,
+            state.workspace.focused,
+        ) {
+            surface.set_cell(
+                terminal.col + cell.col,
+                terminal.row + cell.row,
+                if cell.focused { focused_fg } else { border_fg },
+                bg,
+                cell.ch.to_string(),
+                false,
+            );
+        }
     }
 
     let mut cursor = terminal_cursor(state, layout.terminal);
