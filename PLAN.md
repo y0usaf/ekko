@@ -634,37 +634,75 @@ acceptance passed: `cargo test -p ekko-server --no-default-features` (55 unit
 
 ### P4. Expose stock pane management through the public API — **serial after P3**
 
-- [ ] Add public `UiAction` forms for split right/down, focus direction, and
+- [x] Add public `UiAction` forms for split right/down, focus direction, and
       close focused pane. `apply_ui_action` remains the client’s only action
       interpreter and translates these to wire requests.
-- [ ] Bridge every new action through `ekko-lua` in the same action dialect and
+- [x] Bridge every new action through `ekko-lua` in the same action dialect and
       expose immutable pane metadata + focused ID in `ClientSnapshot` /
       `snapshot_table`.
-- [ ] Add `ekko-builtins` commands and leader-map entries through ordinary
+- [x] Add `ekko-builtins` commands and leader-map entries through ordinary
       command/keybinding registration. Suggested minimum: `:split right|down`,
       `:pane-focus <direction>`, `:pane-close`; leader `|`, `-`, `h/j/k/l`, `x`.
       Resolve collisions explicitly rather than granting pane policy priority.
-- [ ] Grow status/help/which-key only from live registries/snapshot data. No
+- [x] Grow status/help/which-key only from live registries/snapshot data. No
       pane-specific branch in core rendering or input.
-- [ ] Prove disable-and-replace from a file-backed Lua extension and retain the
+- [x] Prove disable-and-replace from a file-backed Lua extension and retain the
       no-builtins one-pane harness.
+
+P4 landed in `74ee76f`. `UiAction` gains `SplitRight`/`SplitDown`/
+`FocusPaneDirection { PaneDirection }`/`CloseFocusedPane`, translated to the
+P3 wire requests by `apply_ui_action` (still the single write path).
+`ClientSnapshot` carries the daemon's pane projection (`panes: Vec<PaneInfo>`
++ `focused_pane`), bridged into Lua's `snapshot.panes`/`snapshot.focused_pane`;
+the action dialect gains `"split_right"`/`"split_down"`/
+`"close_focused_pane"` strings and `{ focus_direction = dir }`. Stock policy
+is the new `ekko-builtins.panes` extension: the three commands and leader
+`|`, `-`, `h`/`j`/`k`/`l`, `x` as ordinary registrations (rebindable via
+`[keybinds] "leader.split_right"` etc.; disjoint from the existing leader
+map, so no collision resolution was needed). Help/which-key render them from
+live registries untouched. Acceptance: `examples/pane-keys.lua`
+reimplements the whole pane surface as a script; `config.rs`'s
+`init_lua_disables_the_panes_builtin_and_a_script_replaces_it` proves the
+file-backed disable-and-replace; bridge tests pin the dialect and the
+snapshot fields; the no-builtins harness stays green.
 
 ### P5. End-to-end pane acceptance — **serial after P4**
 
-- [ ] A daemon seam test starts two distinguishable shells, verifies independent
+- [x] A daemon seam test starts two distinguishable shells, verifies independent
       output, switches focus and routes input correctly, closes/exits either
       child, and confirms sibling expansion + last-pane session exit.
-- [ ] Detach/re-attach preserves both live children, topology, scrollback, and
+- [x] Detach/re-attach preserves both live children, topology, scrollback, and
       valid focus. Two simultaneous clients may focus different panes without
       redirecting each other’s input.
-- [ ] Terminal resize reaches every pane with its resolved dimensions; a
+- [x] Terminal resize reaches every pane with its resolved dimensions; a
       resize/split flood stays bounded and converges to the latest geometry.
-- [ ] Mouse-aware child, bracketed paste, selection/OSC52, title, cursor shape,
+- [x] Mouse-aware child, bracketed paste, selection/OSC52, title, cursor shape,
       focus reporting, and alternate-screen wheel behavior are pinned to the
       focused/hit pane rather than regressing to session-global state.
-- [ ] `cargo fmt --check`, focused suites, `cargo test --workspace`,
+- [x] `cargo fmt --check`, focused suites, `cargo test --workspace`,
       `nix build`, and `nix flake check` pass; the exact commands/outcomes are
       recorded before this workstream closes.
+
+P5 landed in `74ee76f` (+ `25f1b89` test repair). Four daemon seam tests over
+the real socket: `pane_child_exit_expands_sibling_and_last_exit_ends_session`
+(exit-path sibling absorption + session end),
+`detach_reattach_preserves_panes_and_clients_keep_independent_focus`
+(topology/content/focus survive detach; two clients type into different
+panes with no cross-redirect), `resize_reaches_every_pane_and_a_flood_converges`
+(per-pane resolved dims; exact settled geometry after a resize/split flood),
+and `pane_modes_and_title_stay_pane_local` (DECSET mouse modes ride only the
+requesting pane's grid; its title reaches the focused viewer and the
+metadata). Bracketed-paste re-wrapping, mouse-mode reporting, and DECCKM
+re-encoding keep their existing daemon pins (now per focused pane by
+construction: server routes all three through the requesting client's
+focus), and selection/OSC52/wheel behavior is pane-local in the client
+(selection tracks `selection_pane` and dies with its pane; a mouse hit
+focuses before forwarding). Daemon tests now pin `SHELL=/bin/sh` so
+split-pane assertions don't depend on the host shell's rendering behavior.
+Checks: `cargo fmt --all -- --check`, `cargo test --workspace` (31 suites
+green), `cargo test -p ekko-server --no-default-features` (55 unit + 17
+daemon + 7 extension), `nix build`, `nix flake check` — all pass.
+**WS-P is complete.**
 
 ### Dependency order
 
