@@ -254,6 +254,7 @@ mod tests {
                     },
                 },
             ],
+            border_style: PaneBorderStyle::Compact,
         }));
         roundtrip(ServerToClient::Bell);
         roundtrip(ServerToClient::Exit(ExitReason::Normal));

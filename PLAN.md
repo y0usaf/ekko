@@ -1,4 +1,4 @@
-# PLAN — Lua everywhere (complete) → tiled panes (next)
+# PLAN — Lua everywhere (complete) → tiled panes (complete) → pane borders (complete)
 
 Goal: everything in ekko that is user-configurable is configurable from Lua.
 Two concrete end states:
@@ -709,3 +709,23 @@ daemon + 7 extension), `nix build`, `nix flake check` — all pass.
 `P1 → P2 → P3 → P4 → P5`. All are serial because each evolves the same hub,
 wire, or action contract. Parallel waves become safe only after P3 if follow-up
 features own disjoint consumers; do not invent concurrency inside the MVP.
+
+## WS-PB — Pane borders (zellij-style)
+
+- [x] `PaneBorderStyle` (`none` | `compact` | `frame`) in `ekko-proto`,
+      `ui.pane_borders` config (default `none`), `WorkspaceUpdate.border_style`,
+      `WIRE_VERSION` 9.
+- [x] Topology resolves leaf *content* rects with the style's gap (cells
+      reserved between siblings: 0/1/2) and margin (frame's 1-cell canvas
+      inset); viability shrinks accordingly; the initial pane resolves through
+      the same path (degenerate canvas degrades to edge-to-edge).
+- [x] Client draws separators from a pure geometry module
+      (`ekko-client/src/borders.rs`): compact = shared boundary lines with
+      junction glyphs (┼┬┴├┤ corners) resolved from neighbor connectivity,
+      frame = a box ring per pane; cells touching the focused pane tint with
+      `theme.accent`, the rest `theme.border`.
+- [x] Tests: topology gap/margin arithmetic + viability, hub geometry under
+      compact + frame configs, border glyph/junction/focus-tint units, wire
+      roundtrip (compact style), `init.lua` `pane_borders = "compact"`
+      deserialization. `cargo fmt --check`, `cargo test --workspace` (31
+      suites), `nix build`, `nix flake check` all pass.

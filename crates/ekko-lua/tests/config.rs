@@ -32,7 +32,7 @@ fn init_lua_round_trips_every_section() {
         r#"
         return {
           general = { default_shell = "/bin/zsh", scrollback_lines = 500 },
-          ui = { sidebar_width = 28 },
+          ui = { sidebar_width = 28, pane_borders = "compact" },
           keybinds = { detach = "ctrl+q", session_next = { "ctrl+j", "ctrl+down" } },
           extensions = { disabled = { "ekko-builtins.sidebar" } },
           lua = { draw_budget = 500000, handler_budget = 4000000 },
@@ -43,6 +43,7 @@ fn init_lua_round_trips_every_section() {
     assert_eq!(config.general.default_shell, "/bin/zsh");
     assert_eq!(config.general.scrollback_lines, 500);
     assert_eq!(config.sidebar_width(), 28);
+    assert_eq!(config.ui.pane_borders, ekko_proto::PaneBorderStyle::Compact);
     assert_eq!(
         config.bindings_for("detach", &["ctrl+d"]),
         vec!["ctrl+q".to_string()]

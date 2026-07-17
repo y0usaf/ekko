@@ -166,6 +166,7 @@ fn merge_workspace_updates(older: WorkspaceUpdate, newer: WorkspaceUpdate) -> Wo
         panes: newer.panes,
         focused: newer.focused,
         grids,
+        border_style: newer.border_style,
     }
 }
 
@@ -206,7 +207,7 @@ fn merge_grid_updates(older: GridUpdate, newer: GridUpdate) -> GridUpdate {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ekko_proto::{ExitReason, PaneMeta, PaneRect, TermModes};
+    use ekko_proto::{ExitReason, PaneBorderStyle, PaneMeta, PaneRect, TermModes};
 
     fn update(epoch: u64, payload: GridPayload) -> GridUpdate {
         GridUpdate {
@@ -238,6 +239,7 @@ mod tests {
                 .collect(),
             focused: panes[0],
             grids,
+            border_style: PaneBorderStyle::None,
         })
     }
 

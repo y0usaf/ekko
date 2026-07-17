@@ -8,7 +8,8 @@ use std::time::{Duration, Instant};
 use ekko_ext::{ClientSnapshot, ModeState, NoteKind, OverlayState, ProjectGroup};
 use ekko_grid::selection::{SelectionRange, TerminalSelection, selection_span};
 use ekko_proto::{
-    CursorState, GridCell, GridPayload, GridRow, GridUpdate, PaneRect, TermModes, WorkspaceUpdate,
+    CursorState, GridCell, GridPayload, GridRow, GridUpdate, PaneBorderStyle, PaneRect, TermModes,
+    WorkspaceUpdate,
 };
 
 #[derive(Debug)]
@@ -123,6 +124,9 @@ pub struct WorkspaceState {
     pub panes: std::collections::BTreeMap<u64, PaneState>,
     /// This client's focused pane, as last confirmed by the daemon.
     pub focused: u64,
+    /// How separators between/around panes should be drawn, as dictated by
+    /// the daemon's config (geometry already reserves the cells).
+    pub border_style: PaneBorderStyle,
 }
 
 impl WorkspaceState {
@@ -138,6 +142,7 @@ impl WorkspaceState {
         }
         self.epoch = update.epoch;
         self.focused = update.focused;
+        self.border_style = update.border_style;
         self.panes
             .retain(|id, _| update.panes.iter().any(|meta| meta.id == *id));
         for meta in update.panes {
@@ -341,6 +346,7 @@ mod tests {
                 .into_iter()
                 .map(|(pane, update)| ekko_proto::PaneGrid { pane, update })
                 .collect(),
+            border_style: PaneBorderStyle::None,
         }
     }
 

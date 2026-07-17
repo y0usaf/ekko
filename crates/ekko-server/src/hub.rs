@@ -427,7 +427,24 @@ impl Hub {
 
         if self.panes.is_empty() {
             let shell = shell.unwrap_or_else(|| self.config.resolve_shell());
-            match self.spawn_terminal(&cwd, &shell, cols, rows) {
+            // Resolve the initial pane through the topology so bordered
+            // styles inset it by their margin. A canvas too small for the
+            // margin degrades to edge-to-edge rather than rejecting attach.
+            let candidate = PaneId(self.next_pane_id);
+            let (pane_cols, pane_rows) = PaneTopology::new(candidate)
+                .resolve_viable(
+                    Rect {
+                        x: 0,
+                        y: 0,
+                        cols,
+                        rows,
+                    },
+                    self.config.ui.pane_borders,
+                )
+                .ok()
+                .and_then(|geometry| geometry.first().map(|(_, rect)| *rect))
+                .map_or((cols, rows), |rect| (rect.cols, rect.rows));
+            match self.spawn_terminal(&cwd, &shell, pane_cols, pane_rows) {
                 Ok(pane) => {
                     let pane_id = pane.key().id;
                     self.panes.insert(pane_id, pane);
@@ -544,9 +561,9 @@ impl Hub {
             .topology()
             .ok_or(crate::topology::TopologyError::MissingLeaf)?;
         if topology.len() == 1 {
-            topology.resolve(canvas)
+            topology.resolve(canvas, self.config.ui.pane_borders)
         } else {
-            topology.resolve_viable(canvas)
+            topology.resolve_viable(canvas, self.config.ui.pane_borders)
         }
     }
 
@@ -701,7 +718,7 @@ impl Hub {
             Ok(proposed) => proposed,
             Err(_) => return Ok(None),
         };
-        let geometry = match proposed.resolve_viable(canvas) {
+        let geometry = match proposed.resolve_viable(canvas, self.config.ui.pane_borders) {
             Ok(geometry) => geometry,
             Err(_) => return Ok(None),
         };
@@ -758,10 +775,9 @@ impl Hub {
         let Some(canvas) = self.canvas() else {
             return false;
         };
-        let Some(next) = self
-            .topology()
-            .and_then(|topology| topology.neighbor(current, direction, canvas))
-        else {
+        let Some(next) = self.topology().and_then(|topology| {
+            topology.neighbor(current, direction, canvas, self.config.ui.pane_borders)
+        }) else {
             return false;
         };
         self.focus_pane(client, next)
@@ -1044,6 +1060,7 @@ impl Hub {
                 panes: metadata.clone(),
                 focused: focused.0,
                 grids,
+                border_style: self.config.ui.pane_borders,
             };
             if client
                 .tx
@@ -1189,6 +1206,8 @@ fn parse_client_thread_id(thread_name: &str) -> Option<ClientId> {
 mod tests {
     use std::time::Duration;
 
+    use ekko_proto::PaneBorderStyle;
+
     use super::*;
 
     struct LiveHub {
@@ -1320,6 +1339,29 @@ mod tests {
                 .values()
                 .all(TerminalPane::workers_live_for_test)
         );
+        live.assert_focus_is_live();
+    }
+
+    #[test]
+    fn compact_borders_shrink_pane_geometry_by_the_separator_cell() {
+        let mut live = LiveHub::new(80, 24, &[10]);
+        live.hub.config.ui.pane_borders = PaneBorderStyle::Compact;
+        let initial = live.hub.focus[&10];
+        let right = live
+            .hub
+            .split_focused(10, SplitAxis::Horizontal)
+            .unwrap()
+            .unwrap();
+        // The split's one separator column comes out of the panes' share.
+        assert_eq!(live.hub.panes[&initial].size(), (39, 24));
+        assert_eq!(live.hub.panes[&right].size(), (40, 24));
+
+        // Frame style: a one-cell margin all around plus two cells between
+        // panes (each pane's facing frame column).
+        live.hub.config.ui.pane_borders = PaneBorderStyle::Frame;
+        live.hub.resize_canvas(80, 24).unwrap();
+        assert_eq!(live.hub.panes[&initial].size(), (38, 22));
+        assert_eq!(live.hub.panes[&right].size(), (38, 22));
         live.assert_focus_is_live();
     }
 

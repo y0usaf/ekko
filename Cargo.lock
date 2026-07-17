@@ -286,6 +286,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "directories",
+ "ekko-proto",
  "serde",
  "toml",
 ]
@@ -333,6 +334,7 @@ dependencies = [
  "ekko-builtins",
  "ekko-config",
  "ekko-ext",
+ "ekko-proto",
  "log",
  "mlua",
 ]

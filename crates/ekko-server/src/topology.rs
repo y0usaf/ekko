@@ -6,6 +6,8 @@
 
 use std::collections::HashSet;
 
+use ekko_proto::PaneBorderStyle;
+
 use crate::terminal_pane::PaneId;
 
 /// Smallest terminal parser/PTY geometry accepted for a new tiled child.
@@ -170,14 +172,42 @@ impl PaneTopology {
         removed
     }
 
-    /// Resolve every leaf exactly once in canonical traversal order.
-    pub(crate) fn resolve(&self, canvas: Rect) -> Result<Vec<(PaneId, Rect)>, TopologyError> {
+    /// Resolve every leaf exactly once in canonical traversal order. Each
+    /// leaf's rect is its *content* area: `style` reserves separator cells
+    /// between sibling subtrees (its gap) and around the whole canvas (its
+    /// margin), so reserved cells belong to no pane.
+    pub(crate) fn resolve(
+        &self,
+        canvas: Rect,
+        style: PaneBorderStyle,
+    ) -> Result<Vec<(PaneId, Rect)>, TopologyError> {
         if canvas.cols == 0 || canvas.rows == 0 {
             return Err(TopologyError::ZeroCanvas);
         }
+        let margin = style.margin();
+        // A canvas the margin fully consumes is too small, not zero.
+        let Some(inner_cols) = canvas.cols.checked_sub(margin * 2) else {
+            return Err(TopologyError::ChildTooSmall);
+        };
+        let Some(inner_rows) = canvas.rows.checked_sub(margin * 2) else {
+            return Err(TopologyError::ChildTooSmall);
+        };
+        if inner_cols == 0 || inner_rows == 0 {
+            return Err(if margin == 0 {
+                TopologyError::ZeroCanvas
+            } else {
+                TopologyError::ChildTooSmall
+            });
+        }
+        let inner = Rect {
+            x: canvas.x + margin,
+            y: canvas.y + margin,
+            cols: inner_cols,
+            rows: inner_rows,
+        };
         let mut resolved = Vec::with_capacity(self.len());
         if let Some(root) = &self.root {
-            resolve_node(root, canvas, &mut resolved)?;
+            resolve_node(root, inner, style.gap(), &mut resolved)?;
         }
         debug_assert_eq!(
             resolved
@@ -193,8 +223,9 @@ impl PaneTopology {
     pub(crate) fn resolve_viable(
         &self,
         canvas: Rect,
+        style: PaneBorderStyle,
     ) -> Result<Vec<(PaneId, Rect)>, TopologyError> {
-        let resolved = self.resolve(canvas)?;
+        let resolved = self.resolve(canvas, style)?;
         if resolved
             .iter()
             .any(|(_, rect)| rect.cols < MIN_PANE_COLS || rect.rows < MIN_PANE_ROWS)
@@ -209,8 +240,9 @@ impl PaneTopology {
         pane: PaneId,
         direction: Direction,
         canvas: Rect,
+        style: PaneBorderStyle,
     ) -> Option<PaneId> {
-        let resolved = self.resolve(canvas).ok()?;
+        let resolved = self.resolve(canvas, style).ok()?;
         let source = resolved.iter().find(|(id, _)| *id == pane)?.1;
         resolved
             .into_iter()
@@ -332,6 +364,7 @@ fn remove_leaf(node: Node, pane: PaneId) -> (Option<Node>, bool) {
 fn resolve_node(
     node: &Node,
     rect: Rect,
+    gap: u16,
     resolved: &mut Vec<(PaneId, Rect)>,
 ) -> Result<(), TopologyError> {
     match node {
@@ -342,14 +375,16 @@ fn resolve_node(
             first,
             second,
         } => {
-            let first_extent = ratio.first_extent(match axis {
+            let extent = match axis {
                 SplitAxis::Horizontal => rect.cols,
                 SplitAxis::Vertical => rect.rows,
-            });
-            let second_extent = match axis {
-                SplitAxis::Horizontal => rect.cols - first_extent,
-                SplitAxis::Vertical => rect.rows - first_extent,
             };
+            // The gap cells belong to the separator, not to either child.
+            let working = extent
+                .checked_sub(gap)
+                .ok_or(TopologyError::ChildTooSmall)?;
+            let first_extent = ratio.first_extent(working);
+            let second_extent = working - first_extent;
             if first_extent == 0 || second_extent == 0 {
                 return Err(TopologyError::ChildTooSmall);
             }
@@ -360,7 +395,7 @@ fn resolve_node(
                         ..rect
                     },
                     Rect {
-                        x: rect.x + first_extent,
+                        x: rect.x + first_extent + gap,
                         cols: second_extent,
                         ..rect
                     },
@@ -371,14 +406,14 @@ fn resolve_node(
                         ..rect
                     },
                     Rect {
-                        y: rect.y + first_extent,
+                        y: rect.y + first_extent + gap,
                         rows: second_extent,
                         ..rect
                     },
                 ),
             };
-            resolve_node(first, first_rect, resolved)?;
-            resolve_node(second, second_rect, resolved)?;
+            resolve_node(first, first_rect, gap, resolved)?;
+            resolve_node(second, second_rect, gap, resolved)?;
         }
     }
     Ok(())
@@ -429,8 +464,12 @@ mod tests {
     }
 
     fn assert_geometry(topology: &PaneTopology, bounds: Rect) {
-        let first = topology.resolve_viable(bounds).unwrap();
-        let second = topology.resolve_viable(bounds).unwrap();
+        let first = topology
+            .resolve_viable(bounds, PaneBorderStyle::None)
+            .unwrap();
+        let second = topology
+            .resolve_viable(bounds, PaneBorderStyle::None)
+            .unwrap();
         assert_eq!(first, second, "resolution must be deterministic");
         assert_eq!(first.len(), topology.len());
         assert_eq!(
@@ -472,7 +511,10 @@ mod tests {
                             else {
                                 unreachable!();
                             };
-                            if topology.resolve_viable(canvas(cols, rows)).is_ok() {
+                            if topology
+                                .resolve_viable(canvas(cols, rows), PaneBorderStyle::None)
+                                .is_ok()
+                            {
                                 assert_geometry(&topology, canvas(cols, rows));
                             }
                         }
@@ -495,7 +537,9 @@ mod tests {
             .with_split(id(2), id(3), SplitAxis::Vertical, SplitRatio::HALF)
             .unwrap();
         assert_eq!(
-            topology.resolve(canvas(12, 8)).unwrap(),
+            topology
+                .resolve(canvas(12, 8), PaneBorderStyle::None)
+                .unwrap(),
             vec![
                 (
                     id(1),
@@ -535,11 +579,17 @@ mod tests {
             .with_split(id(1), id(2), SplitAxis::Horizontal, SplitRatio::HALF)
             .unwrap();
         assert_eq!(
-            proposed.resolve_viable(canvas(3, 10)),
+            proposed.resolve_viable(canvas(3, 10), PaneBorderStyle::None),
             Err(TopologyError::ChildTooSmall)
         );
         assert_eq!(topology.leaves(), vec![id(1)]);
-        assert_eq!(topology.resolve(canvas(3, 10)).unwrap().len(), 1);
+        assert_eq!(
+            topology
+                .resolve(canvas(3, 10), PaneBorderStyle::None)
+                .unwrap()
+                .len(),
+            1
+        );
     }
 
     #[test]
@@ -570,19 +620,166 @@ mod tests {
             .unwrap();
         let bounds = canvas(80, 24);
         assert_eq!(
-            topology.neighbor(id(1), Direction::Right, bounds),
+            topology.neighbor(id(1), Direction::Right, bounds, PaneBorderStyle::None),
             Some(id(2))
         );
         assert_eq!(
-            topology.neighbor(id(1), Direction::Down, bounds),
+            topology.neighbor(id(1), Direction::Down, bounds, PaneBorderStyle::None),
             Some(id(3))
         );
         assert_eq!(
-            topology.neighbor(id(2), Direction::Left, bounds),
+            topology.neighbor(id(2), Direction::Left, bounds, PaneBorderStyle::None),
             Some(id(1))
         );
-        assert_eq!(topology.neighbor(id(3), Direction::Up, bounds), Some(id(1)));
-        assert_eq!(topology.neighbor(id(2), Direction::Right, bounds), None);
+        assert_eq!(
+            topology.neighbor(id(3), Direction::Up, bounds, PaneBorderStyle::None),
+            Some(id(1))
+        );
+        assert_eq!(
+            topology.neighbor(id(2), Direction::Right, bounds, PaneBorderStyle::None),
+            None
+        );
+    }
+
+    #[test]
+    fn compact_style_reserves_one_separator_cell_per_split() {
+        let topology = PaneTopology::new(id(1))
+            .with_split(id(1), id(2), SplitAxis::Horizontal, SplitRatio::HALF)
+            .unwrap()
+            .with_split(id(2), id(3), SplitAxis::Vertical, SplitRatio::HALF)
+            .unwrap();
+        let resolved = topology
+            .resolve(canvas(12, 8), PaneBorderStyle::Compact)
+            .unwrap();
+        assert_eq!(
+            resolved,
+            vec![
+                (
+                    id(1),
+                    Rect {
+                        x: 0,
+                        y: 0,
+                        cols: 5,
+                        rows: 8
+                    }
+                ),
+                (
+                    id(2),
+                    Rect {
+                        x: 6,
+                        y: 0,
+                        cols: 6,
+                        rows: 3
+                    }
+                ),
+                (
+                    id(3),
+                    Rect {
+                        x: 6,
+                        y: 4,
+                        cols: 6,
+                        rows: 4
+                    }
+                ),
+            ]
+        );
+        // Separator cells (col 5; row 3 right of the split) belong to no pane.
+        for (_, rect) in &resolved {
+            assert!(!rect.overlaps_x(Rect {
+                x: 5,
+                y: 0,
+                cols: 1,
+                rows: 8
+            }));
+        }
+        for (_, rect) in &resolved[1..] {
+            assert!(!rect.overlaps_y(Rect {
+                x: 6,
+                y: 3,
+                cols: 6,
+                rows: 1
+            }));
+        }
+    }
+
+    #[test]
+    fn frame_style_reserves_a_margin_and_two_cell_gaps() {
+        let topology = PaneTopology::new(id(1))
+            .with_split(id(1), id(2), SplitAxis::Horizontal, SplitRatio::HALF)
+            .unwrap();
+        let resolved = topology
+            .resolve(canvas(12, 8), PaneBorderStyle::Frame)
+            .unwrap();
+        // Canvas inset by the 1-cell margin; the 2-cell inter-pane gap is
+        // each pane's facing frame column.
+        assert_eq!(
+            resolved,
+            vec![
+                (
+                    id(1),
+                    Rect {
+                        x: 1,
+                        y: 1,
+                        cols: 4,
+                        rows: 6
+                    }
+                ),
+                (
+                    id(2),
+                    Rect {
+                        x: 7,
+                        y: 1,
+                        cols: 4,
+                        rows: 6
+                    }
+                ),
+            ]
+        );
+        // A lone pane still pays only the margin.
+        let single = PaneTopology::new(id(1))
+            .resolve(canvas(12, 8), PaneBorderStyle::Frame)
+            .unwrap();
+        assert_eq!(
+            single,
+            vec![(
+                id(1),
+                Rect {
+                    x: 1,
+                    y: 1,
+                    cols: 10,
+                    rows: 6
+                }
+            )]
+        );
+    }
+
+    #[test]
+    fn separator_cells_shrink_viability() {
+        let topology = PaneTopology::new(id(1))
+            .with_split(id(1), id(2), SplitAxis::Horizontal, SplitRatio::HALF)
+            .unwrap();
+        // 5 cols edge-to-edge fits 2+2; compact needs 2+1+2 = 5 too,
+        // but frame needs 2+2+2 plus margins = 8.
+        assert!(
+            topology
+                .resolve_viable(canvas(5, 4), PaneBorderStyle::Compact)
+                .is_ok()
+        );
+        assert_eq!(
+            topology.resolve_viable(canvas(5, 4), PaneBorderStyle::Frame),
+            Err(TopologyError::ChildTooSmall)
+        );
+        assert!(
+            topology
+                .resolve_viable(canvas(8, 4), PaneBorderStyle::Frame)
+                .is_ok()
+        );
+        // Even a lone framed pane needs the margin plus its minimum width.
+        let single = PaneTopology::new(id(1));
+        assert_eq!(
+            single.resolve_viable(canvas(2, 4), PaneBorderStyle::Frame),
+            Err(TopologyError::ChildTooSmall)
+        );
     }
 
     #[test]
