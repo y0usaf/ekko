@@ -23,6 +23,8 @@ fn runtime(source: &str) -> AppRuntime {
 
 fn snapshot() -> ClientSnapshot {
     ClientSnapshot {
+        panes: vec![],
+        focused_pane: None,
         session_name: "main".into(),
         mode: ClientSnapshot::NORMAL_MODE.into(),
         cols: 80,
@@ -195,6 +197,121 @@ fn keybindings_match_and_see_the_snapshot() {
             line: ":switch main".into()
         }]
     );
+}
+
+#[test]
+fn pane_actions_bridge_in_the_action_dialect() {
+    let runtime = runtime(
+        r#"
+        local ext = { id = "user.panes" }
+        function ext.register(ekko)
+          ekko.register_command({
+            name = "pr",
+            handler = function() return "split_right" end,
+          })
+          ekko.register_command({
+            name = "pd",
+            handler = function() return "split_down" end,
+          })
+          ekko.register_command({
+            name = "pc",
+            handler = function() return "close_focused_pane" end,
+          })
+          ekko.register_command({
+            name = "pf",
+            handler = function(args) return { focus_direction = args } end,
+          })
+        end
+        return ext
+        "#,
+    );
+    assert_eq!(
+        runtime.invoke_command(":pr"),
+        CommandDispatch::Invoked(vec![UiAction::SplitRight])
+    );
+    assert_eq!(
+        runtime.invoke_command(":pd"),
+        CommandDispatch::Invoked(vec![UiAction::SplitDown])
+    );
+    assert_eq!(
+        runtime.invoke_command(":pc"),
+        CommandDispatch::Invoked(vec![UiAction::CloseFocusedPane])
+    );
+    for (arg, direction) in [
+        ("left", ekko_ext::PaneDirection::Left),
+        ("right", ekko_ext::PaneDirection::Right),
+        ("up", ekko_ext::PaneDirection::Up),
+        ("down", ekko_ext::PaneDirection::Down),
+    ] {
+        assert_eq!(
+            runtime.invoke_command(&format!(":pf {arg}")),
+            CommandDispatch::Invoked(vec![UiAction::FocusPaneDirection { direction }]),
+            "direction {arg}"
+        );
+    }
+    // An unknown direction is a command failure, not a panic.
+    assert!(matches!(
+        runtime.invoke_command(":pf nowhere"),
+        CommandDispatch::Failed(_)
+    ));
+}
+
+#[test]
+fn snapshot_exposes_pane_metadata_and_focus() {
+    let runtime = runtime(
+        r#"
+        local ext = { id = "user.snap" }
+        function ext.register(ekko)
+          ekko.register_command({
+            name = "panes",
+            handler = function() return "quit" end,
+          })
+          ekko.register_keybinding({
+            chord = "ctrl+p",
+            description = "report",
+            handler = function(snapshot)
+              local p = snapshot.panes[1]
+              local text = "none"
+              if p then
+                text = p.id .. "@" .. p.x .. "," .. p.y .. " " .. p.cols .. "x" .. p.rows
+                  .. " title=" .. (p.title or "")
+              end
+              return { { set_status_note = { text = text .. " focused=" .. tostring(snapshot.focused_pane), kind = "ok" } } }
+            end,
+          })
+        end
+        return ext
+        "#,
+    );
+    let spec = runtime
+        .match_keybinding(&[0x10], None)
+        .expect("ctrl+p registered");
+    let mut snap = snapshot();
+    snap.panes = vec![
+        ekko_ext::PaneInfo {
+            id: 1,
+            x: 0,
+            y: 0,
+            cols: 40,
+            rows: 24,
+            title: None,
+        },
+        ekko_ext::PaneInfo {
+            id: 2,
+            x: 40,
+            y: 0,
+            cols: 40,
+            rows: 24,
+            title: Some("editor".into()),
+        },
+    ];
+    snap.focused_pane = Some(2);
+    let actions = (spec.handler)(&snap);
+    let [UiAction::SetStatusNote { text, .. }] = actions.as_slice() else {
+        panic!("expected a status note");
+    };
+    assert!(text.contains("1@0,0 40x24"), "first pane: {text}");
+    assert!(text.contains("focused=2"), "focused id: {text}");
 }
 
 #[test]

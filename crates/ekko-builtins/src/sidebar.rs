@@ -311,6 +311,8 @@ mod tests {
 
     fn snapshot() -> ClientSnapshot {
         ClientSnapshot {
+            panes: vec![],
+            focused_pane: None,
             session_name: "s1".into(),
             mode: ClientSnapshot::NORMAL_MODE.into(),
             cols: 80,

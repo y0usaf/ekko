@@ -40,8 +40,8 @@ pub use overlay::{
 };
 pub use runtime::{AppRuntime, CommandDispatch};
 pub use snapshot::{
-    ClientSnapshot, NamerInput, ProjectGroup, SessionEntry, SessionGrouperSpec, SessionNameFn,
-    SessionNamerSpec, SessionState, StatusNote, fallback_group,
+    ClientSnapshot, NamerInput, PaneInfo, ProjectGroup, SessionEntry, SessionGrouperSpec,
+    SessionNameFn, SessionNamerSpec, SessionState, StatusNote, fallback_group,
 };
 pub use surface::{
     DockEdge, MouseKind, SurfaceDrawFn, SurfaceMouseEvent, SurfaceMouseFn, SurfaceSize,
@@ -53,5 +53,5 @@ pub use visual::{Color, SpinnerSpec, ThemePalette, ThemeSpec, brighten, fade_tow
 // Re-export the event vocabulary so extensions only need one dependency.
 pub use ekko_event::{
     EventHandler, EventHandlerRegistration, EventKind, EventPayload, EventReturn, KeyIntercept,
-    LifecycleEvent, NoteKind, NoticeLevel, SessionExitReason, UiAction,
+    LifecycleEvent, NoteKind, NoticeLevel, PaneDirection, SessionExitReason, UiAction,
 };

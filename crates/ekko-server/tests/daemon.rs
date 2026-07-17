@@ -40,6 +40,10 @@ impl TestEnv {
         unsafe {
             std::env::set_var("EKKO_SOCKET_DIR", socket_dir.path());
             std::env::set_var("EKKO_CACHE_DIR", cache_dir.path());
+            // Split panes spawn the configured shell (`resolve_shell` falls
+            // back to `$SHELL`): pin it so pane tests don't depend on the
+            // host's interactive shell's rendering behavior.
+            std::env::set_var("SHELL", "/bin/sh");
         }
         Self {
             _guard: guard,
@@ -61,6 +65,7 @@ impl Drop for TestEnv {
         unsafe {
             std::env::remove_var("EKKO_SOCKET_DIR");
             std::env::remove_var("EKKO_CACHE_DIR");
+            std::env::remove_var("SHELL");
         }
     }
 }
@@ -814,6 +819,280 @@ fn panes_split_focus_and_close_over_the_wire() {
             ))
             .is_some(),
         "expected the sibling to absorb the closed pane's space"
+    );
+
+    kill_and_join(client, daemon, &env.session_name);
+}
+
+// ── P5 end-to-end pane acceptance ───────────────────────────────────────────
+
+/// Waits for a workspace frame matching `pred` and returns it.
+fn wait_workspace(
+    client: &TestClient,
+    timeout: Duration,
+    mut pred: impl FnMut(&WorkspaceUpdate) -> bool,
+) -> Option<WorkspaceUpdate> {
+    client
+        .wait_for(timeout, move |m| match m {
+            ServerToClient::Workspace(update) => pred(update),
+            _ => false,
+        })
+        .and_then(|m| match m {
+            ServerToClient::Workspace(update) => Some(update),
+            _ => None,
+        })
+}
+
+#[test]
+fn pane_child_exit_expands_sibling_and_last_exit_ends_session() {
+    let env = TestEnv::new("t-p5-exit");
+    let daemon = spawn_daemon(env.session_name.clone());
+
+    let mut client = TestClient::connect(&env.session_name);
+    client.attach(env.cwd(), false);
+    assert!(wait_workspace(&client, Duration::from_secs(10), |u| u.panes.len() == 1).is_some());
+    client.send(&ClientToServer::SplitPane {
+        direction: ekko_proto::SplitDirection::Right,
+    });
+    let split = wait_workspace(&client, Duration::from_secs(10), |u| u.panes.len() == 2)
+        .expect("two panes after the split");
+    let child = split.focused;
+    let initial = split.panes.iter().find(|p| p.id != child).unwrap().id;
+
+    // The focused (right) shell exits: its pane is removed and the sibling
+    // absorbs the full canvas; the session lives on.
+    client.send(&ClientToServer::Key(b"exit\n".to_vec()));
+    assert!(
+        wait_workspace(&client, Duration::from_secs(10), |u| {
+            u.panes.len() == 1 && u.panes[0].id == initial && u.panes[0].rect.cols == 80
+        })
+        .is_some(),
+        "expected the sibling to expand after the child shell exited"
+    );
+
+    // The last shell exits: the session ends as the single PTY does today.
+    client.send(&ClientToServer::Key(b"exit\n".to_vec()));
+    assert!(
+        client
+            .wait_for(Duration::from_secs(10), |m| matches!(
+                m,
+                ServerToClient::Exit(ExitReason::SessionExited(_))
+            ))
+            .is_some(),
+        "expected Exit(SessionExited) after the last pane's shell exited"
+    );
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while !daemon.is_finished() {
+        if Instant::now() > deadline {
+            panic!("daemon thread did not exit after the last pane exited");
+        }
+        thread::sleep(Duration::from_millis(20));
+    }
+    daemon.join().expect("daemon thread panicked");
+}
+
+#[test]
+fn detach_reattach_preserves_panes_and_clients_keep_independent_focus() {
+    let env = TestEnv::new("t-p5-detach");
+    let daemon = spawn_daemon(env.session_name.clone());
+
+    let mut client1 = TestClient::connect(&env.session_name);
+    client1.attach(env.cwd(), false);
+    assert!(wait_workspace(&client1, Duration::from_secs(10), |u| u.panes.len() == 1).is_some());
+    client1.send(&ClientToServer::SplitPane {
+        direction: ekko_proto::SplitDirection::Right,
+    });
+    let split = wait_workspace(&client1, Duration::from_secs(10), |u| u.panes.len() == 2)
+        .expect("two panes after the split");
+    let child = split.focused;
+    let initial = split.panes.iter().find(|p| p.id != child).unwrap().id;
+    client1.send(&ClientToServer::Key(b"printf preserved\n".to_vec()));
+    assert!(
+        client1
+            .wait_for(Duration::from_secs(10), |m| grid_contains(m, "preserved"))
+            .is_some()
+    );
+
+    client1.send(&ClientToServer::Detach);
+    assert!(
+        client1
+            .wait_for(Duration::from_secs(5), |m| matches!(
+                m,
+                ServerToClient::Exit(ExitReason::Detached)
+            ))
+            .is_some()
+    );
+    drop(client1);
+
+    // Reattach: both children, the topology, and the output survive.
+    let mut client2 = TestClient::connect(&env.session_name);
+    client2.attach(env.cwd(), false);
+    let restored = wait_workspace(&client2, Duration::from_secs(10), |u| {
+        u.panes.len() == 2
+            && u.grids.iter().any(|g| {
+                g.pane == child
+                    && grid_lines(&g.update)
+                        .iter()
+                        .any(|l| l.contains("preserved"))
+            })
+    });
+    assert!(
+        restored.is_some(),
+        "reattach must preserve both panes and their content"
+    );
+
+    // Two simultaneous clients focus different panes; input routes per
+    // client, never cross-redirected.
+    let mut client1 = TestClient::connect(&env.session_name);
+    client1.attach(env.cwd(), false);
+    assert!(wait_workspace(&client1, Duration::from_secs(10), |u| u.panes.len() == 2).is_some());
+    client1.send(&ClientToServer::FocusPane { pane: initial });
+    client2.send(&ClientToServer::FocusPane { pane: child });
+    assert!(
+        wait_workspace(&client1, Duration::from_secs(10), |u| u.focused == initial).is_some(),
+        "client1 focused the left pane"
+    );
+    assert!(
+        wait_workspace(&client2, Duration::from_secs(10), |u| u.focused == child).is_some(),
+        "client2 focused the right pane"
+    );
+
+    client1.send(&ClientToServer::Key(b"printf leftin\n".to_vec()));
+    client2.send(&ClientToServer::Key(b"printf rightin\n".to_vec()));
+    assert!(
+        client1
+            .wait_for(Duration::from_secs(10), |m| matches!(
+                m,
+                ServerToClient::Workspace(u)
+                    if u.grids.iter().any(|g| g.pane == initial
+                        && grid_lines(&g.update).iter().any(|l| l.contains("leftin")))
+            ))
+            .is_some(),
+        "client1's input landed in its own focused pane"
+    );
+    let mut seen2: Vec<String> = Vec::new();
+    let landed = client2.wait_for(Duration::from_secs(10), |m| {
+        if let ServerToClient::Workspace(u) = m {
+            seen2.push(format!(
+                "focused={} panes={:?} grids={:?}",
+                u.focused,
+                u.panes.iter().map(|p| p.id).collect::<Vec<_>>(),
+                u.grids
+                    .iter()
+                    .map(|g| (g.pane, grid_lines(&g.update).join("|")))
+                    .collect::<Vec<_>>()
+            ));
+        }
+        matches!(m, ServerToClient::Workspace(u)
+            if u.grids.iter().any(|g| g.pane == child
+                && grid_lines(&g.update).iter().any(|l| l.contains("rightin"))))
+    });
+    assert!(
+        landed.is_some(),
+        "client2's input landed in its own focused pane; frames: {seen2:?}"
+    );
+
+    kill_and_join(client1, daemon, &env.session_name);
+}
+
+#[test]
+fn resize_reaches_every_pane_and_a_flood_converges() {
+    let env = TestEnv::new("t-p5-resize");
+    let daemon = spawn_daemon(env.session_name.clone());
+
+    let mut client = TestClient::connect(&env.session_name);
+    client.attach(env.cwd(), false);
+    assert!(wait_workspace(&client, Duration::from_secs(10), |u| u.panes.len() == 1).is_some());
+    client.send(&ClientToServer::SplitPane {
+        direction: ekko_proto::SplitDirection::Right,
+    });
+    assert!(wait_workspace(&client, Duration::from_secs(10), |u| u.panes.len() == 2).is_some());
+
+    // One resize: every pane gets its resolved dimensions.
+    client.send(&ClientToServer::Resize { cols: 60, rows: 20 });
+    assert!(
+        wait_workspace(&client, Duration::from_secs(10), |u| {
+            u.panes.len() == 2
+                && u.panes
+                    .iter()
+                    .all(|p| p.rect.cols == 30 && p.rect.rows == 20)
+                && u.grids
+                    .iter()
+                    .all(|g| g.update.cols == 30 && g.update.rows == 20)
+        })
+        .is_some(),
+        "expected both panes at 30x20 after the resize"
+    );
+
+    // A resize/split flood stays bounded and converges to the latest
+    // geometry: final state must exactly match the last request.
+    for cols in [70, 64, 90, 76] {
+        client.send(&ClientToServer::Resize { cols, rows: 24 });
+    }
+    client.send(&ClientToServer::SplitPane {
+        direction: ekko_proto::SplitDirection::Down,
+    });
+    assert!(
+        wait_workspace(&client, Duration::from_secs(10), |u| {
+            u.panes.len() == 3 && u.panes.iter().all(|p| p.rect.x + p.rect.cols <= 76)
+        })
+        .is_some(),
+        "expected the flood to converge to the final 76-col canvas with three panes"
+    );
+    let final_frame = wait_workspace(&client, Duration::from_secs(10), |u| {
+        u.panes.len() == 3
+            && u.panes
+                .iter()
+                .all(|p| p.rect.rows == 24 || p.rect.rows == 12)
+    });
+    assert!(final_frame.is_some(), "final geometry settled");
+
+    kill_and_join(client, daemon, &env.session_name);
+}
+
+#[test]
+fn pane_modes_and_title_stay_pane_local() {
+    let env = TestEnv::new("t-p5-modes");
+    let daemon = spawn_daemon(env.session_name.clone());
+
+    let mut client = TestClient::connect(&env.session_name);
+    client.attach(env.cwd(), false);
+    assert!(wait_workspace(&client, Duration::from_secs(10), |u| u.panes.len() == 1).is_some());
+    client.send(&ClientToServer::SplitPane {
+        direction: ekko_proto::SplitDirection::Right,
+    });
+    let split = wait_workspace(&client, Duration::from_secs(10), |u| u.panes.len() == 2)
+        .expect("two panes after the split");
+    let child = split.focused;
+    let initial = split.panes.iter().find(|p| p.id != child).unwrap().id;
+
+    // The right pane's child asks for mouse + focus reporting and sets a
+    // title: modes ride only its own grid, the title goes out as a message
+    // (this client is its focused viewer) and lands in its metadata.
+    client.send(&ClientToServer::Key(
+        b"printf '\\033[?1002h\\033[?1006h\\033]2;right-title\\007'; echo MODEREADY\n".to_vec(),
+    ));
+    assert!(
+        client
+            .wait_for(Duration::from_secs(10), |m| matches!(
+                m,
+                ServerToClient::Title(t) if t == "right-title"
+            ))
+            .is_some(),
+        "the focused pane's title is forwarded to its viewer"
+    );
+    assert!(
+        wait_workspace(&client, Duration::from_secs(10), |u| {
+            let right = u.grids.iter().find(|g| g.pane == child);
+            let left = u.grids.iter().find(|g| g.pane == initial);
+            right.is_some_and(|g| g.update.modes.mouse_mode == ekko_proto::MouseMode::ButtonMotion)
+                && u.panes
+                    .iter()
+                    .any(|p| p.id == child && p.title.as_deref() == Some("right-title"))
+                && left.is_none_or(|g| g.update.modes.mouse_mode == ekko_proto::MouseMode::None)
+        })
+        .is_some(),
+        "mouse modes and title must stay scoped to the requesting pane"
     );
 
     kill_and_join(client, daemon, &env.session_name);

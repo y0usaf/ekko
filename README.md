@@ -88,10 +88,10 @@ your shell depends on):
 | `alt+h` / `alt+l` (or `alt+←`/`alt+→`) | prev / next project |
 | `alt+n` | new session |
 | `alt+x` | kill session (lands on a neighbor) |
-| `alt+e` | command mode (`:q`, `:detach`, `:new [name]`, `:switch <name>`, `:kill`, `:help`, `:keycast`) |
+| `alt+e` | command mode (`:q`, `:detach`, `:new [name]`, `:switch <name>`, `:kill`, `:help`, `:keycast`, `:split right\|down`, `:pane-focus <dir>`, `:pane-close`) |
 | `alt+s` | scroll mode (`j`/`k` line, `u`/`d` half page, PgUp/PgDn page, `g` top, `G` live, `q`/Esc exit) |
 | `alt+/` | help overlay |
-| `ctrl+space` | leader: a which-key panel of every `mode = "leader"` binding (`e` command mode, `s` scroll, `n` new session, `d` detach, `b` toggle sidebar, `?` help) |
+| `ctrl+space` | leader: a which-key panel of every `mode = "leader"` binding (`e` command mode, `s` scroll, `n` new session, `d` detach, `b` toggle sidebar, `?` help, `\|` split right, `-` split down, `h`/`j`/`k`/`l` focus pane, `x` close pane) |
 | `ctrl+space ctrl+space` | toggle the session sidebar (leader chord again inside leader mode) |
 | `ctrl+q` | detach |
 

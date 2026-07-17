@@ -179,6 +179,88 @@ fn init_lua_disables_a_builtin_and_a_script_replaces_it() {
     std::fs::remove_dir_all(&dir).unwrap();
 }
 
+/// The P4-acceptance end-to-end: `init.lua` disables the panes builtin and
+/// `examples/pane-keys.lua` re-registers the whole pane surface — same
+/// command names, same leader keys — under the script's own manifest. The
+/// runtime builds (duplicate names are hard errors) and the script's
+/// commands/keybindings dispatch the public pane actions.
+#[test]
+fn init_lua_disables_the_panes_builtin_and_a_script_replaces_it() {
+    let dir = temp_dir("replace-panes");
+    std::fs::write(
+        dir.join("init.lua"),
+        r#"return { extensions = { disabled = { "ekko-builtins.panes" } } }"#,
+    )
+    .unwrap();
+    let ext_dir = dir.join("extensions");
+    std::fs::create_dir_all(&ext_dir).unwrap();
+    std::fs::copy(
+        concat!(env!("CARGO_MANIFEST_DIR"), "/../../examples/pane-keys.lua"),
+        ext_dir.join("pane-keys.lua"),
+    )
+    .unwrap();
+
+    let config = ekko_lua::load_config_cascade_in(&dir).unwrap();
+    let runtime = RuntimeBuilder::new()
+        .with_disabled(&config.extensions.disabled)
+        .register_boxed_extensions(ekko_builtins::client_extensions(&config, None))
+        .register_boxed_extensions(ekko_lua::load_extensions(
+            &ext_dir,
+            ekko_lua::HostKind::Client,
+            &config,
+        ))
+        .build()
+        .unwrap();
+
+    assert!(runtime.manifests().iter().any(|m| m.id == "user.pane-keys"));
+    assert_eq!(
+        runtime.invoke_command(":split right"),
+        CommandDispatch::Invoked(vec![UiAction::SplitRight])
+    );
+    assert_eq!(
+        runtime.invoke_command(":split down"),
+        CommandDispatch::Invoked(vec![UiAction::SplitDown])
+    );
+    assert_eq!(
+        runtime.invoke_command(":pane-focus left"),
+        CommandDispatch::Invoked(vec![UiAction::FocusPaneDirection {
+            direction: ekko_ext::PaneDirection::Left,
+        }])
+    );
+    assert_eq!(
+        runtime.invoke_command(":pane-close"),
+        CommandDispatch::Invoked(vec![UiAction::CloseFocusedPane])
+    );
+    let spec = runtime
+        .match_keybinding(b"|", Some("leader"))
+        .expect("script's leader key registered");
+    assert_eq!(
+        (spec.handler)(&snapshot_with_panes()),
+        vec![UiAction::ExitMode, UiAction::SplitRight]
+    );
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+fn snapshot_with_panes() -> ekko_ext::ClientSnapshot {
+    ekko_ext::ClientSnapshot {
+        session_name: "s".into(),
+        mode: ekko_ext::ClientSnapshot::NORMAL_MODE.into(),
+        cols: 80,
+        rows: 24,
+        grid_cols: 80,
+        grid_rows: 24,
+        scrollback: 0,
+        panes: vec![],
+        focused_pane: None,
+        projects: vec![],
+        status_note: None,
+        keybindings: vec![],
+        now_ms: 0,
+        hidden_surfaces: Vec::new(),
+        theme: ekko_ext::ThemePalette::fallback(),
+    }
+}
+
 #[test]
 fn scripts_read_the_resolved_config_as_ekko_config() {
     let script = r#"
