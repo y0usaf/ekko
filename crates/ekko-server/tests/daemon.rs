@@ -1025,27 +1025,31 @@ fn resize_reaches_every_pane_and_a_flood_converges() {
     );
 
     // A resize/split flood stays bounded and converges to the latest
-    // geometry: final state must exactly match the last request.
+    // geometry: final state must exactly match the last request (76x24
+    // canvas, right column split in two rows of 12).
     for cols in [70, 64, 90, 76] {
         client.send(&ClientToServer::Resize { cols, rows: 24 });
     }
     client.send(&ClientToServer::SplitPane {
         direction: ekko_proto::SplitDirection::Down,
     });
-    assert!(
-        wait_workspace(&client, Duration::from_secs(10), |u| {
-            u.panes.len() == 3 && u.panes.iter().all(|p| p.rect.x + p.rect.cols <= 76)
-        })
-        .is_some(),
-        "expected the flood to converge to the final 76-col canvas with three panes"
-    );
-    let final_frame = wait_workspace(&client, Duration::from_secs(10), |u| {
+    let settled = wait_workspace(&client, Duration::from_secs(10), |u| {
         u.panes.len() == 3
             && u.panes
                 .iter()
-                .all(|p| p.rect.rows == 24 || p.rect.rows == 12)
+                .all(|p| (p.rect.rows == 24 || p.rect.rows == 12) && p.rect.x + p.rect.cols <= 76)
     });
-    assert!(final_frame.is_some(), "final geometry settled");
+    assert!(
+        settled.is_some(),
+        "expected the flood to converge to the final 76x24 canvas with three panes"
+    );
+    let settled = settled.unwrap();
+    let rows: Vec<u16> = {
+        let mut rows: Vec<u16> = settled.panes.iter().map(|p| p.rect.rows).collect();
+        rows.sort_unstable();
+        rows
+    };
+    assert_eq!(rows, vec![12, 12, 24], "final geometry exactly settled");
 
     kill_and_join(client, daemon, &env.session_name);
 }
