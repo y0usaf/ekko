@@ -362,7 +362,7 @@ impl App<'_> {
     fn snapshot(&self) -> ClientSnapshot {
         let (cols, rows) = self.last_size;
         // Snapshot pane fields describe the focused pane (input routing
-        // target); the full pane projection lands with the P4 API surface.
+        // target); `panes`/`focused_pane` carry the full projection.
         let focused = self.state.workspace.focused_grid();
         ClientSnapshot {
             session_name: self.state.session_name.clone(),
@@ -372,6 +372,26 @@ impl App<'_> {
             grid_cols: focused.map_or(0, |grid| grid.cols),
             grid_rows: focused.map_or(0, |grid| grid.rows),
             scrollback: focused.map_or(0, |grid| grid.scrollback),
+            panes: self
+                .state
+                .workspace
+                .panes
+                .iter()
+                .map(|(&id, pane)| ekko_ext::PaneInfo {
+                    id,
+                    x: pane.rect.x,
+                    y: pane.rect.y,
+                    cols: pane.rect.cols,
+                    rows: pane.rect.rows,
+                    title: pane.title.clone(),
+                })
+                .collect(),
+            focused_pane: self
+                .state
+                .workspace
+                .panes
+                .contains_key(&self.state.workspace.focused)
+                .then_some(self.state.workspace.focused),
             projects: self.state.projects.clone(),
             status_note: self
                 .state
@@ -1061,6 +1081,32 @@ impl App<'_> {
             }
             UiAction::ScrollToBottom => {
                 self.send_message(ClientToServer::ScrollReset)?;
+                Ok(None)
+            }
+            UiAction::SplitRight => {
+                self.send_message(ClientToServer::SplitPane {
+                    direction: ekko_proto::SplitDirection::Right,
+                })?;
+                Ok(None)
+            }
+            UiAction::SplitDown => {
+                self.send_message(ClientToServer::SplitPane {
+                    direction: ekko_proto::SplitDirection::Down,
+                })?;
+                Ok(None)
+            }
+            UiAction::FocusPaneDirection { direction } => {
+                let direction = match direction {
+                    ekko_ext::PaneDirection::Left => ekko_proto::Direction::Left,
+                    ekko_ext::PaneDirection::Right => ekko_proto::Direction::Right,
+                    ekko_ext::PaneDirection::Up => ekko_proto::Direction::Up,
+                    ekko_ext::PaneDirection::Down => ekko_proto::Direction::Down,
+                };
+                self.send_message(ClientToServer::FocusDirection { direction })?;
+                Ok(None)
+            }
+            UiAction::CloseFocusedPane => {
+                self.send_message(ClientToServer::CloseFocusedPane)?;
                 Ok(None)
             }
             UiAction::ToggleSurface { name } => {

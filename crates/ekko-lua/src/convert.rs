@@ -23,6 +23,23 @@ pub fn snapshot_table(lua: &Lua, snapshot: &ClientSnapshot) -> mlua::Result<Tabl
     t.set("grid_rows", snapshot.grid_rows)?;
     t.set("scrollback", snapshot.scrollback)?;
     t.set("now_ms", snapshot.now_ms)?;
+    let panes = lua.create_table()?;
+    for (i, pane) in snapshot.panes.iter().enumerate() {
+        let p = lua.create_table()?;
+        p.set("id", pane.id)?;
+        p.set("x", pane.x)?;
+        p.set("y", pane.y)?;
+        p.set("cols", pane.cols)?;
+        p.set("rows", pane.rows)?;
+        if let Some(title) = &pane.title {
+            p.set("title", title.clone())?;
+        }
+        panes.set(i + 1, p)?;
+    }
+    t.set("panes", panes)?;
+    if let Some(focused) = snapshot.focused_pane {
+        t.set("focused_pane", focused)?;
+    }
     let hidden = lua.create_table()?;
     for (i, name) in snapshot.hidden_surfaces.iter().enumerate() {
         hidden.set(i + 1, name.clone())?;
@@ -286,6 +303,9 @@ fn action_from_value(value: &Value) -> Result<UiAction> {
                 "kill_current_session" => UiAction::KillCurrentSession,
                 "new_session" => UiAction::NewSession { name: None },
                 "scroll_to_bottom" => UiAction::ScrollToBottom,
+                "split_right" => UiAction::SplitRight,
+                "split_down" => UiAction::SplitDown,
+                "close_focused_pane" => UiAction::CloseFocusedPane,
                 other => bail!("unknown action '{other}'"),
             })
         }
@@ -319,6 +339,16 @@ fn action_from_value(value: &Value) -> Result<UiAction> {
             }
             if let Some(delta) = t.get::<Option<i32>>("scroll")? {
                 return Ok(UiAction::Scroll { delta });
+            }
+            if let Some(direction) = t.get::<Option<String>>("focus_direction")? {
+                let direction = match direction.as_str() {
+                    "left" => ekko_ext::PaneDirection::Left,
+                    "right" => ekko_ext::PaneDirection::Right,
+                    "up" => ekko_ext::PaneDirection::Up,
+                    "down" => ekko_ext::PaneDirection::Down,
+                    other => bail!("unknown focus_direction '{other}'"),
+                };
+                return Ok(UiAction::FocusPaneDirection { direction });
             }
             if let Some(note) = t.get::<Option<Table>>("set_status_note")? {
                 return Ok(UiAction::SetStatusNote {

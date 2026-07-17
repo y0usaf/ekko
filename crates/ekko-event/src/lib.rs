@@ -348,6 +348,24 @@ pub enum UiAction {
     /// names surface an error note; the hidden set is client-local state,
     /// so a reattach starts visible again.
     ToggleSurface { name: String },
+    /// Split the focused pane, placing the new pane to its right.
+    SplitRight,
+    /// Split the focused pane, placing the new pane below it.
+    SplitDown,
+    /// Move this client's focus to the neighboring pane in a direction.
+    FocusPaneDirection { direction: PaneDirection },
+    /// Close the focused pane; its sibling absorbs the space. Closing the
+    /// last pane ends the session.
+    CloseFocusedPane,
+}
+
+/// A cardinal direction for pane focus moves.
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq, Serialize, Deserialize)]
+pub enum PaneDirection {
+    Left,
+    Right,
+    Up,
+    Down,
 }
 
 /// A handler function invoked when a lifecycle event is dispatched.

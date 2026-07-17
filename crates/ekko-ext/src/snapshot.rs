@@ -53,11 +53,16 @@ pub struct ClientSnapshot {
     /// Host terminal dimensions.
     pub cols: u16,
     pub rows: u16,
-    /// The server-side PTY grid dimensions.
+    /// The server-side PTY grid dimensions of the focused pane.
     pub grid_cols: u16,
     pub grid_rows: u16,
     /// Scrollback view offset in lines back from the live screen (0 = live).
     pub scrollback: u32,
+    /// Tiled panes in the attached session (daemon's projection), in pane-id
+    /// order. Empty before the first workspace frame arrives.
+    pub panes: Vec<PaneInfo>,
+    /// This client's focused pane, if the workspace is known.
+    pub focused_pane: Option<u64>,
     /// Grouped session list from the last local scan.
     pub projects: Vec<ProjectGroup>,
     /// Transient statusbar note, if one is active.
@@ -73,6 +78,19 @@ pub struct ClientSnapshot {
     pub hidden_surfaces: Vec<String>,
     /// The resolved chrome palette.
     pub theme: ThemePalette,
+}
+
+/// One tiled pane as projected by the daemon: identity, canvas-local
+/// geometry, and last-known title. Canvas coordinates are cells relative to
+/// the terminal region's origin.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PaneInfo {
+    pub id: u64,
+    pub x: u16,
+    pub y: u16,
+    pub cols: u16,
+    pub rows: u16,
+    pub title: Option<String>,
 }
 
 impl ClientSnapshot {

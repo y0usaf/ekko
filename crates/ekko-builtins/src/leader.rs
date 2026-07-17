@@ -320,6 +320,8 @@ mod tests {
 
     fn snapshot() -> ClientSnapshot {
         ClientSnapshot {
+            panes: vec![],
+            focused_pane: None,
             session_name: "s".into(),
             mode: LEADER_MODE.into(),
             cols: 80,

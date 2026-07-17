@@ -613,6 +613,8 @@ mod tests {
             .build()
             .unwrap();
         let snapshot = crate::ClientSnapshot {
+            panes: vec![],
+            focused_pane: None,
             session_name: String::new(),
             mode: crate::ClientSnapshot::NORMAL_MODE.into(),
             cols: 80,
