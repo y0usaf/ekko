@@ -75,7 +75,12 @@ Corollaries:
 changes rarely and every change is a `WIRE_VERSION` bump; the event
 vocabulary grows continuously with the builtins. The hub and the client
 event loop are the only translation points (e.g. `EventReturn::EmitNotice`
-→ `ServerToClient::Notice`).
+→ `ServerToClient::Notice`). Since `WIRE_VERSION` 8 the visual contract is
+the workspace frame: `ServerToClient::Workspace` carries the complete pane
+metadata projection and the receiving client's focus plus incremental
+per-pane grids; `ClientToServer` carries pane requests (split, focus,
+close). The client holds a discardable `WorkspaceState` cache and composes
+each pane at its server-provided rect.
 
 ## Deferred hooks (and why)
 

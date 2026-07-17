@@ -261,6 +261,10 @@ impl TerminalPane {
         self.key
     }
 
+    pub(crate) fn title(&self) -> Option<&str> {
+        self.title.as_deref()
+    }
+
     pub(crate) fn set_host_colors(&mut self, colors: ekko_proto::TerminalColors) {
         self.parser.callbacks_mut().host_colors = Some(colors);
     }
@@ -339,12 +343,14 @@ impl TerminalPane {
         self.render.deadline
     }
 
+    /// `clients_need_full` forces a frame even when the pane is clean, so a
+    /// resyncing client receives full grids for every live pane; steady
+    /// frames are still withheld from up-to-date clients by the caller.
     pub(crate) fn prepare_render(&mut self, clients_need_full: bool) -> Option<RenderFrame> {
         self.render.deadline = None;
-        if !self.render.dirty {
+        if !self.render.dirty && !clients_need_full {
             return None;
         }
-
         let cursor_shape = self.parser.callbacks_mut().cursor_shape;
         let focus_reporting = self.parser.callbacks_mut().focus_reporting;
         let screen = self.parser.screen();

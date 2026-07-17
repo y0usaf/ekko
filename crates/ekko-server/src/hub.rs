@@ -10,8 +10,8 @@ use std::time::{Duration, Instant};
 use crossbeam_channel::{Receiver, RecvTimeoutError, Sender};
 use ekko_config::Config;
 use ekko_proto::{
-    AttachRejectReason, ClientToServer, ExitReason, GridPayload, GridUpdate, ServerNotice,
-    ServerToClient,
+    AttachRejectReason, ClientToServer, ExitReason, GridPayload, GridUpdate, PaneGrid, PaneMeta,
+    PaneRect, ServerNotice, ServerToClient, WorkspaceUpdate,
 };
 use ekko_pty::{PtyCommand, WinSize};
 use interprocess::local_socket::Stream as LocalSocketStream;
@@ -91,6 +91,10 @@ pub struct Hub {
     /// Clients whose outgoing queue dropped a grid frame; they get a `Full`
     /// resync on the next broadcast since their state may have diverged.
     needs_full: HashSet<ClientId>,
+    /// A metadata-only change (focus, topology, title) that no grid frame
+    /// would otherwise carry: forces the next broadcast pass even when every
+    /// pane's grid is steady.
+    workspace_dirty: bool,
     should_exit: bool,
 }
 
@@ -119,6 +123,7 @@ impl Hub {
             next_pane_generation: 1,
             epoch: 0,
             needs_full: HashSet::new(),
+            workspace_dirty: false,
             should_exit: false,
         }
     }
@@ -173,7 +178,6 @@ impl Hub {
         self.topology.as_ref()
     }
 
-    #[allow(dead_code)] // P2 internal seam; P3 adds the wire caller.
     fn canvas(&self) -> Option<Rect> {
         self.canvas_size.map(|(cols, rows)| Rect {
             x: 0,
@@ -339,6 +343,30 @@ impl Hub {
             ClientToServer::Resize { cols, rows } => self.on_resize(id, cols, rows),
             ClientToServer::Key(bytes) => self.on_input(id, bytes),
             ClientToServer::Paste(bytes) => self.on_paste(id, bytes),
+            ClientToServer::SplitPane { direction } => {
+                let axis = match direction {
+                    ekko_proto::SplitDirection::Right => SplitAxis::Horizontal,
+                    ekko_proto::SplitDirection::Down => SplitAxis::Vertical,
+                };
+                if let Err(error) = self.split_focused(id, axis) {
+                    log::error!("hub: split failed: {error}");
+                }
+            }
+            ClientToServer::FocusDirection { direction } => {
+                let direction = match direction {
+                    ekko_proto::Direction::Left => Direction::Left,
+                    ekko_proto::Direction::Right => Direction::Right,
+                    ekko_proto::Direction::Up => Direction::Up,
+                    ekko_proto::Direction::Down => Direction::Down,
+                };
+                self.focus_direction(id, direction);
+            }
+            ClientToServer::FocusPane { pane } => {
+                self.focus_pane(id, PaneId(pane));
+            }
+            ClientToServer::CloseFocusedPane => {
+                self.close_focused(id);
+            }
             ClientToServer::Scroll { delta } => self.on_scroll(id, delta),
             ClientToServer::ScrollReset => self.set_scrollback_view(id, 0),
             ClientToServer::KillCurrentSession => {
@@ -447,9 +475,6 @@ impl Hub {
         // manual send, so the diff bookkeeping stays consistent and other
         // clients don't get a redundant `Full` on the next tick.
         self.needs_full.insert(id);
-        if let Some(pane) = self.focused_pane_mut(id) {
-            pane.force_dirty();
-        }
         self.render_now();
         let (cols, rows) = self
             .focused_pane(id)
@@ -654,7 +679,6 @@ impl Hub {
     /// Transactionally split one client's focused leaf. Geometry is resolved
     /// before identity allocation, extension dispatch, or PTY spawn; only a
     /// fully wired child is inserted and committed to the canonical tree.
-    #[allow(dead_code)] // P2 internal seam; P3 adds the wire caller.
     fn split_focused(
         &mut self,
         client: ClientId,
@@ -698,16 +722,32 @@ impl Hub {
         self.panes.insert(key.id, pane);
         self.topology = Some(proposed);
         self.focus.insert(client, key.id);
-        self.needs_full.insert(client);
+        self.workspace_dirty = true;
         self.resize_canvas(canvas.cols, canvas.rows)
             .expect("prevalidated split geometry remains viable");
         if let Some(pane) = self.panes.get_mut(&key.id) {
-            pane.force_dirty();
+            pane.mark_dirty();
         }
         Ok(Some(key.id))
     }
 
-    #[allow(dead_code)] // P2 internal seam; P3 adds the wire caller.
+    /// Move one client's focus to a specific live pane. Unknown panes and
+    /// requests from unattached clients are ignored safely.
+    fn focus_pane(&mut self, client: ClientId, pane: PaneId) -> bool {
+        if !self.attached.contains_key(&client) || !self.panes.contains_key(&pane) {
+            return false;
+        }
+        self.focus.insert(client, pane);
+        self.workspace_dirty = true;
+        // Focus moves change only which cursor/modes the viewer shows: the
+        // grid contents are untouched, so a clean metadata frame suffices.
+        // `mark_dirty` schedules the pass that carries the new `focused`.
+        if let Some(pane) = self.panes.get_mut(&pane) {
+            pane.mark_dirty();
+        }
+        true
+    }
+
     fn focus_direction(&mut self, client: ClientId, direction: Direction) -> bool {
         if !self.attached.contains_key(&client) {
             return false;
@@ -724,15 +764,9 @@ impl Hub {
         else {
             return false;
         };
-        self.focus.insert(client, next);
-        self.needs_full.insert(client);
-        if let Some(pane) = self.panes.get_mut(&next) {
-            pane.force_dirty();
-        }
-        true
+        self.focus_pane(client, next)
     }
 
-    #[allow(dead_code)] // P2 internal seam; P3 adds the wire caller.
     fn close_focused(&mut self, client: ClientId) -> bool {
         if !self.attached.contains_key(&client) {
             return false;
@@ -761,6 +795,7 @@ impl Hub {
             return;
         }
         self.retire_pane(pane_id, terminate_child);
+        self.workspace_dirty = true;
 
         let fallback = self
             .topology()
@@ -816,6 +851,9 @@ impl Hub {
             );
         }
         if let Some(title) = output.title {
+            // The title rides the workspace metadata, which no grid frame
+            // would otherwise carry when the pane's content is unchanged.
+            self.workspace_dirty = true;
             self.send_to_pane_viewers(key.id, ServerToClient::Title(title));
         }
         if let Some(data) = output.clipboard_copy {
@@ -910,58 +948,128 @@ impl Hub {
 
     // -- rendering ------------------------------------------------------
 
+    /// Broadcast one workspace frame per attached client. Every frame
+    /// carries the complete canonical pane projection (metadata is cheap and
+    /// makes removal/topology recovery idempotent); grid payloads stay
+    /// incremental per pane. A client in `needs_full` (fresh attach or a
+    /// dropped frame) receives `Full` grids for every live pane.
     fn render_now(&mut self) {
+        let Some(canvas) = self.canvas() else {
+            return;
+        };
+        let Ok(geometry) = self.resolved_geometry(canvas) else {
+            return;
+        };
+        let geometry: HashMap<PaneId, Rect> = geometry.into_iter().collect();
         let pane_ids = self
             .topology()
             .map(PaneTopology::leaves)
             .unwrap_or_default();
+        let resync = self
+            .needs_full
+            .iter()
+            .any(|client| self.attached.contains_key(client));
+
+        let mut frames = Vec::new();
         for pane_id in pane_ids {
-            let clients_need_full = self.needs_full.iter().any(|client| {
-                self.focus.get(client).copied() == Some(pane_id)
-                    && self.attached.contains_key(client)
-            });
-            let Some(frame) = self
+            if let Some(frame) = self
                 .panes
                 .get_mut(&pane_id)
-                .and_then(|pane| pane.prepare_render(clients_need_full))
+                .and_then(|pane| pane.prepare_render(resync))
+            {
+                frames.push(frame);
+            }
+        }
+        if frames.is_empty() && !self.workspace_dirty {
+            return;
+        }
+        self.workspace_dirty = false;
+
+        self.epoch += 1;
+        let epoch = self.epoch;
+        let metadata: Vec<PaneMeta> = self
+            .panes
+            .iter()
+            .filter_map(|(id, pane)| {
+                let rect = geometry.get(id)?;
+                Some(PaneMeta {
+                    id: id.0,
+                    rect: PaneRect {
+                        x: rect.x,
+                        y: rect.y,
+                        cols: rect.cols,
+                        rows: rect.rows,
+                    },
+                    title: pane.title().map(str::to_owned),
+                })
+            })
+            .collect();
+
+        let mut resync_failed = false;
+        for (&id, client) in &self.clients {
+            let Some(&focused) = self
+                .focus
+                .get(&id)
+                .filter(|_| self.attached.contains_key(&id))
             else {
                 continue;
             };
-
-            self.epoch += 1;
-            for (&id, client) in &self.clients {
-                if !self.attached.contains_key(&id) || self.focus.get(&id).copied() != Some(pane_id)
-                {
+            let full = self.needs_full.contains(&id);
+            let mut grids = Vec::new();
+            for frame in &frames {
+                let full_frame = full || frame.full_for_all;
+                if frame.steady && !full_frame {
                     continue;
                 }
-                let payload = if frame.full_for_all || self.needs_full.contains(&id) {
+                let payload = if full_frame {
                     GridPayload::Full(frame.rows.clone())
-                } else if frame.steady {
-                    continue;
                 } else {
                     GridPayload::Rows(frame.patches.clone())
                 };
-                let update = GridUpdate {
-                    epoch: self.epoch,
-                    cols: frame.size.0,
-                    rows: frame.size.1,
-                    cursor: Some(frame.cursor),
-                    modes: frame.modes,
-                    scrollback: frame.scrollback,
-                    payload,
-                };
-                if client.tx.try_send(ServerToClient::Grid(update)).is_err() {
-                    log::debug!(
-                        "hub: client {id}'s queue dropped a grid frame; full resync queued"
-                    );
-                    self.needs_full.insert(id);
-                } else {
-                    self.needs_full.remove(&id);
-                }
+                grids.push(PaneGrid {
+                    pane: frame.pane.id.0,
+                    update: GridUpdate {
+                        epoch,
+                        cols: frame.size.0,
+                        rows: frame.size.1,
+                        cursor: Some(frame.cursor),
+                        modes: frame.modes,
+                        scrollback: frame.scrollback,
+                        payload,
+                    },
+                });
             }
+            let update = WorkspaceUpdate {
+                epoch,
+                panes: metadata.clone(),
+                focused: focused.0,
+                grids,
+            };
+            if client
+                .tx
+                .try_send(ServerToClient::Workspace(update))
+                .is_err()
+            {
+                log::debug!(
+                    "hub: client {id}'s queue dropped a workspace frame; full resync queued"
+                );
+                resync_failed |= self.needs_full.insert(id);
+            } else {
+                self.needs_full.remove(&id);
+            }
+        }
 
+        for frame in &frames {
             if let Some(pane) = self.panes.get_mut(&frame.pane.id) {
-                pane.commit_render(&frame);
+                pane.commit_render(frame);
+            }
+        }
+        // Schedule the resync retry promptly, but only on the transition into
+        // `needs_full`: a persistently slow client otherwise waits for natural
+        // pane activity (or eviction by its writer thread's write timeout).
+        if resync_failed {
+            for pane in self.panes.values_mut() {
+                pane.mark_dirty();
             }
         }
     }
@@ -1293,7 +1401,7 @@ mod tests {
     }
 
     #[test]
-    fn pane_output_and_render_updates_reach_only_that_panes_viewers() {
+    fn pane_output_reaches_focused_viewers_workspace_broadcast_is_per_client() {
         let mut live = LiveHub::new(80, 24, &[10, 20]);
         let initial = live.hub.focus[&10];
         let child = live
@@ -1315,6 +1423,8 @@ mod tests {
         live.hub.render_now();
 
         let right_messages: Vec<_> = right_rx.try_iter().collect();
+        // Bell/title/clipboard stay pane-local: only the child's focused
+        // viewer receives them.
         assert!(
             right_messages
                 .iter()
@@ -1326,21 +1436,189 @@ mod tests {
         assert!(right_messages.iter().any(
             |message| matches!(message, ServerToClient::ClipboardCopy(data) if data == b"Y29weQ==")
         ));
-        assert!(right_messages.iter().any(|message| {
-            matches!(message, ServerToClient::Grid(update) if match &update.payload {
-                GridPayload::Full(rows) => rows.iter().any(|row| {
-                    row.cells.iter().map(|cell| cell.ch).collect::<String>().contains("RIGHT")
-                }),
-                GridPayload::Rows(_) => false,
-            })
-        }));
+        // Grids broadcast to every attached client: both viewers see the
+        // whole workspace, each with its own focus.
+        fn workspace_of(messages: &[ServerToClient]) -> &WorkspaceUpdate {
+            messages
+                .iter()
+                .find_map(|message| match message {
+                    ServerToClient::Workspace(update) => Some(update),
+                    _ => None,
+                })
+                .expect("a workspace frame")
+        }
+        let right = workspace_of(&right_messages);
+        assert_eq!(right.focused, child.0);
+        assert_eq!(right.panes.len(), 2);
         assert!(
-            left_rx.try_iter().all(|message| !matches!(
+            right
+                .panes
+                .iter()
+                .any(|meta| meta.id == child.0 && meta.title.as_deref() == Some("right-title"))
+        );
+        let child_grid = right
+            .grids
+            .iter()
+            .find(|grid| grid.pane == child.0)
+            .expect("the child pane's grid");
+        let GridPayload::Full(rows) = &child_grid.update.payload else {
+            panic!("a fresh pane renders a full grid");
+        };
+        assert!(rows.iter().any(|row| {
+            row.cells
+                .iter()
+                .map(|cell| cell.ch)
+                .collect::<String>()
+                .contains("RIGHT")
+        }));
+
+        let left_messages: Vec<_> = left_rx.try_iter().collect();
+        let left = workspace_of(&left_messages);
+        assert_eq!(left.focused, initial.0);
+        assert_eq!(left.panes.len(), 2);
+        assert!(
+            left_messages.iter().all(|message| !matches!(
                 message,
                 ServerToClient::Bell | ServerToClient::Title(_) | ServerToClient::ClipboardCopy(_)
             )),
             "another pane's viewer must not receive pane-local output"
         );
+    }
+
+    #[test]
+    fn wire_requests_split_focus_and_close_through_the_hub() {
+        let mut live = LiveHub::new(80, 24, &[10]);
+        let initial = live.hub.focus[&10];
+        let (tx, rx) = crossbeam_channel::bounded(64);
+        live.hub.clients.insert(10, ClientHandle { tx });
+
+        live.hub.on_client_msg(
+            10,
+            ClientToServer::SplitPane {
+                direction: ekko_proto::SplitDirection::Right,
+            },
+        );
+        let child = live.hub.focus[&10];
+        assert_ne!(child, initial);
+        assert_eq!(live.hub.panes.len(), 2);
+        live.hub.render_now();
+
+        live.hub.on_client_msg(
+            10,
+            ClientToServer::FocusDirection {
+                direction: ekko_proto::Direction::Left,
+            },
+        );
+        assert_eq!(live.hub.focus[&10], initial);
+
+        live.hub
+            .on_client_msg(10, ClientToServer::FocusPane { pane: child.0 });
+        assert_eq!(live.hub.focus[&10], child);
+
+        // Unknown pane IDs and requests from unattached clients are ignored.
+        live.hub
+            .on_client_msg(10, ClientToServer::FocusPane { pane: 999 });
+        assert_eq!(live.hub.focus[&10], child);
+        live.hub.on_client_msg(
+            99,
+            ClientToServer::SplitPane {
+                direction: ekko_proto::SplitDirection::Down,
+            },
+        );
+        assert_eq!(live.hub.panes.len(), 2);
+
+        live.hub.on_client_msg(10, ClientToServer::CloseFocusedPane);
+        assert_eq!(live.hub.panes.len(), 1);
+        assert_eq!(live.hub.focus[&10], initial);
+        live.assert_focus_is_live();
+        live.hub.render_now();
+
+        // The whole exchange produced per-client workspace frames whose
+        // metadata always projects the live pane set.
+        let frames: Vec<_> = rx
+            .try_iter()
+            .filter_map(|message| match message {
+                ServerToClient::Workspace(update) => Some(update),
+                _ => None,
+            })
+            .collect();
+        assert!(frames.iter().any(|frame| frame.panes.len() == 2));
+        assert_eq!(frames.last().unwrap().panes.len(), 1);
+        assert_eq!(frames.last().unwrap().focused, initial.0);
+    }
+
+    #[test]
+    fn focus_move_emits_a_metadata_frame_even_when_grids_are_steady() {
+        // Regression: a focus move changes no grid cell, so every pane's
+        // frame is steady; the workspace frame carrying the new `focused`
+        // must still be emitted (it was previously dropped with the steady
+        // frames, and the client never learned of the focus move).
+        let mut live = LiveHub::new(80, 24, &[10]);
+        let initial = live.hub.focus[&10];
+        let child = live
+            .hub
+            .split_focused(10, SplitAxis::Horizontal)
+            .unwrap()
+            .unwrap();
+        let (tx, rx) = crossbeam_channel::bounded(64);
+        live.hub.clients.insert(10, ClientHandle { tx });
+        rx.try_iter().for_each(drop);
+
+        assert!(live.hub.focus_direction(10, Direction::Left));
+        live.hub.render_now();
+
+        let frame = rx
+            .try_iter()
+            .find_map(|message| match message {
+                ServerToClient::Workspace(update) => Some(update),
+                _ => None,
+            })
+            .expect("a metadata-only workspace frame");
+        assert_eq!(frame.focused, initial.0);
+        assert_eq!(frame.panes.len(), 2);
+        assert_eq!(
+            child.0,
+            frame.panes.iter().find(|p| p.id != initial.0).unwrap().id
+        );
+    }
+
+    #[test]
+    fn resyncing_client_gets_full_grids_for_every_live_pane() {
+        let mut live = LiveHub::new(80, 24, &[10]);
+        let initial = live.hub.focus[&10];
+        let child = live
+            .hub
+            .split_focused(10, SplitAxis::Horizontal)
+            .unwrap()
+            .unwrap();
+        let (tx, rx) = crossbeam_channel::bounded(64);
+        live.hub.clients.insert(10, ClientHandle { tx });
+        rx.try_iter().for_each(drop);
+
+        live.hub.needs_full.insert(10);
+        live.hub.render_now();
+
+        let frame = rx
+            .try_iter()
+            .find_map(|message| match message {
+                ServerToClient::Workspace(update) => Some(update),
+                _ => None,
+            })
+            .expect("a workspace frame");
+        // Even the untouched sibling renders a full grid for the resyncing
+        // client, so its cache can never hold stale rows.
+        for pane in [initial, child] {
+            let grid = frame
+                .grids
+                .iter()
+                .find(|grid| grid.pane == pane.0)
+                .expect("full grid for every live pane");
+            assert!(
+                matches!(grid.update.payload, GridPayload::Full(_)),
+                "resync payload must be full"
+            );
+        }
+        assert!(!live.hub.needs_full.contains(&10));
     }
 
     #[test]

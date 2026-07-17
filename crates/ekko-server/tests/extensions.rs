@@ -205,7 +205,7 @@ fn grid_contains(msg: &ServerToClient, needle: &str) -> bool {
                 .collect(),
         }
     };
-    matches!(msg, ServerToClient::Grid(update) if lines(update).iter().any(|l| l.contains(needle)))
+    matches!(msg, ServerToClient::Workspace(update) if update.grids.iter().any(|grid| lines(&grid.update).iter().any(|l| l.contains(needle))))
 }
 
 // ── Test extensions ─────────────────────────────────────────────────────────
@@ -597,7 +597,8 @@ fn cursor_keys_are_reencoded_for_the_childs_decckm_state() {
     assert!(
         client
             .wait_for(Duration::from_secs(10), |m| {
-                matches!(m, ServerToClient::Grid(update) if update.modes.app_cursor)
+                matches!(m, ServerToClient::Workspace(update)
+                    if update.grids.iter().any(|grid| grid.update.modes.app_cursor))
             })
             .is_some(),
         "the child's DECCKM set must reach the server parser"

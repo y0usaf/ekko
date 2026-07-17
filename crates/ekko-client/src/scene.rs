@@ -1,13 +1,14 @@
 //! Frame composition, registry-driven: every chrome region is drawn by the
-//! surface extension that claimed it; the terminal grid is blitted into
-//! whatever remains; the active mode and overlay draw their layers last.
-//! This module is pure mechanism — it holds no opinion about which surfaces
-//! exist or what they look like.
+//! surface extension that claimed it; each terminal pane is blitted at its
+//! server-provided rect inside what remains; the active mode and overlay
+//! draw their layers last. This module is pure mechanism — it holds no
+//! opinion about which surfaces or pane layouts exist.
 
 use ekko_ext::{AppRuntime, ClientSnapshot, Rect, ResolvedLayout};
 use ekko_grid::cell_surface::CellSurface;
+use ekko_grid::layout::CellRect;
 
-use crate::drawctx::{RegionDrawContext, to_cell_rect};
+use crate::drawctx::{RegionDrawContext, gc, to_cell_rect};
 use crate::gridblit::blit_grid;
 use crate::state::ClientState;
 
@@ -29,15 +30,36 @@ pub fn render_frame(
         draw(&mut ctx, snapshot);
     }
 
-    blit_grid(
-        surface,
-        to_cell_rect(layout.terminal),
-        &state.grid.cells,
-        state.grid.cols,
-        state.grid.rows,
-        &snapshot.theme,
-        state.selection.normalized(),
+    // Compose every pane at its server-provided rect inside the terminal
+    // region. The region can exceed the session canvas (the daemon sizes
+    // to the smallest attached client); the remainder shows the terminal
+    // background rather than last frame's leftovers.
+    let terminal = to_cell_rect(layout.terminal);
+    surface.fill_rect(
+        terminal,
+        gc(snapshot.theme.term_fg),
+        gc(snapshot.theme.term_bg),
     );
+    for (&id, pane) in &state.workspace.panes {
+        let rect = CellRect::new(
+            terminal.col + i32::from(pane.rect.x),
+            terminal.row + i32::from(pane.rect.y),
+            i32::from(pane.rect.cols),
+            i32::from(pane.rect.rows),
+        );
+        let selection = (state.selection_pane == Some(id))
+            .then(|| state.selection.normalized())
+            .flatten();
+        blit_grid(
+            surface,
+            rect,
+            &pane.grid.cells,
+            pane.grid.cols,
+            pane.grid.rows,
+            &snapshot.theme,
+            selection,
+        );
+    }
 
     let mut cursor = terminal_cursor(state, layout.terminal);
     let frame = Rect::new(0, 0, surface.cols, surface.rows);
@@ -65,10 +87,13 @@ pub fn render_frame(
     cursor
 }
 
+/// The hardware cursor belongs to the focused pane only, offset by that
+/// pane's rect inside the terminal region.
 fn terminal_cursor(state: &ClientState, terminal: Rect) -> Option<(i32, i32)> {
-    let cursor = state.grid.cursor.filter(|c| c.visible)?;
+    let pane = state.workspace.panes.get(&state.workspace.focused)?;
+    let cursor = pane.grid.cursor.filter(|c| c.visible)?;
     Some((
-        terminal.col + i32::from(cursor.col),
-        terminal.row + i32::from(cursor.row),
+        terminal.col + i32::from(pane.rect.x) + i32::from(cursor.col),
+        terminal.row + i32::from(pane.rect.y) + i32::from(cursor.row),
     ))
 }

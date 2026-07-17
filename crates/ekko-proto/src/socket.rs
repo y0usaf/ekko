@@ -39,7 +39,7 @@ use interprocess::local_socket::{
 ///
 /// v7: added `ClientToServer::Activate` and
 /// `ServerToClient::{Activate, ActivateResult}` for `ekko activate`.
-pub const WIRE_VERSION: u32 = 7;
+pub const WIRE_VERSION: u32 = 8;
 
 fn wire_dir_name() -> String {
     format!("wire_v{WIRE_VERSION}")

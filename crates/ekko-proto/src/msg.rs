@@ -30,6 +30,19 @@ pub enum ClientToServer {
     /// Bracketed-paste (or plain paste) content. The server re-wraps it in
     /// paste markers when the child has bracketed paste enabled.
     Paste(Vec<u8>),
+    /// Split the receiving client's focused pane in two, placing the new
+    /// pane to the right of or below the current one. Ignored when the
+    /// geometry would violate minimum pane dimensions.
+    SplitPane { direction: SplitDirection },
+    /// Move the receiving client's focus to the neighboring pane in a
+    /// direction. A focus move that has no neighbor is a no-op.
+    FocusDirection { direction: Direction },
+    /// Focus one specific pane (e.g. a mouse hit). Unknown pane IDs are
+    /// ignored safely.
+    FocusPane { pane: u64 },
+    /// Close the receiving client's focused pane; its sibling absorbs the
+    /// space. Closing the last pane ends the session.
+    CloseFocusedPane,
     /// Scroll the session's scrollback view. Positive `delta` moves back
     /// into history, negative toward the live screen.
     Scroll { delta: i32 },
@@ -57,8 +70,9 @@ pub enum ServerToClient {
     },
     /// Attach was refused.
     AttachRejected(AttachRejectReason),
-    /// A grid update to render.
-    Grid(GridUpdate),
+    /// A workspace update to render: the complete pane projection plus
+    /// incremental grid payloads.
+    Workspace(WorkspaceUpdate),
     /// Terminal bell.
     Bell,
     /// The client should disconnect.
@@ -132,6 +146,66 @@ pub enum SessionStatus {
     Running,
     Exited,
     Crashed,
+}
+
+/// One frame of the complete pane workspace: full metadata for every live
+/// pane, the receiving client's focused pane, and grid payloads for the
+/// panes that changed since their last sent frame. Metadata is complete on
+/// every update so removal and topology recovery are idempotent; grid
+/// payloads stay incremental. `epoch` is the hub's monotonic frame counter.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct WorkspaceUpdate {
+    pub epoch: u64,
+    pub panes: Vec<PaneMeta>,
+    /// The receiving client's focused pane (focus is per attached client).
+    pub focused: u64,
+    /// Grid updates for panes with new content only; a pane's last-known
+    /// grid persists on the client when it is absent here.
+    pub grids: Vec<PaneGrid>,
+}
+
+/// The server's canonical projection of one tiled pane.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PaneMeta {
+    pub id: u64,
+    /// Canvas-local rectangle resolved from the split tree.
+    pub rect: PaneRect,
+    pub title: Option<String>,
+}
+
+/// A rectangle inside the session canvas, in cells.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PaneRect {
+    pub x: u16,
+    pub y: u16,
+    pub cols: u16,
+    pub rows: u16,
+}
+
+/// A grid update addressed to one pane. The inner update's `epoch` equals
+/// the enclosing workspace's epoch.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PaneGrid {
+    pub pane: u64,
+    pub update: GridUpdate,
+}
+
+/// Placement of the new pane in `ClientToServer::SplitPane`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum SplitDirection {
+    /// The new pane goes to the right of the focused one (vertical divider).
+    Right,
+    /// The new pane goes below the focused one (horizontal divider).
+    Down,
+}
+
+/// A cardinal direction for directional focus moves.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum Direction {
+    Left,
+    Right,
+    Up,
+    Down,
 }
 
 /// An incremental or full update to the client's rendered grid.
