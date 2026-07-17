@@ -89,14 +89,16 @@ your shell depends on):
 | `alt+n` | new session |
 | `alt+x` | kill session (lands on a neighbor) |
 | `alt+e` | command mode (`:q`, `:detach`, `:new [name]`, `:switch <name>`, `:kill`, `:help`, `:keycast`, `:split right\|down`, `:pane-focus <dir>`, `:pane-close`) |
-| `alt+s` | scroll mode (`j`/`k` line, `u`/`d` half page, PgUp/PgDn page, `g` top, `G` live, `q`/Esc exit) |
+| `alt+s` | scroll mode (`j`/`k` line, `u`/`d` half page, PgUp/PgDn page, `g` top, `G` live, `/` search + `n`/`N` jump, `e` edit scrollback in `$EDITOR`, `q`/Esc exit) |
 | `alt+/` | help overlay |
 | `ctrl+space` | leader: a which-key panel of every `mode = "leader"` binding (`e` command mode, `s` scroll, `n` new session, `d` detach, `b` toggle sidebar, `?` help, `\|` split right, `-` split down, `h`/`j`/`k`/`l` focus pane, `x` close pane) |
 | `ctrl+space ctrl+space` | toggle the session sidebar (leader chord again inside leader mode) |
 | `ctrl+q` | detach |
 
 The mouse wheel scrolls history directly (arrow keys on the alternate
-screen); dragging with the left button selects text and copies it to the
+screen); while scrolled, a pane shows its `offset/total` in the top-right
+corner, drag-selecting keeps the highlight glued to its content across
+scrolls, and holding a drag at the pane's top/bottom edge autoscrolls; dragging with the left button selects text and copies it to the
 system clipboard via OSC 52 on release. When the program inside requests
 mouse tracking, mouse events are forwarded to it instead.
 

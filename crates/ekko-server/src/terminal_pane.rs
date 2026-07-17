@@ -194,6 +194,74 @@ impl Default for RenderState {
     }
 }
 
+/// Plain-text search over a screen's history + live rows, smart case (an
+/// all-lowercase query is case-insensitive). Matches are in absolute
+/// coordinates (row 0 = oldest history line; live rows follow). Matching
+/// is per physical row — a query spanning a hard or soft line break does
+/// not match. `col`/`len` are byte offsets within the row text (the client
+/// highlights whole cells, so sub-cell precision is not needed).
+fn search_screen(screen: &vt100::Screen, query: &str) -> Vec<ekko_proto::SearchMatch> {
+    if query.is_empty() {
+        return Vec::new();
+    }
+    let insensitive = query.chars().all(|c| !c.is_uppercase());
+    let fold = |text: &str| {
+        if insensitive {
+            text.to_lowercase()
+        } else {
+            text.to_string()
+        }
+    };
+    let needle = fold(query);
+    let mut matches = Vec::new();
+    let mut scan = |row: u32, text: String| {
+        let hay = fold(&text);
+        let mut start = 0;
+        while let Some(at) = hay[start..].find(&needle) {
+            let col = start + at;
+            matches.push(ekko_proto::SearchMatch {
+                row,
+                col: col.min(u16::MAX as usize) as u16,
+                len: needle.len().min(u16::MAX as usize) as u16,
+            });
+            start = col + needle.len().max(1);
+        }
+    };
+    let cols = screen.size().1;
+    let history_len = screen.history_len();
+    for (index, row) in screen.history_rows().enumerate() {
+        let mut text = String::new();
+        row.write_contents(&mut text, 0, cols, false);
+        scan(index as u32, text);
+    }
+    // Live rows continue after history in absolute coordinates.
+    for (index, text) in screen.rows(0, cols).enumerate() {
+        scan((history_len + index) as u32, text);
+    }
+    matches
+}
+
+/// The full scrollback followed by the live screen as plain text.
+/// Soft-wrapped history rows are joined into their logical line; trailing
+/// blanks per row are trimmed.
+fn dump_screen(screen: &vt100::Screen) -> String {
+    let cols = screen.size().1;
+    let mut dump = String::new();
+    for row in screen.history_rows() {
+        let mut text = String::new();
+        row.write_contents(&mut text, 0, cols, false);
+        dump.push_str(text.trim_end());
+        if !row.wrapped() {
+            dump.push('\n');
+        }
+    }
+    for text in screen.rows(0, cols) {
+        dump.push_str(text.trim_end());
+        dump.push('\n');
+    }
+    dump
+}
+
 pub(crate) struct PaneOutput {
     pub(crate) bells: usize,
     pub(crate) title: Option<String>,
@@ -207,6 +275,7 @@ pub(crate) struct RenderFrame {
     pub(crate) size: (u16, u16),
     pub(crate) modes: TermModes,
     pub(crate) scrollback: u32,
+    pub(crate) history: u32,
     pub(crate) full_for_all: bool,
     pub(crate) patches: Vec<(u16, GridRow)>,
     pub(crate) steady: bool,
@@ -292,6 +361,23 @@ impl TerminalPane {
         self.parser.screen().scrollback()
     }
 
+    /// Plain-text search over history + live rows, smart case. Returns
+    /// matches in absolute coordinates (row 0 = oldest history line; live
+    /// rows follow). Matching is per physical row — a query spanning a
+    /// hard or soft line break does not match. `col`/`len` are byte
+    /// offsets within the row text (the client highlights whole cells, so
+    /// sub-cell precision is not needed).
+    pub(crate) fn search_scrollback(&self, query: &str) -> Vec<ekko_proto::SearchMatch> {
+        search_screen(self.parser.screen(), query)
+    }
+
+    /// The full scrollback followed by the live screen as plain text.
+    /// Soft-wrapped history rows are joined into their logical line;
+    /// trailing blanks per row are trimmed.
+    pub(crate) fn dump_scrollback(&self) -> String {
+        dump_screen(self.parser.screen())
+    }
+
     pub(crate) fn alternate_screen(&self) -> bool {
         self.parser.screen().alternate_screen()
     }
@@ -358,6 +444,7 @@ impl TerminalPane {
         let mut cursor = grid::cursor_state(screen);
         cursor.shape = cursor_shape;
         let scrollback = screen.scrollback() as u32;
+        let history = screen.history_len() as u32;
         if scrollback > 0 {
             cursor.visible = false;
         }
@@ -395,6 +482,7 @@ impl TerminalPane {
             size,
             modes,
             scrollback,
+            history,
             full_for_all,
             patches,
             steady,
@@ -655,6 +743,74 @@ mod tests {
         peer.set_read_timeout(Some(Duration::from_secs(1))).unwrap();
         let mut byte = [0];
         assert_eq!(peer.read(&mut byte).unwrap(), 0, "master fd must be closed");
+    }
+
+    fn screen_with_history(lines: usize) -> vt100::Screen {
+        // 5-row screen, generous history cap; `seq`-style numbered lines
+        // push the early ones into scrollback.
+        let mut parser = vt100::Parser::new(5, 40, 1000);
+        let mut input = String::new();
+        for i in 0..lines {
+            input.push_str(&format!("line{i:03}\r\n"));
+        }
+        parser.process(input.as_bytes());
+        let screen = parser.screen().clone();
+        screen
+    }
+
+    #[test]
+    fn search_finds_history_and_live_rows_in_absolute_coordinates() {
+        let screen = screen_with_history(30);
+        let history = screen.history_len();
+        assert!(history > 0, "30 lines on a 5-row screen must scroll");
+        let matches = search_screen(&screen, "line007");
+        assert_eq!(matches.len(), 1);
+        assert_eq!(
+            matches[0].row, 7,
+            "history rows are 0-based from the oldest"
+        );
+        assert_eq!(matches[0].col, 0);
+        // The newest lines are live rows after the history block.
+        let live = search_screen(&screen, "line029");
+        assert_eq!(live.len(), 1);
+        assert!(
+            live[0].row >= history as u32,
+            "a live match rows past the history: {:?} vs history {history}",
+            live[0]
+        );
+    }
+
+    #[test]
+    fn search_is_smart_cased_and_multi_match() {
+        let screen = screen_with_history(30);
+        // An all-lowercase query is case-insensitive; any uppercase makes
+        // it exact ("LINE008" does not match "line008").
+        assert_eq!(search_screen(&screen, "LINE008").len(), 0);
+        assert_eq!(search_screen(&screen, "line008").len(), 1);
+        // Repeated matches on one row are all reported.
+        let mut parser = vt100::Parser::new(5, 40, 1000);
+        parser.process(b"ab ab ab\r\n");
+        let matches = search_screen(parser.screen(), "ab");
+        assert_eq!(matches.len(), 3);
+        assert_eq!(matches[0].col, 0);
+        assert_eq!(matches[1].col, 3);
+        assert_eq!(matches[2].col, 6);
+        // Empty query never matches.
+        assert!(search_screen(parser.screen(), "").is_empty());
+    }
+
+    #[test]
+    fn dump_joins_history_and_live_rows() {
+        let screen = screen_with_history(10);
+        let dump = dump_screen(&screen);
+        for i in 0..10 {
+            assert!(
+                dump.contains(&format!("line{i:03}")),
+                "dump is missing line{i:03}"
+            );
+        }
+        // Every stored history row plus the 5 live rows, one line each.
+        assert_eq!(dump.lines().count(), screen.history_len() + 5);
     }
 
     #[test]

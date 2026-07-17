@@ -62,6 +62,54 @@ pub fn render_frame(
         );
     }
 
+    // Search hits overlay the pane that owns the active search: matches
+    // arrive in absolute rows (0 = oldest history line) and map into the
+    // viewport as `row - (history - offset)`. Hits use the selection
+    // colors, dimmed; the current hit uses them full-strength.
+    if let Some(search) = &state.search
+        && let Some(pane) = state.workspace.panes.get(&search.pane)
+    {
+        let first = i64::from(pane.grid.history) - i64::from(pane.grid.scrollback);
+        let dim_bg = ekko_grid::theme::fade_toward(
+            gc(snapshot.theme.selection_bg),
+            gc(snapshot.theme.term_bg),
+            150,
+        );
+        for (index, hit) in search.matches.iter().enumerate() {
+            let view_row = i64::from(hit.row) - first;
+            if view_row < 0 || view_row >= i64::from(pane.rect.rows) {
+                continue;
+            }
+            let current = index == search.current;
+            let bg = if current {
+                gc(snapshot.theme.selection_bg)
+            } else {
+                dim_bg
+            };
+            let fg = if current {
+                gc(snapshot.theme.selection_fg)
+            } else {
+                gc(snapshot.theme.term_fg)
+            };
+            let row_y = terminal.row + i32::from(pane.rect.y) + view_row as i32;
+            let grid_row = pane.grid.cells.get(view_row as usize);
+            // `col`/`len` are byte offsets in the plain row text; the
+            // common case (ASCII) lines up with cells exactly, and wider
+            // text just rounds to whole cells at the same start.
+            for cell_index in hit.col..hit.col.saturating_add(hit.len) {
+                let col_x = terminal.col + i32::from(pane.rect.x) + i32::from(cell_index);
+                if cell_index >= pane.rect.cols {
+                    break;
+                }
+                let ch = grid_row
+                    .and_then(|row| row.cells.get(cell_index as usize))
+                    .map(|cell| cell.ch)
+                    .unwrap_or(' ');
+                surface.set_cell(col_x, row_y, fg, bg, ch.to_string(), false);
+            }
+        }
+    }
+
     // Pane separators ride the cells the daemon reserved in the layout:
     // shared boundary lines (compact) or per-pane box frames (frame),
     // tinted with the accent color where they touch the focused pane.
@@ -86,6 +134,33 @@ pub fn render_frame(
                 if cell.focused { focused_fg } else { border_fg },
                 bg,
                 cell.ch.to_string(),
+                false,
+            );
+        }
+    }
+
+    // Scroll indicator: while a pane is scrolled into history, show
+    // `offset/total` in its top-right corner (overlapping the frame's top
+    // edge in frame style, the pane's first row otherwise).
+    for pane in state.workspace.panes.values() {
+        if pane.grid.scrollback == 0 {
+            continue;
+        }
+        let label = format!(" {}/{} ", pane.grid.scrollback, pane.grid.history);
+        let right = terminal.col + i32::from(pane.rect.x) + i32::from(pane.rect.cols);
+        // In frame style the pane's top frame edge carries the indicator;
+        // otherwise it overlaps the pane's first content row.
+        let frame_offset =
+            i32::from(state.workspace.border_style == ekko_proto::PaneBorderStyle::Frame);
+        let top = terminal.row + i32::from(pane.rect.y) - frame_offset;
+        let start = right - label.chars().count() as i32;
+        for (i, ch) in label.chars().enumerate() {
+            surface.set_cell(
+                start + i as i32,
+                top,
+                gc(snapshot.theme.accent),
+                gc(snapshot.theme.term_bg),
+                ch.to_string(),
                 false,
             );
         }

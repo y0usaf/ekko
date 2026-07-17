@@ -47,6 +47,8 @@ pub struct GridState {
     pub modes: TermModes,
     /// Scrollback view offset in lines back from the live screen.
     pub scrollback: u32,
+    /// Total scrollback history lines stored server-side (max offset).
+    pub history: u32,
     pub cells: Vec<GridRow>,
 }
 
@@ -66,6 +68,7 @@ impl GridState {
         self.cursor = update.cursor;
         self.modes = update.modes;
         self.scrollback = update.scrollback;
+        self.history = update.history;
         match update.payload {
             GridPayload::Full(rows) => self.cells = rows,
             GridPayload::Rows(patches) => {
@@ -182,7 +185,33 @@ pub struct ClientState {
     /// Surfaces toggled off by `UiAction::ToggleSurface`. Client-local:
     /// a fresh attach starts with everything visible.
     pub hidden_surfaces: std::collections::HashSet<String>,
+    /// Active scrollback search: matches in absolute rows (0 = oldest
+    /// history line), owned by `search.pane`. Cleared on pane close or
+    /// `UiAction::SearchClear`.
+    pub search: Option<SearchState>,
+    /// While dragging a selection off the pane's top/bottom edge, the
+    /// autoscroll direction (+1 = up into history, -1 = toward live).
+    pub edge_scroll: Option<i32>,
     pub dirty: bool,
+}
+
+pub struct SearchState {
+    pub pane: u64,
+    pub query: String,
+    pub matches: Vec<ekko_proto::SearchMatch>,
+    /// Index into `matches` of the current (accented) hit.
+    pub current: usize,
+}
+
+impl SearchState {
+    /// The current match's viewport row for a pane showing `history` lines
+    /// at view `offset`, and the scroll delta needed to reveal it. The
+    /// viewport's first absolute row is `history - offset`.
+    pub fn view_row(history: u32, offset: u32, abs_row: u32) -> Option<i32> {
+        let first = i64::from(history) - i64::from(offset);
+        let row = i64::from(abs_row) - first;
+        i32::try_from(row).ok()
+    }
 }
 
 impl ClientState {
@@ -198,6 +227,8 @@ impl ClientState {
             selection: TerminalSelection::default(),
             selection_pane: None,
             hidden_surfaces: std::collections::HashSet::new(),
+            search: None,
+            edge_scroll: None,
             dirty: true,
         }
     }
@@ -222,6 +253,23 @@ impl ClientState {
             self.status_note = None;
             self.dirty = true;
         }
+    }
+}
+
+#[cfg(test)]
+mod search_tests {
+    use super::SearchState;
+
+    #[test]
+    fn match_rows_map_into_the_viewport_from_absolute_coordinates() {
+        // 100 history lines, offset 10: the viewport's first absolute row
+        // is 90; absolute row 95 shows as viewport row 5.
+        assert_eq!(SearchState::view_row(100, 10, 95), Some(5));
+        // Rows above/below the window map to out-of-pane rows.
+        assert_eq!(SearchState::view_row(100, 10, 89), Some(-1));
+        assert_eq!(SearchState::view_row(100, 10, 110), Some(20));
+        // Live view (offset 0): history row 95 of 100 is 5 rows up.
+        assert_eq!(SearchState::view_row(100, 0, 95), Some(-5));
     }
 }
 
@@ -252,6 +300,7 @@ mod tests {
             cursor: None,
             modes: TermModes::default(),
             scrollback: 0,
+            history: 0,
             payload: GridPayload::Full(vec![row('a'), row('b')]),
         }));
         assert_eq!(grid.cells.len(), 2);
@@ -268,6 +317,7 @@ mod tests {
             cursor: None,
             modes: TermModes::default(),
             scrollback: 0,
+            history: 0,
             payload: GridPayload::Full(vec![row('a'), row('b')]),
         });
         grid.apply(GridUpdate {
@@ -277,6 +327,7 @@ mod tests {
             cursor: None,
             modes: TermModes::default(),
             scrollback: 0,
+            history: 0,
             payload: GridPayload::Rows(vec![(1, row('z'))]),
         });
         assert_eq!(grid.cells[0].cells[0].ch, 'a');
@@ -293,6 +344,7 @@ mod tests {
             cursor: None,
             modes: TermModes::default(),
             scrollback: 0,
+            history: 0,
             payload: GridPayload::Full(vec![row('a')]),
         });
         let applied = grid.apply(GridUpdate {
@@ -302,6 +354,7 @@ mod tests {
             cursor: None,
             modes: TermModes::default(),
             scrollback: 0,
+            history: 0,
             payload: GridPayload::Full(vec![row('z')]),
         });
         assert!(!applied);
@@ -316,6 +369,7 @@ mod tests {
             cursor: None,
             modes: TermModes::default(),
             scrollback: 0,
+            history: 0,
             payload,
         }
     }

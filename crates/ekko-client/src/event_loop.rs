@@ -33,6 +33,9 @@ use crate::state::{ActiveOverlay, ClientState};
 
 const SESSION_REFRESH_INTERVAL: Duration = Duration::from_secs(2);
 const RESIZE_DEBOUNCE: Duration = Duration::from_millis(50);
+/// Drag-off-edge autoscroll cadence and lines per tick.
+const EDGE_SCROLL_INTERVAL: Duration = Duration::from_millis(50);
+const EDGE_SCROLL_LINES: i32 = 1;
 const ANIMATION_INTERVAL: Duration = Duration::from_millis(80);
 const IDLE_INTERVAL: Duration = Duration::from_secs(1);
 const STATUS_NOTE_TTL: Duration = Duration::from_secs(4);
@@ -64,6 +67,7 @@ pub(crate) fn run_event_loop(
     runtime: &AppRuntime,
     resume_mode: Option<String>,
     generation: u64,
+    raw_guard: &ekko_tui::RawModeGuard,
 ) -> Result<ClientOutcome> {
     let palette = runtime
         .resolve_theme(None)
@@ -84,6 +88,7 @@ pub(crate) fn run_event_loop(
         last_session_refresh: Instant::now() - SESSION_REFRESH_INTERVAL,
         last_cursor_shape: 0,
         render_buf: Vec::with_capacity(64 * 1024),
+        raw_guard,
     };
     app.refresh_sessions();
     app.runtime.dispatch(
@@ -192,6 +197,9 @@ struct App<'a> {
     /// pushed to the terminal with a single locked write + flush instead of
     /// many small locked writes.
     render_buf: Vec<u8>,
+    /// Raw-mode ownership, used to hand the tty to `$EDITOR` for
+    /// `UiAction::EditScrollback`.
+    raw_guard: &'a ekko_tui::RawModeGuard,
 }
 
 impl App<'_> {
@@ -211,11 +219,16 @@ impl App<'_> {
             }
 
             let animating = self.wants_animation();
-            let timeout = if animating {
+            let mut timeout = if animating {
                 ANIMATION_INTERVAL
             } else {
                 IDLE_INTERVAL
             };
+            // A selection dragged off the pane's top/bottom edge keeps the
+            // viewport scrolling while the button is held (zellij-style).
+            if self.state.edge_scroll.is_some() {
+                timeout = timeout.min(EDGE_SCROLL_INTERVAL);
+            }
             match rx.recv_timeout(timeout) {
                 Ok(event) => {
                     if let Some(outcome) = self.handle_event(event)? {
@@ -223,6 +236,11 @@ impl App<'_> {
                     }
                 }
                 Err(RecvTimeoutError::Timeout) => {
+                    if let Some(direction) = self.state.edge_scroll {
+                        self.send_message(ClientToServer::Scroll {
+                            delta: direction * EDGE_SCROLL_LINES,
+                        })?;
+                    }
                     if animating {
                         if self.runtime.has_subscribers(EventKind::Tick) {
                             self.runtime.dispatch(
@@ -504,6 +522,11 @@ impl App<'_> {
                             self.state.selection.shift_rows(shift as i32);
                         }
                     }
+                    if self.state.search.as_ref().is_some_and(|search| {
+                        !self.state.workspace.panes.contains_key(&search.pane)
+                    }) {
+                        self.state.search = None;
+                    }
                     self.state.dirty = true;
                     if self.runtime.has_subscribers(EventKind::GridUpdated) {
                         let focused = self.state.workspace.focused_grid();
@@ -532,6 +555,50 @@ impl App<'_> {
                 let mut stdout = std::io::stdout();
                 let _ = stdout.write_all(&clipboard::osc52_set_clipboard_base64(&data));
                 let _ = stdout.flush();
+                None
+            }
+            ServerToClient::SearchResults {
+                pane,
+                query,
+                matches,
+            } => {
+                if matches.is_empty() {
+                    self.state.search = None;
+                    self.state.set_note(
+                        format!("no matches: {query}"),
+                        NoteKind::Error,
+                        STATUS_NOTE_TTL,
+                    );
+                } else {
+                    // Start on the first match inside (or just below) the
+                    // current viewport so repeat searches feel stable.
+                    let viewport_first = self
+                        .state
+                        .workspace
+                        .panes
+                        .get(&pane)
+                        .map(|p| i64::from(p.grid.history) - i64::from(p.grid.scrollback))
+                        .unwrap_or(0);
+                    let current = matches
+                        .iter()
+                        .position(|m| i64::from(m.row) >= viewport_first)
+                        .unwrap_or(0);
+                    let count = matches.len();
+                    self.state.search = Some(crate::state::SearchState {
+                        pane,
+                        query,
+                        matches,
+                        current,
+                    });
+                    self.scroll_to_current_match();
+                    self.state
+                        .set_note(format!("{count} matches"), NoteKind::Ok, STATUS_NOTE_TTL);
+                }
+                self.state.dirty = true;
+                None
+            }
+            ServerToClient::ScrollbackDump { text, .. } => {
+                self.open_scrollback_in_editor(&text);
                 None
             }
             ServerToClient::Bell => {
@@ -901,6 +968,7 @@ impl App<'_> {
                         col: local_col as u16,
                     });
                 self.state.selection_pane = Some(pane_id);
+                self.state.edge_scroll = None;
             }
             MouseKind::LeftDrag => {
                 if self.state.selection.is_active() && self.state.selection_pane == Some(pane_id) {
@@ -910,6 +978,21 @@ impl App<'_> {
                             row: local_row as u16,
                             col: local_col as u16,
                         });
+                    // Held at the pane's top/bottom edge: keep scrolling so
+                    // a drag can sweep a multi-screen region (zellij-style).
+                    let pane_rows = self
+                        .state
+                        .workspace
+                        .panes
+                        .get(&pane_id)
+                        .map_or(0, |pane| pane.rect.rows);
+                    self.state.edge_scroll = if local_row <= 0 {
+                        Some(1)
+                    } else if local_row >= i32::from(pane_rows) - 1 {
+                        Some(-1)
+                    } else {
+                        None
+                    };
                 }
             }
             MouseKind::LeftRelease => {
@@ -924,6 +1007,7 @@ impl App<'_> {
                         });
                 }
                 self.state.selection.end_drag();
+                self.state.edge_scroll = None;
                 if let Some(range) = self.state.selection.normalized() {
                     let text = self
                         .state
@@ -951,6 +1035,86 @@ impl App<'_> {
             MouseKind::Other => {}
         }
         Ok(None)
+    }
+
+    /// Scroll the search pane's viewport so the current match is visible
+    /// (minimal movement: no scroll when already on screen).
+    fn scroll_to_current_match(&mut self) {
+        let Some((hit_row, pane_id)) = self.state.search.as_ref().and_then(|search| {
+            search
+                .matches
+                .get(search.current)
+                .map(|m| (m.row, search.pane))
+        }) else {
+            return;
+        };
+        let Some(pane) = self.state.workspace.panes.get(&pane_id) else {
+            return;
+        };
+        let pane_rows = i64::from(pane.rect.rows);
+        let first = i64::from(pane.grid.history) - i64::from(pane.grid.scrollback);
+        let row = i64::from(hit_row) - first;
+        // Positive delta moves back into history (match above the viewport);
+        // negative moves toward the live screen (match below).
+        let delta = if row < 0 {
+            -row
+        } else if row >= pane_rows {
+            -(row - pane_rows + 1)
+        } else {
+            return;
+        };
+        if let Err(error) = self.send_message(ClientToServer::Scroll {
+            delta: delta as i32,
+        }) {
+            log::warn!("search scroll failed: {error}");
+        }
+    }
+
+    /// Write the dump to a temp file and hand the tty to $VISUAL/$EDITOR
+    /// (zellij's `e` in scroll mode; the client owns the terminal, so the
+    /// editor takes it over directly rather than living in a pane).
+    fn open_scrollback_in_editor(&mut self, text: &str) {
+        let editor = std::env::var("VISUAL")
+            .ok()
+            .filter(|v| !v.trim().is_empty())
+            .or_else(|| std::env::var("EDITOR").ok())
+            .filter(|v| !v.trim().is_empty())
+            .unwrap_or_else(|| "vi".to_string());
+        let path = std::env::temp_dir().join(format!(
+            "ekko-scrollback-{}-{}.txt",
+            self.state.session_name,
+            std::process::id()
+        ));
+        let outcome = std::fs::write(&path, text).map_err(|e| e.to_string());
+        let status = outcome.and_then(|_| {
+            let mut parts = editor.split_whitespace();
+            let program = parts.next().unwrap_or("vi");
+            let args: Vec<&str> = parts.collect();
+            self.raw_guard.with_suspended(|| {
+                std::process::Command::new(program)
+                    .args(args)
+                    .arg(&path)
+                    .status()
+                    .map_err(|e| e.to_string())
+            })
+        });
+        let _ = std::fs::remove_file(&path);
+        // The editor scribbled over the tty: repaint everything.
+        self.renderer.invalidate();
+        self.state.dirty = true;
+        match status {
+            Ok(exit) if exit.success() => {}
+            Ok(exit) => self.state.set_note(
+                format!("{editor} exited with {exit}"),
+                NoteKind::Error,
+                STATUS_NOTE_TTL,
+            ),
+            Err(error) => self.state.set_note(
+                format!("editor failed: {error}"),
+                NoteKind::Error,
+                STATUS_NOTE_TTL,
+            ),
+        }
     }
 
     // ── UiAction interpreter: the single write path ─────────────────────────
@@ -1081,6 +1245,34 @@ impl App<'_> {
             }
             UiAction::ScrollToBottom => {
                 self.send_message(ClientToServer::ScrollReset)?;
+                Ok(None)
+            }
+            UiAction::SearchScrollback { query } => {
+                self.send_message(ClientToServer::SearchScrollback { query })?;
+                Ok(None)
+            }
+            UiAction::SearchMatchJump { forward } => {
+                if let Some(search) = &mut self.state.search {
+                    let len = search.matches.len();
+                    if len > 0 {
+                        search.current = if forward {
+                            (search.current + 1) % len
+                        } else {
+                            (search.current + len - 1) % len
+                        };
+                        self.scroll_to_current_match();
+                        self.state.dirty = true;
+                    }
+                }
+                Ok(None)
+            }
+            UiAction::SearchClear => {
+                self.state.search = None;
+                self.state.dirty = true;
+                Ok(None)
+            }
+            UiAction::EditScrollback => {
+                self.send_message(ClientToServer::DumpScrollback)?;
                 Ok(None)
             }
             UiAction::SplitRight => {

@@ -186,6 +186,7 @@ pub fn run(options: ClientOptions) -> Result<()> {
             &runtime,
             resume_mode.take(),
             generation,
+            &_raw_guard,
         )? {
             ClientOutcome::Exited => return Ok(()),
             ClientOutcome::SwitchTo { name, mode } => {

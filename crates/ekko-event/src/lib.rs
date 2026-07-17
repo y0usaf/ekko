@@ -344,6 +344,18 @@ pub enum UiAction {
     Scroll { delta: i32 },
     /// Jump the scrollback view back to the live screen.
     ScrollToBottom,
+    /// Search the focused pane's scrollback server-side; results arrive as
+    /// a wire reply and are highlighted in the pane.
+    SearchScrollback { query: String },
+    /// Move the current search highlight to the next/older match
+    /// (`forward = true`) or the previous/newer one, scrolling the view so
+    /// the match is visible. No-op without active search results.
+    SearchMatchJump { forward: bool },
+    /// Clear the active search query and its highlights.
+    SearchClear,
+    /// Dump the focused pane's scrollback to a temp file and open it in
+    /// `$VISUAL`/`$EDITOR` (client-side terminal takeover).
+    EditScrollback,
     /// Toggle a named docked surface's visibility for this client. Unknown
     /// names surface an error note; the hidden set is client-local state,
     /// so a reattach starts visible again.

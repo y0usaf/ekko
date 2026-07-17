@@ -219,6 +219,7 @@ mod tests {
                             focus_reporting: true,
                         },
                         scrollback: 0,
+                        history: 0,
                         payload: GridPayload::Full(vec![GridRow {
                             cells: vec![GridCell {
                                 ch: 'x',
@@ -239,6 +240,7 @@ mod tests {
                         cursor: None,
                         modes: TermModes::default(),
                         scrollback: 120,
+                        history: 500,
                         payload: GridPayload::Rows(vec![(
                             3,
                             GridRow {

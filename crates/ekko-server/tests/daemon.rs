@@ -26,6 +26,7 @@ struct TestEnv {
     _guard: std::sync::MutexGuard<'static, ()>,
     _socket_dir: tempfile::TempDir,
     _cache_dir: tempfile::TempDir,
+    _config_home: tempfile::TempDir,
     work_dir: tempfile::TempDir,
     session_name: String,
 }
@@ -36,6 +37,7 @@ impl TestEnv {
         let socket_dir = tempfile::tempdir().expect("tempdir for EKKO_SOCKET_DIR");
         let cache_dir = tempfile::tempdir().expect("tempdir for EKKO_CACHE_DIR");
         let work_dir = tempfile::tempdir().expect("tempdir for shell cwd");
+        let config_home = tempfile::tempdir().expect("tempdir for XDG_CONFIG_HOME");
         // SAFETY: serialized by `ENV_LOCK`, held until this `TestEnv` drops.
         unsafe {
             std::env::set_var("EKKO_SOCKET_DIR", socket_dir.path());
@@ -44,11 +46,16 @@ impl TestEnv {
             // back to `$SHELL`): pin it so pane tests don't depend on the
             // host's interactive shell's rendering behavior.
             std::env::set_var("SHELL", "/bin/sh");
+            // The daemon loads the real user config otherwise; geometry
+            // assertions (pane sizes, splits) must not depend on the
+            // host's `ui.pane_borders` or sidebar width.
+            std::env::set_var("XDG_CONFIG_HOME", config_home.path());
         }
         Self {
             _guard: guard,
             _socket_dir: socket_dir,
             _cache_dir: cache_dir,
+            _config_home: config_home,
             work_dir,
             session_name: session_name.to_string(),
         }
@@ -66,6 +73,7 @@ impl Drop for TestEnv {
             std::env::remove_var("EKKO_SOCKET_DIR");
             std::env::remove_var("EKKO_CACHE_DIR");
             std::env::remove_var("SHELL");
+            std::env::remove_var("XDG_CONFIG_HOME");
         }
     }
 }
@@ -583,6 +591,86 @@ fn shell_exit_ends_session_and_daemon() {
         !ekko_proto::socket_path(&env.session_name).exists(),
         "expected the session socket to be removed after shell exit"
     );
+}
+
+#[test]
+fn scrollback_search_and_dump_answer_over_the_wire() {
+    let env = TestEnv::new("t-search");
+    let daemon = spawn_daemon(env.session_name.clone());
+
+    let mut client = TestClient::connect(&env.session_name);
+    client.attach_with_size(env.cwd(), false, 80, 6);
+    assert!(
+        client
+            .wait_for(Duration::from_secs(5), |m| matches!(
+                m,
+                ServerToClient::Attached { .. }
+            ))
+            .is_some()
+    );
+
+    // Fill more lines than the 6-row screen so history exists.
+    client.send(&ClientToServer::Key(
+        b"i=0; while [ $i -lt 30 ]; do echo hitme$i; i=$((i+1)); done\n".to_vec(),
+    ));
+    assert!(
+        client
+            .wait_for(Duration::from_secs(10), |m| grid_contains(m, "hitme29"))
+            .is_some(),
+        "expected the loop output to reach the screen"
+    );
+
+    // Search: every hitmeNN line matches, in absolute coordinates; the
+    // reply names the focused pane and echoes the query.
+    client.send(&ClientToServer::SearchScrollback {
+        query: "hitme".to_string(),
+    });
+    let results = client.wait_for(Duration::from_secs(5), |m| {
+        matches!(m, ServerToClient::SearchResults { .. })
+    });
+    let Some(ServerToClient::SearchResults {
+        pane: _,
+        query,
+        matches,
+    }) = results
+    else {
+        panic!("expected SearchResults");
+    };
+    assert_eq!(query, "hitme");
+    // 30 hitme lines, plus however often the local sh build echoes the
+    // command line (varies between hosts/sandboxes).
+    assert!(matches.len() >= 30, "every hitme line: {matches:?}");
+    assert!(
+        matches.windows(2).all(|pair| pair[0].row <= pair[1].row),
+        "matches arrive in row order"
+    );
+
+    // No matches: an empty result set, not an error.
+    client.send(&ClientToServer::SearchScrollback {
+        query: "no-such-text".to_string(),
+    });
+    assert!(
+        client
+            .wait_for(Duration::from_secs(5), |m| matches!(
+                m,
+                ServerToClient::SearchResults { matches, .. } if matches.is_empty()
+            ))
+            .is_some(),
+        "expected an empty SearchResults"
+    );
+
+    // Dump: the whole transcript comes back as text.
+    client.send(&ClientToServer::DumpScrollback);
+    let dump = client.wait_for(Duration::from_secs(5), |m| {
+        matches!(m, ServerToClient::ScrollbackDump { .. })
+    });
+    let Some(ServerToClient::ScrollbackDump { text, .. }) = dump else {
+        panic!("expected ScrollbackDump");
+    };
+    assert!(text.contains("\nhitme0\n"));
+    assert!(text.contains("hitme29"));
+
+    kill_and_join(client, daemon, &env.session_name);
 }
 
 #[test]
