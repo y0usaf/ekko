@@ -604,10 +604,11 @@ hub seams. This keeps topology/lifecycle failures separate from protocol and UI.
       multi-grid composition, independent client focus, and one-pane visual
       equivalence.
 
-P3 landed. `WIRE_VERSION` is 8. `ServerToClient::Workspace(WorkspaceUpdate)`
-carries the complete `PaneMeta` projection (`id`, canvas-local `PaneRect`,
-title), the receiving client's `focused` id, and per-pane `PaneGrid` payloads
-(wrapping the existing `GridUpdate`, epoch shared with the workspace).
+P3 landed in `1973934`. `WIRE_VERSION` is 8:
+`ServerToClient::Workspace(WorkspaceUpdate)` carries the complete `PaneMeta`
+projection (`id`, canvas-local `PaneRect`, title), the receiving client's
+`focused` id, and per-pane `PaneGrid` payloads (wrapping the existing
+`GridUpdate`, epoch shared with the workspace).
 `ClientToServer` gains `SplitPane { direction: SplitDirection }`,
 `FocusDirection { direction: Direction }`, `FocusPane { pane }`, and
 `CloseFocusedPane`. The hub broadcasts one workspace per attached client per
