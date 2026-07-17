@@ -48,6 +48,16 @@ pub enum ClientToServer {
     Scroll { delta: i32 },
     /// Jump the scrollback view back to the live screen.
     ScrollReset,
+
+    /// Search the receiving client's focused pane's scrollback (plain
+    /// text, smart case: an all-lowercase query is case-insensitive).
+    /// Matches are reported in absolute coordinates (row 0 = the oldest
+    /// stored line; live rows follow history) so they survive viewport
+    /// movement.
+    SearchScrollback { query: String },
+    /// Dump the receiving client's focused pane's full scrollback + live
+    /// screen as plain text (for edit-in-$EDITOR).
+    DumpScrollback,
     /// Ask the server to kill its own (current) session.
     KillCurrentSession,
     /// Ask the server to kill a named session.
@@ -94,6 +104,29 @@ pub enum ServerToClient {
     /// Reply to `ClientToServer::Activate`: whether the request was handed to
     /// an attached client.
     ActivateResult { delivered: bool },
+
+    /// Reply to `ClientToServer::SearchScrollback`: every match in the
+    /// searched pane, in absolute coordinates (see `SearchMatch`). An
+    /// empty `matches` means the query was not found.
+    SearchResults {
+        pane: u64,
+        query: String,
+        matches: Vec<SearchMatch>,
+    },
+    /// Reply to `ClientToServer::DumpScrollback`: the pane's scrollback
+    /// and live screen as plain text, wrapped logical lines joined.
+    ScrollbackDump { pane: u64, text: String },
+}
+
+/// One scrollback search hit. `row` is absolute: 0 is the oldest stored
+/// history line; live-screen rows continue after the history (a client
+/// maps a match into the viewport as `row - (history - scrollback)` when
+/// that lands inside the visible window). `col`/`len` are cells.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SearchMatch {
+    pub row: u32,
+    pub col: u16,
+    pub len: u16,
 }
 
 /// An extension-originated message surfaced to the attached client.
@@ -265,6 +298,10 @@ pub struct GridUpdate {
     /// Current scrollback view offset in lines back from the live screen
     /// (0 = live).
     pub scrollback: u32,
+    /// Total scrollback history lines currently stored (the maximum view
+    /// offset). Drives the client's scroll indicator and absolute match
+    /// coordinates.
+    pub history: u32,
     pub payload: GridPayload,
 }
 

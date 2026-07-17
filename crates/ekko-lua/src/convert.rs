@@ -303,6 +303,8 @@ fn action_from_value(value: &Value) -> Result<UiAction> {
                 "kill_current_session" => UiAction::KillCurrentSession,
                 "new_session" => UiAction::NewSession { name: None },
                 "scroll_to_bottom" => UiAction::ScrollToBottom,
+                "search_clear" => UiAction::SearchClear,
+                "edit_scrollback" => UiAction::EditScrollback,
                 "split_right" => UiAction::SplitRight,
                 "split_down" => UiAction::SplitDown,
                 "close_focused_pane" => UiAction::CloseFocusedPane,
@@ -339,6 +341,12 @@ fn action_from_value(value: &Value) -> Result<UiAction> {
             }
             if let Some(delta) = t.get::<Option<i32>>("scroll")? {
                 return Ok(UiAction::Scroll { delta });
+            }
+            if let Some(query) = t.get::<Option<String>>("search_scrollback")? {
+                return Ok(UiAction::SearchScrollback { query });
+            }
+            if let Some(forward) = t.get::<Option<bool>>("search_jump")? {
+                return Ok(UiAction::SearchMatchJump { forward });
             }
             if let Some(direction) = t.get::<Option<String>>("focus_direction")? {
                 let direction = match direction.as_str() {

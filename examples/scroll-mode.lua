@@ -18,7 +18,7 @@ local ext = {
   id = "user.scroll-mode",
   name = "scroll mode (lua)",
   version = "0.1.0",
-  description = "keyboard scrollback navigation (j/k, u/d, g/G)",
+  description = "keyboard scrollback navigation (j/k, u/d, g/G, /, n/N, e)",
 }
 
 -- Matches an SGR wheel report (ESC [ < 64;...M up / 65;...M down): raw
@@ -33,7 +33,37 @@ end
 function ext.register(ekko)
   ekko.register_mode({
     name = "scroll",
+    init = function()
+      -- The in-progress `/` query, if one is being typed; finished
+      -- searches live in the client's search state (pane highlights).
+      return { query = nil }
+    end,
     on_key = function(state, bytes, snapshot)
+      -- Typing a `/` query: line-editor keys only; Enter fires the search.
+      if state.query ~= nil then
+        if bytes == "\27" then
+          state.query = nil
+          return nil
+        elseif bytes == "\r" or bytes == "\n" then
+          local query = state.query
+          state.query = nil
+          if query == "" then
+            return nil
+          end
+          return { search_scrollback = query }
+        elseif bytes == "\127" or bytes == "\8" then
+          state.query = state.query:sub(1, -2)
+          return nil
+        elseif bytes == "\21" then
+          state.query = ""
+          return nil
+        elseif not bytes:match("[%c]") then
+          state.query = state.query .. bytes
+          return nil
+        end
+        return nil
+      end
+
       local half_page = math.max(1, math.floor(snapshot.grid_rows / 2))
       local full_page = math.max(1, snapshot.grid_rows)
       if bytes == "k" or bytes == "\27[A" or bytes == "\27OA" then
@@ -55,12 +85,23 @@ function ext.register(ekko)
       -- G: back to the live screen, stay in the mode.
       elseif bytes == "G" then
         return { "scroll_to_bottom" }
+      -- Search: `/` opens the query line, n/N jump between hits.
+      elseif bytes == "/" then
+        state.query = ""
+        return nil
+      elseif bytes == "n" then
+        return { search_jump = true }
+      elseif bytes == "N" then
+        return { search_jump = false }
+      -- Edit the scrollback in $EDITOR (client-side terminal takeover).
+      elseif bytes == "e" then
+        return { "edit_scrollback" }
       elseif wheel(bytes, true) then
         return { scroll = 3 }
       elseif wheel(bytes, false) then
         return { scroll = -3 }
       elseif bytes == "q" or bytes == "\27" or bytes == "\r" or bytes == "\n" then
-        return { "exit", "scroll_to_bottom" }
+        return { "exit", "search_clear", "scroll_to_bottom" }
       end
       -- Anything else is swallowed: stay in the mode.
     end,

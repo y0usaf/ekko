@@ -153,6 +153,7 @@ fn merge_workspace_updates(older: WorkspaceUpdate, newer: WorkspaceUpdate) -> Wo
                     cursor: None,
                     modes: Default::default(),
                     scrollback: 0,
+                    history: 0,
                     payload: GridPayload::Rows(Vec::new()),
                 },
             );
@@ -200,6 +201,7 @@ fn merge_grid_updates(older: GridUpdate, newer: GridUpdate) -> GridUpdate {
         cursor: newer.cursor,
         modes: newer.modes,
         scrollback: newer.scrollback,
+        history: newer.history,
         payload,
     }
 }
@@ -217,6 +219,7 @@ mod tests {
             cursor: None,
             modes: TermModes::default(),
             scrollback: 0,
+            history: 0,
             payload,
         }
     }

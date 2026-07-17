@@ -1,4 +1,4 @@
-# PLAN — Lua everywhere (complete) → tiled panes (complete) → pane borders (complete)
+# PLAN — Lua everywhere (complete) → tiled panes (complete) → pane borders (complete) → scrollback UX (complete)
 
 Goal: everything in ekko that is user-configurable is configurable from Lua.
 Two concrete end states:
@@ -729,3 +729,38 @@ features own disjoint consumers; do not invent concurrency inside the MVP.
       roundtrip (compact style), `init.lua` `pane_borders = "compact"`
       deserialization. `cargo fmt --check`, `cargo test --workspace` (31
       suites), `nix build`, `nix flake check` all pass.
+
+## WS-SB — Scrollback UX (zellij-style)
+
+- [x] vt100 vendored to `crates/vt100` (0.16.2 + `Screen::history_len` /
+      `history_rows` accessors — upstream exposes no scrollback reads; a
+      path dep keeps `cargoLock` packaging untouched).
+- [x] Search: `ClientToServer::SearchScrollback { query }` →
+      `SearchResults { pane, query, matches }` in absolute rows (0 = oldest
+      history line; live rows follow), plain text per physical row, smart
+      case. Client keeps `SearchState`, maps matches into the viewport as
+      `row - (history - offset)`, dims hits in selection colors with the
+      current hit full-strength, `SearchMatchJump` (n/N) wraps and scrolls
+      the match into view. `GridUpdate.history` carries the total.
+- [x] Scroll indicator `offset/total` top-right of a scrolled pane (on the
+      frame's top edge in frame style, over the first content row
+      otherwise).
+- [x] Drag-off-edge autoscroll: holding a selection drag at the pane's
+      top/bottom edge scrolls 1 line/50ms until the button releases or the
+      cursor leaves the edge.
+- [x] `e` opens the dump in `$VISUAL`/`$EDITOR` (dump = full scrollback +
+      live screen, soft-wrapped history rows joined): the client suspends
+      raw mode and hands the editor the tty, then force-repaints.
+- [x] Scroll mode is key policy only: `/` (query line rendered by the
+      mode), n/N, e, exit clears search. `examples/scroll-mode.lua` keeps
+      byte-for-byte parity (bridge test); new actions bridged
+      (`search_scrollback`, `search_jump`, `search_clear`,
+      `edit_scrollback`). `WIRE_VERSION` 10.
+- [x] Tests: vt100-level search/dump units (absolute coordinates, smart
+      case, multi-match, wrapped joins), daemon wire test (search + empty
+      result + dump), client `view_row` mapping, builtin key-policy units,
+      Lua dialect pins. Daemon tests now pin `XDG_CONFIG_HOME` to a
+      tempdir — geometry assertions must not depend on the host's
+      `ui.pane_borders`. `cargo fmt --check`, `cargo test --workspace` (33
+      suites), `cargo test -p ekko-server --no-default-features` (62 unit +
+      18 daemon + 7 extension), `nix build`, `nix flake check` all pass.

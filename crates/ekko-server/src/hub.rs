@@ -369,6 +369,29 @@ impl Hub {
             }
             ClientToServer::Scroll { delta } => self.on_scroll(id, delta),
             ClientToServer::ScrollReset => self.set_scrollback_view(id, 0),
+            ClientToServer::SearchScrollback { query } => {
+                let response = self
+                    .focused_pane(id)
+                    .map(|pane| ServerToClient::SearchResults {
+                        pane: pane.key().id.0,
+                        matches: pane.search_scrollback(&query),
+                        query,
+                    });
+                if let Some(response) = response {
+                    self.send_to(id, response);
+                }
+            }
+            ClientToServer::DumpScrollback => {
+                let response = self
+                    .focused_pane(id)
+                    .map(|pane| ServerToClient::ScrollbackDump {
+                        pane: pane.key().id.0,
+                        text: pane.dump_scrollback(),
+                    });
+                if let Some(response) = response {
+                    self.send_to(id, response);
+                }
+            }
             ClientToServer::KillCurrentSession => {
                 let name = self.session_name.clone();
                 self.on_kill_session(id, &name);
@@ -1051,6 +1074,7 @@ impl Hub {
                         cursor: Some(frame.cursor),
                         modes: frame.modes,
                         scrollback: frame.scrollback,
+                        history: frame.history,
                         payload,
                     },
                 });

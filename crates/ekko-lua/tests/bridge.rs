@@ -200,6 +200,60 @@ fn keybindings_match_and_see_the_snapshot() {
 }
 
 #[test]
+fn search_actions_bridge_in_the_action_dialect() {
+    let runtime = runtime(
+        r#"
+        local ext = { id = "user.search" }
+        function ext.register(ekko)
+          ekko.register_command({
+            name = "ss",
+            handler = function(args) return { search_scrollback = args } end,
+          })
+          ekko.register_command({
+            name = "sn",
+            handler = function() return { search_jump = true } end,
+          })
+          ekko.register_command({
+            name = "sp",
+            handler = function() return { search_jump = false } end,
+          })
+          ekko.register_command({
+            name = "sc",
+            handler = function() return "search_clear" end,
+          })
+          ekko.register_command({
+            name = "se",
+            handler = function() return "edit_scrollback" end,
+          })
+        end
+        return ext
+        "#,
+    );
+    assert_eq!(
+        runtime.invoke_command(":ss foo"),
+        CommandDispatch::Invoked(vec![UiAction::SearchScrollback {
+            query: "foo".into()
+        }])
+    );
+    assert_eq!(
+        runtime.invoke_command(":sn"),
+        CommandDispatch::Invoked(vec![UiAction::SearchMatchJump { forward: true }])
+    );
+    assert_eq!(
+        runtime.invoke_command(":sp"),
+        CommandDispatch::Invoked(vec![UiAction::SearchMatchJump { forward: false }])
+    );
+    assert_eq!(
+        runtime.invoke_command(":sc"),
+        CommandDispatch::Invoked(vec![UiAction::SearchClear])
+    );
+    assert_eq!(
+        runtime.invoke_command(":se"),
+        CommandDispatch::Invoked(vec![UiAction::EditScrollback])
+    );
+}
+
+#[test]
 fn pane_actions_bridge_in_the_action_dialect() {
     let runtime = runtime(
         r#"
@@ -1316,6 +1370,18 @@ fn scroll_mode_example_matches_the_builtin_policy() {
             ekko_ext::ModeOutcome::ContinueWith(vec![UiAction::ScrollToBottom]),
         ),
         (
+            b"n",
+            ekko_ext::ModeOutcome::ContinueWith(vec![UiAction::SearchMatchJump { forward: true }]),
+        ),
+        (
+            b"N",
+            ekko_ext::ModeOutcome::ContinueWith(vec![UiAction::SearchMatchJump { forward: false }]),
+        ),
+        (
+            b"e",
+            ekko_ext::ModeOutcome::ContinueWith(vec![UiAction::EditScrollback]),
+        ),
+        (
             b"\x1b[<64;10;5M",
             ekko_ext::ModeOutcome::ContinueWith(vec![UiAction::Scroll { delta: 3 }]),
         ),
@@ -1325,11 +1391,11 @@ fn scroll_mode_example_matches_the_builtin_policy() {
         ),
         (
             b"q",
-            ekko_ext::ModeOutcome::ExitWith(vec![UiAction::ScrollToBottom]),
+            ekko_ext::ModeOutcome::ExitWith(vec![UiAction::SearchClear, UiAction::ScrollToBottom]),
         ),
         (
             b"\x1b",
-            ekko_ext::ModeOutcome::ExitWith(vec![UiAction::ScrollToBottom]),
+            ekko_ext::ModeOutcome::ExitWith(vec![UiAction::SearchClear, UiAction::ScrollToBottom]),
         ),
         (b"x", ekko_ext::ModeOutcome::Continue),
     ];

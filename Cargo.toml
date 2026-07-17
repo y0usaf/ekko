@@ -28,7 +28,7 @@ tokio = { version = "1.45", features = ["rt-multi-thread", "macros", "io-util", 
 toml = "0.8"
 unicode-segmentation = "1.12"
 unicode-width = "0.2"
-vt100 = "0.16"
+vt100 = { path = "crates/vt100" }
 
 ekko-builtins = { path = "crates/ekko-builtins" }
 ekko-client = { path = "crates/ekko-client", default-features = false }

@@ -36,6 +36,7 @@ Corollaries:
 | `ekko-server` | Per-session daemon host: hub actor, PTY lifecycle, render tick, hook dispatch sites | core |
 | `ekko-proto` | Wire contract (framing, socket, messages). Small and stable; independent of `ekko-event` | core |
 | `ekko-grid` | Cell surface, damage tracking, optimizing ANSI diff renderer | core |
+| `vt100` | Vendored upstream parser (0.16.2) + `history_len`/`history_rows` accessors for scrollback search/dump; upstream style, not ekko conventions | vendored |
 | `ekko-tui` | Terminal primitives: raw mode, color probing, cell-width math, spinner math | core |
 | `ekko-pty` | PTY spawn/IO/reaping | core |
 | `ekko-config` | Config schema + TOML parsing; the `init.lua` settings source that supersedes `config.toml` is evaluated in `ekko-lua`. Depends on `ekko-proto` for the `PaneBorderStyle` vocabulary the wire shares. Holds binding *strings*; binding *meanings* live in builtins | core |
@@ -80,7 +81,7 @@ the workspace frame: `ServerToClient::Workspace` carries the complete pane
 metadata projection and the receiving client's focus plus incremental
 per-pane grids; `ClientToServer` carries pane requests (split, focus,
 close). The client holds a discardable `WorkspaceState` cache and composes
-each pane at its server-provided rect. `WIRE_VERSION` 9 adds
+each pane at its server-provided rect. `WIRE_VERSION` 10 adds scrollback search/dump (`SearchScrollback`/`DumpScrollback` → `SearchResults`/`ScrollbackDump`, matches in absolute history rows) plus `GridUpdate.history` for the client's scroll indicator; v9 added
 `WorkspaceUpdate.border_style`: pane separation is a session-level
 property (the daemon reserves the separator cells in its canvas layout —
 one shared cell per split edge for `compact`, a full ring per pane for
