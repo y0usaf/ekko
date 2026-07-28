@@ -155,7 +155,12 @@ impl TestClient {
             cols,
             rows,
             cwd,
-            shell: Some(PathBuf::from("/bin/sh")),
+            // Overridable for debugging: `EKKO_TEST_SHELL=/path/to/dash
+            // cargo test` reproduces the nix sandbox's dash behavior
+            // locally (host /bin/sh is usually bash).
+            shell: Some(PathBuf::from(
+                std::env::var("EKKO_TEST_SHELL").unwrap_or_else(|_| "/bin/sh".to_string()),
+            )),
             force,
             terminal_colors: None,
         });
@@ -667,7 +672,15 @@ fn scrollback_search_and_dump_answer_over_the_wire() {
     let Some(ServerToClient::ScrollbackDump { text, .. }) = dump else {
         panic!("expected ScrollbackDump");
     };
-    assert!(text.contains("\nhitme0\n"));
+    // The shell's prompt and the first output line race: whether the prompt
+    // lands before the command echo (bash, locally) or glued onto hitme0
+    // (dash, nix sandbox) is timing-dependent. Assert on the last token of
+    // each line so both shapes pass: "hitme0" or "$ hitme0".
+    assert!(
+        text.lines()
+            .any(|line| line.split_whitespace().last() == Some("hitme0")),
+        "hitme0 must appear in the transcript; dump was:\n{text:?}"
+    );
     assert!(text.contains("hitme29"));
 
     kill_and_join(client, daemon, &env.session_name);
