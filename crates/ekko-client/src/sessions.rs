@@ -109,24 +109,13 @@ fn live_socket_names() -> Vec<String> {
     let Ok(read_dir) = std::fs::read_dir(socket_dir()) else {
         return Vec::new();
     };
+    // Only real sockets name live sessions: the dir also holds PID files
+    // (`<name>.pid`), which would decode into phantom session names.
     read_dir
         .flatten()
-        .filter(|entry| entry.path().is_file() || is_socket(&entry.path()))
+        .filter(|entry| ekko_proto::is_socket(&entry.path()))
         .map(|entry| ekko_proto::decode_session_name(&entry.file_name().to_string_lossy()))
         .collect()
-}
-
-#[cfg(unix)]
-fn is_socket(path: &std::path::Path) -> bool {
-    use std::os::unix::fs::FileTypeExt;
-    std::fs::symlink_metadata(path)
-        .map(|meta| meta.file_type().is_socket())
-        .unwrap_or(false)
-}
-
-#[cfg(not(unix))]
-fn is_socket(_path: &std::path::Path) -> bool {
-    false
 }
 
 fn now_secs() -> u64 {
