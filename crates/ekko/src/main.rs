@@ -35,7 +35,14 @@ enum Command {
     /// List live and resurrectable sessions.
     Ls,
     /// Kill a session.
-    Kill { name: String },
+    Kill {
+        name: String,
+        /// Escalate to an out-of-band SIGKILL of the daemon (recorded in its
+        /// manifest) when it doesn't confirm a polite kill. Use when a
+        /// session is wedged.
+        #[arg(long)]
+        force: bool,
+    },
 }
 
 fn main() -> Result<()> {
@@ -68,7 +75,7 @@ fn main() -> Result<()> {
             }
             Ok(())
         }
-        Some(Command::Kill { name }) => ekko_client::kill_session(&name),
+        Some(Command::Kill { name, force }) => ekko_client::kill_session(&name, force),
     }
 }
 

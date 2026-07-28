@@ -1211,7 +1211,16 @@ impl App<'_> {
                 }))
             }
             UiAction::KillCurrentSession => {
-                let _ = self.send_message(ClientToServer::KillCurrentSession);
+                // Never fire-and-forget silently: if the request can't even
+                // reach the daemon the session survives, and the user must
+                // know instead of finding a ghost in the sidebar later.
+                if let Err(error) = self.send_message(ClientToServer::KillCurrentSession) {
+                    self.state.set_note(
+                        format!("kill request failed: {error}"),
+                        NoteKind::Error,
+                        STATUS_NOTE_TTL,
+                    );
+                }
                 Ok(None)
             }
             UiAction::EnterMode { name } => {

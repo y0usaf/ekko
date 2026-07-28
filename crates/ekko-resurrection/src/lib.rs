@@ -158,6 +158,11 @@ pub fn list_sessions() -> anyhow::Result<Vec<SessionSummary>> {
                 created_at_secs: manifest.created_at_secs,
                 status: if alive {
                     SessionStatus::Running
+                } else if manifest.status == SessionStatus::Running {
+                    // Socket gone but the manifest was never finalized: the
+                    // daemon died without its SessionExited bookkeeping
+                    // (crash, SIGKILL). Don't show a ghost as "Running".
+                    SessionStatus::Crashed
                 } else {
                     manifest.status
                 },
@@ -274,6 +279,25 @@ mod tests {
             let s2 = sessions.iter().find(|s| s.name == "s2").unwrap();
             assert!(!s2.alive);
             assert_eq!(s2.status, SessionStatus::Exited);
+        });
+    }
+
+    /// A manifest still stamped `Running` but with no live socket means the
+    /// daemon vanished without finalizing (crash, SIGKILL): report `Crashed`
+    /// rather than leaving a ghost that looks alive.
+    #[test]
+    fn list_sessions_maps_unfinalized_running_manifest_to_crashed() {
+        with_temp_dirs(|| {
+            create(
+                "s3",
+                std::path::Path::new("/tmp"),
+                std::path::Path::new("/bin/sh"),
+            )
+            .unwrap();
+            let sessions = list_sessions().unwrap();
+            let s3 = sessions.iter().find(|s| s.name == "s3").unwrap();
+            assert!(!s3.alive);
+            assert_eq!(s3.status, SessionStatus::Crashed);
         });
     }
 }

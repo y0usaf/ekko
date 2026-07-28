@@ -85,6 +85,20 @@ pub fn run_with_runtime(
 
     let socket_path = ekko_proto::socket_path(session_name);
     let listener = ekko_proto::ipc_bind(&socket_path).context("binding session socket")?;
+    // Liveness metadata for `ekko kill --force`: written at bind time so
+    // even a never-attached (no manifest) or wedged daemon has a verified
+    // escalation target.
+    let pid_path = ekko_proto::pid_path(session_name);
+    if let Err(e) = std::fs::write(&pid_path, std::process::id().to_string()) {
+        log::warn!(
+            "daemon: failed to write pid file {}: {e}",
+            pid_path.display()
+        );
+    }
+    // RAII: the hub's `shutdown_cleanup` removes the socket on a clean exit,
+    // but a hub-thread panic unwinds straight past it. A dead daemon must
+    // never leave a connectable-looking ghost socket behind.
+    let _socket_guard = SocketGuard(socket_path.clone(), pid_path);
 
     let (hub_tx, hub_rx) = crossbeam_channel::unbounded::<HubInstruction>();
 
@@ -95,6 +109,18 @@ pub fn run_with_runtime(
     let hub = Hub::new(session_name.to_string(), config, hub_tx, runtime);
     hub.run(hub_rx);
     Ok(())
+}
+
+/// Removes the session socket and PID file when dropped, however the daemon
+/// exits (clean hub shutdown, panic unwind). Best-effort: removal races with
+/// a freshly respawned daemon are lost loudly by the respawn's own bind.
+struct SocketGuard(std::path::PathBuf, std::path::PathBuf);
+
+impl Drop for SocketGuard {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.0);
+        let _ = std::fs::remove_file(&self.1);
+    }
 }
 
 /// Scan for known sessions: live ones (a socket is currently bound) and

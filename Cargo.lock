@@ -271,6 +271,7 @@ dependencies = [
  "ekko-keycast",
  "ekko-lua",
  "ekko-proto",
+ "ekko-resurrection",
  "ekko-tui",
  "interprocess",
  "libc",

@@ -16,13 +16,16 @@ mod spawn;
 mod state;
 
 use std::io::Read;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result, bail};
 use ekko_config::Config;
 use ekko_ext::SessionState;
-use ekko_proto::{AttachRejectReason, ClientToServer, ServerToClient, WIRE_VERSION, socket_path};
-use interprocess::local_socket::traits::Stream as StreamTrait;
+use ekko_proto::{
+    AttachRejectReason, ClientToServer, ExitReason, ServerToClient, WIRE_VERSION, socket_path,
+};
+use interprocess::local_socket::traits::{RecvHalf as _, Stream as StreamTrait};
 
 /// Options controlling how [`run`] attaches to a session.
 #[derive(Clone, Debug)]
@@ -313,6 +316,189 @@ fn attach_rejected_error(reason: AttachRejectReason) -> anyhow::Error {
     }
 }
 
+/// Kill a named session: if its socket is live, ask its daemon to shut down
+/// and verify the teardown actually happened; otherwise just remove any
+/// leftover manifest.
+///
+/// Closing is *confirmed*, never assumed: the daemon broadcasts `Exit` to
+/// every client on kill (zellij semantics), and this function waits for that
+/// acknowledgement plus the socket's removal before reporting success. With
+/// `force`, a daemon that never confirms — wedged hub, flooded accept queue
+/// — is escalated to an out-of-band `SIGKILL` using the PID recorded in its
+/// resurrection manifest, after verifying the PID still belongs to this
+/// session's daemon.
+pub fn kill_session(name: &str, force: bool) -> Result<()> {
+    let path = socket_path(name);
+    if path.exists() {
+        match ekko_proto::ipc_connect(&path) {
+            Ok(stream) => {
+                let (recv, mut send) = stream.split();
+                // Bound the wait: without a timeout a wedged daemon hangs
+                // this command forever, the user interrupts, and the kill
+                // silently never happened.
+                recv.set_timeout(Some(KILL_REPLY_TIMEOUT))
+                    .context("arming kill-confirmation timeout")?;
+                ekko_proto::write_msg(&mut send, &ClientToServer::KillSession(name.to_string()))
+                    .context("sending kill request")?;
+                return confirm_kill(name, force, recv, &path);
+            }
+            Err(_) => {
+                // Connect failed: stale socket from a dead daemon — or a
+                // live daemon whose accept queue is flooded. With --force,
+                // resolve that ambiguity via the daemon's PID file.
+                if force && daemon_pid(name).is_some() {
+                    return force_kill_daemon(name, &path);
+                }
+                println!("session '{name}' has a stale socket; cleaning up");
+                let _ = std::fs::remove_file(&path);
+                let _ = std::fs::remove_file(ekko_proto::pid_path(name));
+            }
+        }
+    }
+
+    if ekko_resurrection::read(name).is_some() {
+        ekko_resurrection::delete(name);
+        println!("removed manifest for session '{name}'");
+    } else if !path.exists() {
+        println!("no such session: '{name}'");
+    }
+    Ok(())
+}
+
+/// How long `ekko kill` waits for the daemon's `Exit` acknowledgement before
+/// concluding the daemon is wedged.
+const KILL_REPLY_TIMEOUT: Duration = Duration::from_secs(5);
+
+/// How long to poll for the socket to vanish after a confirmed kill.
+const KILL_CLEANUP_TIMEOUT: Duration = Duration::from_secs(2);
+
+/// Interpret the daemon's reply to a `KillSession` request and report
+/// honestly; escalate to `--force` when the daemon can't or won't confirm.
+fn confirm_kill<R: Read>(name: &str, force: bool, mut recv: R, path: &Path) -> Result<()> {
+    let refusal = loop {
+        match ekko_proto::read_msg::<_, ServerToClient>(&mut recv) {
+            Ok(Some(ServerToClient::Exit(ExitReason::ServerError(message)))) => {
+                break Some(message);
+            }
+            Ok(Some(ServerToClient::Exit(_))) | Ok(None) => break None,
+            // Not the reply we're after (e.g. a stray Notice); keep waiting
+            // until the timeout fires.
+            Ok(Some(_)) => continue,
+            Err(ekko_proto::FrameError::Io(e))
+                if matches!(
+                    e.kind(),
+                    std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
+                ) =>
+            {
+                if force {
+                    return force_kill_daemon(name, path);
+                }
+                bail!(
+                    "daemon for session '{name}' did not confirm within {KILL_REPLY_TIMEOUT:?}; \
+                     it may be wedged — retry or use --force"
+                );
+            }
+            // Torn connection: possibly the daemon dying mid-teardown. The
+            // socket check below decides what really happened.
+            Err(_) => break None,
+        }
+    };
+    if let Some(message) = refusal {
+        bail!("daemon refused to kill session '{name}': {message}");
+    }
+    if wait_socket_gone(path, KILL_CLEANUP_TIMEOUT) {
+        println!("killed session '{name}'");
+        return Ok(());
+    }
+    if force {
+        return force_kill_daemon(name, path);
+    }
+    bail!(
+        "daemon for session '{name}' stopped replying but the session is still up; \
+         retry or use --force"
+    );
+}
+
+/// Poll until the session socket disappears or the budget elapses.
+fn wait_socket_gone(path: &Path, budget: Duration) -> bool {
+    let deadline = Instant::now() + budget;
+    while path.exists() {
+        if Instant::now() >= deadline {
+            return false;
+        }
+        std::thread::sleep(Duration::from_millis(25));
+    }
+    true
+}
+
+/// Read the daemon's PID file for a session: the out-of-band liveness
+/// record written at bind time. Present even for never-attached sessions
+/// (no manifest yet) and when the resurrection extension is disabled.
+fn daemon_pid(name: &str) -> Option<u32> {
+    std::fs::read_to_string(ekko_proto::pid_path(name))
+        .ok()?
+        .trim()
+        .parse()
+        .ok()
+}
+
+/// Out-of-band escalation for a wedged daemon: `SIGKILL` the daemon PID from
+/// its PID file — after verifying it still looks like this session's daemon
+/// — then clear the socket, PID file, and manifest by hand, exactly what
+/// the daemon's own cleanup would have done.
+fn force_kill_daemon(name: &str, path: &Path) -> Result<()> {
+    let pid = daemon_pid(name).ok_or_else(|| {
+        anyhow::anyhow!("no daemon PID file for session '{name}'; cannot --force safely")
+    })?;
+    match verify_daemon_pid(name, pid) {
+        Ok(true) => {
+            // SAFETY: plain libc kill(2); SIGKILL has no error cases worth
+            // handling here — a dead pid just means teardown already won.
+            unsafe {
+                libc::kill(pid as i32, libc::SIGKILL);
+            }
+            println!("force-killed wedged daemon for session '{name}' (pid {pid})");
+        }
+        Ok(false) => {
+            println!("daemon for session '{name}' (pid {pid}) is already gone; cleaning up");
+        }
+        Err(e) => return Err(e),
+    }
+    let _ = std::fs::remove_file(path);
+    let _ = std::fs::remove_file(ekko_proto::pid_path(name));
+    ekko_resurrection::delete(name);
+    Ok(())
+}
+
+/// Check that `pid` still belongs to this session's daemon before sending it
+/// `SIGKILL`: PIDs get recycled, and killing a recycled PID would nuke an
+/// innocent process. `Ok(false)` means the pid is dead. Linux-only — on
+/// other platforms force-kill refuses rather than guess.
+#[cfg(target_os = "linux")]
+fn verify_daemon_pid(name: &str, pid: u32) -> Result<bool> {
+    let Ok(cmdline) = std::fs::read(format!("/proc/{pid}/cmdline")) else {
+        return Ok(false);
+    };
+    let args: Vec<&[u8]> = cmdline
+        .split(|b| *b == 0)
+        .filter(|a| !a.is_empty())
+        .collect();
+    let matches = args
+        .windows(2)
+        .any(|pair| pair[0] == b"--server" && pair[1] == name.as_bytes());
+    if matches {
+        Ok(true)
+    } else {
+        bail!("pid {pid} no longer looks like session '{name}'s daemon; refusing to SIGKILL it");
+    }
+}
+
+#[cfg(not(target_os = "linux"))]
+fn verify_daemon_pid(name: &str, _pid: u32) -> Result<bool> {
+    let _ = name;
+    bail!("--force is only supported on Linux (no /proc for PID verification)")
+}
+
 #[cfg(test)]
 mod name_tests {
     use super::*;
@@ -340,40 +526,4 @@ mod name_tests {
         assert_eq!(uniquify("~/p a-b".into(), &taken), "~/p a-b-3");
         assert_eq!(uniquify("fresh".into(), &taken), "fresh");
     }
-}
-
-/// Kill a named session: if its socket is live, ask its daemon to shut down;
-/// otherwise just remove any leftover manifest.
-pub fn kill_session(name: &str) -> Result<()> {
-    let path = socket_path(name);
-    if path.exists() {
-        match ekko_proto::ipc_connect(&path) {
-            Ok(stream) => {
-                let (mut recv, mut send): (Box<dyn Read + Send>, Box<dyn std::io::Write + Send>) = {
-                    let (r, s) = stream.split();
-                    (Box::new(r), Box::new(s))
-                };
-                ekko_proto::write_msg(&mut send, &ClientToServer::KillSession(name.to_string()))
-                    .context("sending kill request")?;
-                // Best-effort: wait briefly for the server to confirm or hang up.
-                let _ = ekko_proto::read_msg::<_, ServerToClient>(&mut recv);
-                println!("killed session '{name}'");
-                return Ok(());
-            }
-            Err(_) => {
-                println!("session '{name}' has a stale socket; cleaning up");
-                let _ = std::fs::remove_file(&path);
-            }
-        }
-    }
-
-    let manifest_dir = sessions::session_info_dir().join(ekko_proto::encode_session_name(name));
-    if manifest_dir.exists() {
-        std::fs::remove_dir_all(&manifest_dir)
-            .with_context(|| format!("removing manifest for '{name}'"))?;
-        println!("removed manifest for session '{name}'");
-    } else {
-        println!("no such session: '{name}'");
-    }
-    Ok(())
 }
