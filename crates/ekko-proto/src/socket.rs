@@ -139,6 +139,24 @@ pub fn pid_path(session_name: &str) -> PathBuf {
     socket_dir().join(format!("{}.pid", encode_session_name(session_name)))
 }
 
+/// True when `path` is a unix-domain socket. The socket dir also holds PID
+/// files (`<name>.pid`, a regular file) and may collect other artifacts, so
+/// directory scans listing live sessions must filter with this rather than
+/// treating every entry as a session socket.
+#[cfg(unix)]
+pub fn is_socket(path: &Path) -> bool {
+    use std::os::unix::fs::FileTypeExt;
+    std::fs::symlink_metadata(path)
+        .map(|meta| meta.file_type().is_socket())
+        .unwrap_or(false)
+}
+
+/// Non-unix builds have no unix sockets: nothing is a session socket.
+#[cfg(not(unix))]
+pub fn is_socket(_path: &Path) -> bool {
+    false
+}
+
 /// Set the unix permission bits on `path`.
 #[cfg(unix)]
 pub fn set_permissions(path: &Path, mode: u32) -> io::Result<()> {

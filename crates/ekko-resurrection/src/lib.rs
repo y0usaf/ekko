@@ -131,11 +131,17 @@ pub fn list_sessions() -> anyhow::Result<Vec<SessionSummary>> {
     let mut names = std::collections::BTreeSet::new();
     if let Ok(entries) = fs::read_dir(ekko_proto::socket_dir()) {
         for entry in entries.flatten() {
+            // The dir also holds PID files (`<name>.pid`); only real sockets
+            // name live sessions, or artifacts decode into phantom sessions.
+            if !ekko_proto::is_socket(&entry.path()) {
+                continue;
+            }
             if let Some(name) = entry.file_name().to_str() {
                 names.insert(ekko_proto::decode_session_name(name));
             }
         }
     }
+
     if let Ok(entries) = fs::read_dir(session_info_root()) {
         for entry in entries.flatten() {
             if entry.path().is_dir()
