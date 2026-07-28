@@ -224,12 +224,24 @@ impl Hub {
     }
 
     fn retire_all_panes(&mut self, terminate_child: bool) {
+        // Unlink the socket up front: every caller is session-ending, and
+        // `ekko ls` keys liveness off the socket. Leaving it bound until
+        // `shutdown_cleanup` makes the session look stuck in the list for
+        // the whole teardown (stubborn shells burn their full SIGHUP grace).
+        // The manifest is already deleted/stamped by the SessionExited
+        // dispatch that precedes this, so the session simply vanishes.
+        let _ = std::fs::remove_file(ekko_proto::socket_path(&self.session_name));
         let panes = std::mem::take(&mut self.panes);
         self.topology = None;
         self.focus.clear();
-        for (_, pane) in panes {
-            pane.retire(terminate_child);
-        }
+        // Retire in parallel: per-pane termination blocks up to
+        // grace+settle, so a serial loop multiplies that wait by the pane
+        // count. Scoped threads cap teardown at the slowest pane instead.
+        std::thread::scope(|scope| {
+            for (_, pane) in panes {
+                scope.spawn(move || pane.retire(terminate_child));
+            }
+        });
     }
 
     fn handle(&mut self, instr: HubInstruction) {
