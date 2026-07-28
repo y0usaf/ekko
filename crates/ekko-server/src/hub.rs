@@ -296,6 +296,15 @@ impl Hub {
         }
     }
 
+    /// Relay to every connected client, attached or not (e.g. a transient
+    /// `ekko kill` connection). Session-teardown messages use this so no
+    /// viewer is left staring at a dead socket without an `Exit`.
+    fn send_to_all_clients(&self, msg: ServerToClient) {
+        for &id in self.clients.keys() {
+            self.send_to(id, msg.clone());
+        }
+    }
+
     fn send_to_pane_viewers(&self, pane: PaneId, msg: ServerToClient) {
         for (&id, &focused) in &self.focus {
             if focused == pane && self.attached.contains_key(&id) {
@@ -705,10 +714,21 @@ impl Hub {
 
     fn on_kill_session(&mut self, id: ClientId, name: &str) {
         if name != self.session_name {
-            log::warn!("hub: ignoring KillSession for foreign session {name}");
+            log::warn!("hub: refusing KillSession for foreign session {name}");
+            // Tell the requester instead of dropping the request silently:
+            // a CLI is blocked on a reply and must not hang or claim success.
+            self.send_to(
+                id,
+                ServerToClient::Exit(ExitReason::ServerError(format!(
+                    "this daemon serves '{}', not '{name}'",
+                    self.session_name
+                ))),
+            );
             return;
         }
-        self.send_to(id, ServerToClient::Exit(ExitReason::Normal));
+        // Every connected client gets a clean Exit before teardown — zellij
+        // semantics; nobody is left with a bare EOF that looks like a crash.
+        self.send_to_all_clients(ServerToClient::Exit(ExitReason::Normal));
         self.fire_session_exited(None, SessionExitReason::Killed);
         self.retire_all_panes(true);
         self.finish_exit();

@@ -1203,6 +1203,92 @@ fn pane_modes_and_title_stay_pane_local() {
     kill_and_join(client, daemon, &env.session_name);
 }
 
+/// Killing a session broadcasts `Exit` to EVERY connected client — attached
+/// viewers and the transient kill connection alike — so nobody is left with
+/// a bare EOF that looks like a crash (zellij semantics).
+#[test]
+fn kill_broadcasts_exit_to_all_clients() {
+    let env = TestEnv::new("t-kill-broadcast");
+    let daemon = spawn_daemon(env.session_name.clone());
+
+    let mut client1 = TestClient::connect(&env.session_name);
+    client1.attach(env.cwd(), false);
+    let mut client2 = TestClient::connect(&env.session_name);
+    client2.attach(env.cwd(), false);
+    // A third connection that never attaches, mimicking `ekko kill`'s.
+    let mut killer = TestClient::connect(&env.session_name);
+
+    killer.send(&ClientToServer::KillSession(env.session_name.clone()));
+
+    for (label, client) in [
+        ("attached viewer 1", &client1),
+        ("attached viewer 2", &client2),
+        ("the kill requester", &killer),
+    ] {
+        assert!(
+            client
+                .wait_for(Duration::from_secs(5), |m| matches!(
+                    m,
+                    ServerToClient::Exit(ExitReason::Normal)
+                ))
+                .is_some(),
+            "{label} must receive Exit(Normal)"
+        );
+    }
+
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while !daemon.is_finished() {
+        assert!(Instant::now() < deadline, "daemon must exit after the kill");
+        thread::sleep(Duration::from_millis(20));
+    }
+    daemon.join().expect("daemon thread panicked");
+    assert!(
+        !ekko_proto::socket_path(&env.session_name).exists(),
+        "the session socket must be gone after a confirmed kill"
+    );
+}
+
+/// A `KillSession` naming a different session is refused with an explicit
+/// error reply — never silently ignored (the requester is blocked on a
+/// reply) — and the real session survives untouched.
+#[test]
+fn foreign_session_kill_is_refused_and_session_survives() {
+    let env = TestEnv::new("t-kill-foreign");
+    let daemon = spawn_daemon(env.session_name.clone());
+
+    let mut stranger = TestClient::connect(&env.session_name);
+    stranger.send(&ClientToServer::KillSession("not-the-session".to_string()));
+
+    assert!(
+        stranger
+            .wait_for(Duration::from_secs(5), |m| matches!(
+                m,
+                ServerToClient::Exit(ExitReason::ServerError(_))
+            ))
+            .is_some(),
+        "a foreign kill must be refused with ServerError, not ignored"
+    );
+    assert!(
+        ekko_proto::socket_path(&env.session_name).exists(),
+        "the real session's socket must survive a foreign kill"
+    );
+
+    // The session is fully functional afterwards: a fresh client attaches.
+    let mut client = TestClient::connect(&env.session_name);
+    client.attach(env.cwd(), false);
+    assert!(
+        client
+            .wait_for(Duration::from_secs(5), |m| matches!(
+                m,
+                ServerToClient::Attached { .. }
+            ))
+            .is_some(),
+        "session must accept attaches after refusing a foreign kill"
+    );
+
+    kill_and_join(client, daemon, &env.session_name);
+}
+
 /// Session teardown must guarantee the pane shell actually dies even when it
 /// traps SIGHUP/SIGTERM: the hub escalates to SIGKILL after a grace budget
 /// instead of orphaning the process.
@@ -1225,7 +1311,11 @@ fn kill_sigkills_hup_trapping_shell() {
 
     let pid_file = env.cwd().join("shell.pid");
     client.send(&ClientToServer::Key(
-        format!("trap '' HUP TERM; echo $$ > {}; echo PIDREADY\n", pid_file.display()).into_bytes(),
+        format!(
+            "trap '' HUP TERM; echo $$ > {}; echo PIDREADY\n",
+            pid_file.display()
+        )
+        .into_bytes(),
     ));
     assert!(
         client

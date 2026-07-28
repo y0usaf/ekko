@@ -130,6 +130,15 @@ pub fn socket_path(session_name: &str) -> PathBuf {
     socket_dir().join(encode_session_name(session_name))
 }
 
+/// Path of the daemon's PID file for a session, next to its socket. Written
+/// by the daemon right after it binds, removed on exit (or by `ekko kill`
+/// cleanup): it gives `ekko kill --force` an out-of-band escalation target
+/// that works even for a never-attached session (whose resurrection
+/// manifest doesn't exist yet) and with the resurrection extension disabled.
+pub fn pid_path(session_name: &str) -> PathBuf {
+    socket_dir().join(format!("{}.pid", encode_session_name(session_name)))
+}
+
 /// Set the unix permission bits on `path`.
 #[cfg(unix)]
 pub fn set_permissions(path: &Path, mode: u32) -> io::Result<()> {
