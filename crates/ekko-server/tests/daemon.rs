@@ -1202,3 +1202,57 @@ fn pane_modes_and_title_stay_pane_local() {
 
     kill_and_join(client, daemon, &env.session_name);
 }
+
+/// Session teardown must guarantee the pane shell actually dies even when it
+/// traps SIGHUP/SIGTERM: the hub escalates to SIGKILL after a grace budget
+/// instead of orphaning the process.
+#[cfg(target_os = "linux")]
+#[test]
+fn kill_sigkills_hup_trapping_shell() {
+    let env = TestEnv::new("t-kill-sigkill");
+    let daemon = spawn_daemon(env.session_name.clone());
+
+    let mut client = TestClient::connect(&env.session_name);
+    client.attach(env.cwd(), false);
+    assert!(
+        client
+            .wait_for(Duration::from_secs(5), |m| matches!(
+                m,
+                ServerToClient::Attached { .. }
+            ))
+            .is_some()
+    );
+
+    let pid_file = env.cwd().join("shell.pid");
+    client.send(&ClientToServer::Key(
+        format!("trap '' HUP TERM; echo $$ > {}; echo PIDREADY\n", pid_file.display()).into_bytes(),
+    ));
+    assert!(
+        client
+            .wait_for(Duration::from_secs(5), |m| grid_contains(m, "PIDREADY"))
+            .is_some(),
+        "the shell must install its traps and report its pid"
+    );
+    let shell_pid: i32 = std::fs::read_to_string(&pid_file)
+        .expect("pid file written by the shell")
+        .trim()
+        .parse()
+        .expect("pid file holds a pid");
+
+    client.send(&ClientToServer::KillSession(env.session_name.clone()));
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while !daemon.is_finished() {
+        assert!(
+            Instant::now() < deadline,
+            "daemon must exit even when the shell ignores HUP/TERM"
+        );
+        thread::sleep(Duration::from_millis(20));
+    }
+    daemon.join().expect("daemon thread panicked");
+
+    let proc_dir = format!("/proc/{shell_pid}");
+    assert!(
+        !std::path::Path::new(&proc_dir).exists(),
+        "a HUP-trapping shell must be SIGKILLed on session kill, not orphaned"
+    );
+}

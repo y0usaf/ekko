@@ -8,6 +8,7 @@ use std::path::PathBuf;
 use std::process::Command;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::thread;
+use std::time::Duration;
 
 use nix::pty::{OpenptyResult, Winsize, openpty};
 use nix::sys::signal::{Signal, kill as nix_kill};
@@ -197,4 +198,47 @@ pub fn kill(pid: Pid) -> Result<(), PtyError> {
 /// Forcibly kill a process (`SIGKILL`).
 pub fn force_kill(pid: Pid) -> Result<(), PtyError> {
     nix_kill(pid, Some(Signal::SIGKILL)).map_err(PtyError::from)
+}
+
+/// Terminal-hangup semantics (`SIGHUP`), matching zellij's pane teardown: a
+/// job-control shell forwards the HUP to its jobs, so the whole foreground
+/// tree dies rather than just the shell.
+pub fn hangup(pid: Pid) -> Result<(), PtyError> {
+    nix_kill(pid, Some(Signal::SIGHUP)).map_err(PtyError::from)
+}
+
+/// Guarantee a pane child is dead: `SIGHUP`, wait up to `grace` for it to
+/// exit, then escalate to `SIGKILL` and wait up to `settle` more. Never
+/// blocks longer than `grace + settle` plus one poll interval; anything
+/// still alive after that (uninterruptible sleep) is logged, not chased —
+/// the reaper thread still owns the final `waitpid`.
+pub fn terminate(pid: Pid, grace: Duration, settle: Duration) {
+    let _ = hangup(pid);
+    if wait_gone(pid, grace) {
+        return;
+    }
+    log::warn!("pty: pid {pid} ignored SIGHUP for {grace:?}; escalating to SIGKILL");
+    let _ = force_kill(pid);
+    if !wait_gone(pid, settle) {
+        log::warn!(
+            "pty: pid {pid} still present {settle:?} after SIGKILL (uninterruptible sleep?)"
+        );
+    }
+}
+
+/// Poll until `pid` is gone (`ESRCH`) or the budget elapses. A zombie still
+/// reads as alive here, but its reaper thread collects it within one poll
+/// interval, so the loop absorbs that race instead of mis-escalating.
+fn wait_gone(pid: Pid, budget: Duration) -> bool {
+    const POLL: Duration = Duration::from_millis(10);
+    let deadline = std::time::Instant::now() + budget;
+    loop {
+        if let Err(nix::errno::Errno::ESRCH) = nix_kill(pid, None) {
+            return true;
+        }
+        if std::time::Instant::now() >= deadline {
+            return false;
+        }
+        std::thread::sleep(POLL);
+    }
 }

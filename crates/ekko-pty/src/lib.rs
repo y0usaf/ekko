@@ -8,7 +8,10 @@ mod reaper;
 mod spawn;
 
 pub use io::{read, set_nonblocking, try_write_to_fd};
-pub use spawn::{PtyCommand, PtyError, PtyHandle, WinSize, force_kill, kill, resize, spawn_pty};
+pub use spawn::{
+    PtyCommand, PtyError, PtyHandle, WinSize, force_kill, hangup, kill, resize, spawn_pty,
+    terminate,
+};
 
 pub use nix::unistd::Pid;
 
@@ -137,6 +140,96 @@ mod tests {
         assert_eq!(written, 0, "expected zero bytes written on full buffer");
 
         let _ = pty.slave; // keep the slave side alive until here
+    }
+
+    /// A shell that ignores SIGHUP must still be dead after [`terminate`]:
+    /// grace elapses, SIGKILL escalates, and the reaper collects it.
+    #[test]
+    fn terminate_escalates_to_sigkill_when_hup_is_trapped() {
+        let (tx, rx) = mpsc::channel();
+        // Print a marker only after the traps are installed, so the test
+        // can't HUP the shell before `trap` takes effect (a startup race
+        // would kill it with the default disposition and test nothing).
+        let cmd = PtyCommand::new("/bin/sh")
+            .arg("-c")
+            .arg("trap '' HUP TERM; printf 'ready\\n'; while :; do sleep 1; done");
+        let handle = spawn_pty(
+            cmd,
+            WinSize { cols: 80, rows: 24 },
+            Box::new(move |code| {
+                let _ = tx.send(code);
+            }),
+        )
+        .expect("spawn_pty failed");
+        let pid = handle.child_pid;
+
+        // Wait for the trap-installed marker before sending any signals.
+        let mut master = std::fs::File::from(handle.master_fd.try_clone().expect("clone master"));
+        let mut seen = Vec::new();
+        let deadline = std::time::Instant::now() + Duration::from_secs(5);
+        while !seen.windows(5).any(|w| w == b"ready") {
+            assert!(
+                std::time::Instant::now() < deadline,
+                "shell never became ready"
+            );
+            let mut byte = [0u8];
+            if std::io::Read::read(&mut master, &mut byte).unwrap_or(0) == 0 {
+                break;
+            }
+            seen.push(byte[0]);
+        }
+
+        let started = std::time::Instant::now();
+        terminate(pid, Duration::from_millis(300), Duration::from_millis(500));
+
+        let err = nix::sys::signal::kill(pid, None).expect_err("child must be dead");
+        assert_eq!(err, nix::errno::Errno::ESRCH);
+        // Trapping HUP means the grace budget must fully elapse before the
+        // SIGKILL escalation finishes the job.
+        assert!(
+            started.elapsed() >= Duration::from_millis(300),
+            "child died before the grace budget — HUP was not really trapped"
+        );
+        assert!(
+            started.elapsed() < Duration::from_secs(3),
+            "escalation exceeded its budget"
+        );
+        // Killed by a signal → no exit code, but the reaper still fires.
+        let code = rx
+            .recv_timeout(Duration::from_secs(5))
+            .expect("reaper did not fire");
+        assert_eq!(code, None);
+        drop(master);
+        drop(handle);
+    }
+
+    /// A cooperative shell exits on SIGHUP alone, well inside the grace
+    /// budget — no SIGKILL needed, no lingering process.
+    #[test]
+    fn terminate_hup_compliant_shell_is_prompt() {
+        let (tx, rx) = mpsc::channel();
+        let cmd = PtyCommand::new("/bin/sh").arg("-c").arg("sleep 300");
+        let handle = spawn_pty(
+            cmd,
+            WinSize { cols: 80, rows: 24 },
+            Box::new(move |code| {
+                let _ = tx.send(code);
+            }),
+        )
+        .expect("spawn_pty failed");
+        let pid = handle.child_pid;
+
+        let started = std::time::Instant::now();
+        terminate(pid, Duration::from_millis(500), Duration::from_millis(250));
+
+        let err = nix::sys::signal::kill(pid, None).expect_err("child must be dead");
+        assert_eq!(err, nix::errno::Errno::ESRCH);
+        assert!(
+            started.elapsed() < Duration::from_millis(500),
+            "a HUP-compliant shell must die inside the grace budget"
+        );
+        let _ = rx.recv_timeout(Duration::from_secs(5));
+        drop(handle);
     }
 
     #[test]

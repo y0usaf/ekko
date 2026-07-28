@@ -154,10 +154,18 @@ struct PtySession {
     io: PtyIo,
 }
 
+/// How long a pane shell gets to exit on `SIGHUP` before `SIGKILL`
+/// escalates. Shells exit on HUP within milliseconds; this budget only
+/// bites for HUP-trapping or hung shells.
+const HUP_GRACE: Duration = Duration::from_millis(500);
+
+/// How long to wait for the kernel to report a `SIGKILL`ed child as gone.
+const KILL_SETTLE: Duration = Duration::from_millis(250);
+
 impl PtySession {
     fn retire(mut self, terminate_child: bool) {
         if terminate_child {
-            let _ = ekko_pty::kill(self.child_pid);
+            ekko_pty::terminate(self.child_pid, HUP_GRACE, KILL_SETTLE);
         }
         self.io.retire();
     }
