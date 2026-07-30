@@ -28,6 +28,7 @@ ekko-client.workspace = true
 ekko-config.workspace = true
 ekko-proto.workspace = true
 ekko-server.workspace = true
+serde_json.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true

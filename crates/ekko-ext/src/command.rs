@@ -64,3 +64,19 @@ impl CommandOutput {
         })
     }
 }
+
+/// Resolves a `UiAction::Custom { name, payload }` into ordinary actions.
+/// Registered by extensions through
+/// [`ExtensionHost::register_action_interpreter`](crate::ExtensionHost::register_action_interpreter);
+/// the host chains the returned actions like any others (bounded by the
+/// same recursion limit). Errors surface as status notes, never panics.
+pub type ActionInterpreterFn = Arc<dyn Fn(&str) -> anyhow::Result<Vec<UiAction>> + Send + Sync>;
+
+/// A named interpreter for `UiAction::Custom`. `name` is matched exactly;
+/// duplicate names are hard errors at runtime build, like every registry.
+pub struct ActionInterpreterSpec {
+    pub name: String,
+    /// Shown in the help overlay's command listing context and logs.
+    pub description: String,
+    pub handler: ActionInterpreterFn,
+}

@@ -42,15 +42,12 @@ use interprocess::local_socket::{
 /// v8: `ServerToClient::Workspace` pane projection + split/focus/close requests.
 /// v9: `WorkspaceUpdate.border_style` (`PaneBorderStyle`).
 /// v10: scrollback search/dump + `GridUpdate.history`.
-pub const WIRE_VERSION: u32 = 10;
+/// v11: `ClientToServer::{Inject, DumpSession}` — the `ekko send`/`ekko dump`
+/// out-of-band scripting verbs.
+pub const WIRE_VERSION: u32 = 11;
 
 fn wire_dir_name() -> String {
     format!("wire_v{WIRE_VERSION}")
-}
-
-fn current_uid() -> u32 {
-    // SAFETY: getuid() takes no arguments and cannot fail.
-    unsafe { libc::getuid() }
 }
 
 /// Directory that holds all ekko unix-domain sockets for the current user and
@@ -58,26 +55,10 @@ fn current_uid() -> u32 {
 ///
 /// Honors `EKKO_SOCKET_DIR` as an override (used by tests to get a hermetic,
 /// per-test socket directory instead of the shared per-user runtime dir).
+/// Resolution of the pre-version root lives in `ekko-paths`; this crate owns
+/// only the `wire_v<N>` leaf.
 pub fn socket_dir() -> PathBuf {
-    if let Some(dir) = std::env::var_os("EKKO_SOCKET_DIR")
-        && !dir.is_empty()
-    {
-        return PathBuf::from(dir);
-    }
-    if let Some(runtime_dir) = std::env::var_os("XDG_RUNTIME_DIR")
-        && !runtime_dir.is_empty()
-    {
-        return PathBuf::from(runtime_dir)
-            .join("ekko")
-            .join(wire_dir_name());
-    }
-    let tmp_dir = std::env::var_os("TMPDIR")
-        .filter(|s| !s.is_empty())
-        .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from("/tmp"));
-    tmp_dir
-        .join(format!("ekko-{}", current_uid()))
-        .join(wire_dir_name())
+    ekko_paths::runtime_root().join(wire_dir_name())
 }
 
 /// Encode a session name into a single filename component. Session names

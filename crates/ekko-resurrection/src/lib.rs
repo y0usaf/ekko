@@ -2,7 +2,7 @@
 //! sessions after their daemon has exited or crashed.
 //!
 //! Manifests live at `<cache_dir>/wire_v<N>/session_info/<session>/manifest.json`.
-//! `<cache_dir>` defaults to `~/.cache/ekko` (via `directories::BaseDirs`) and can
+//! `<cache_dir>` is resolved workspace-wide by `ekko-paths` and can
 //! be overridden with `EKKO_CACHE_DIR` so tests get a hermetic location.
 //!
 //! This is a plain I/O library, deliberately host-agnostic: the daemon-side
@@ -40,15 +40,9 @@ fn now_secs() -> u64 {
 }
 
 /// Root cache directory for ekko (honors `EKKO_CACHE_DIR`).
+/// Re-export of the workspace's single resolver (`ekko-paths`).
 pub fn cache_root() -> PathBuf {
-    if let Some(dir) = std::env::var_os("EKKO_CACHE_DIR")
-        && !dir.is_empty()
-    {
-        return PathBuf::from(dir);
-    }
-    directories::BaseDirs::new()
-        .map(|dirs| dirs.cache_dir().join("ekko"))
-        .unwrap_or_else(|| PathBuf::from(".cache/ekko"))
+    ekko_paths::cache_root()
 }
 
 fn session_info_root() -> PathBuf {

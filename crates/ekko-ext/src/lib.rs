@@ -25,7 +25,10 @@ mod traits;
 mod visual;
 
 pub use builder::RuntimeBuilder;
-pub use command::{CommandHandler, CommandInfo, CommandInvocation, CommandOutput, CommandSpec};
+pub use command::{
+    ActionInterpreterFn, ActionInterpreterSpec, CommandHandler, CommandInfo, CommandInvocation,
+    CommandOutput, CommandSpec,
+};
 pub use draw::{DrawContext, Rect, ScrollbarModel, ScrollbarStyle, TextStyle};
 pub use keybinding::{
     KeybindingHandler, KeybindingInfo, KeybindingSpec, parse_key_binding, parse_key_chords,

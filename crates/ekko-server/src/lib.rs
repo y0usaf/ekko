@@ -5,6 +5,7 @@
 //! `hub.rs` for the single-threaded state machine everything else reports
 //! into.
 
+mod broadcast;
 mod client_io;
 mod grid;
 mod hub;
@@ -51,12 +52,14 @@ fn build_runtime(config: &ekko_config::Config) -> anyhow::Result<ekko_ext::AppRu
 /// redirected to `~/.cache/ekko/logs/<session_name>.log`) and only the child
 /// process's call returns; the parent exits from inside `daemonize::start`.
 pub fn run(session_name: &str, daemonize: bool) -> anyhow::Result<()> {
-    // `init.lua` supersedes `config.toml`; a broken `init.lua` refuses to
-    // start rather than silently running on defaults.
+    // The cascade (`init.lua` supersedes `config.toml` supersedes defaults)
+    // lives in ekko-config; the lua feature just injects the evaluator.
+    // A broken `init.lua` refuses to start rather than silently running
+    // on defaults.
     #[cfg(feature = "lua")]
     let config = ekko_lua::load_config_cascade()?;
     #[cfg(not(feature = "lua"))]
-    let config = ekko_config::Config::load_default().unwrap_or_default();
+    let config = ekko_config::Config::load_cascade(None)?;
     let runtime = build_runtime(&config).context("building extension runtime")?;
     run_with_runtime(session_name, daemonize, config, runtime)
 }

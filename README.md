@@ -42,7 +42,7 @@ bare harness: attach, raw key passthrough, fullscreen grid, nothing else.
 
 | Crate | Responsibility |
 |---|---|
-| `ekko` | CLI binary: `attach`, `new`, `ls`, `kill`, hidden `--server` mode |
+| `ekko` | CLI binary: `attach`, `new`, `ls`, `kill`, `send`, `dump`, hidden `--server` mode |
 | `ekko-event` | Extension event vocabulary (`EventKind`, `EventReturn`, `UiAction`) |
 | `ekko-ext` | Public extension API: registries, runtime, dispatch, `DrawContext`, dock layout |
 | `ekko-builtins` | **All stock features**, registered through `ekko-ext` like any extension |
@@ -50,6 +50,7 @@ bare harness: attach, raw key passthrough, fullscreen grid, nothing else.
 | `ekko-pty` | PTY spawn (openpty + login_tty), reaper, non-blocking writes |
 | `ekko-server` | Daemon: hub, session actors, pty writer, extension host |
 | `ekko-resurrection` | Session-manifest I/O library (used by the resurrection builtin and `ekko ls`) |
+| `ekko-paths` | Single owner of XDG/env path resolution (cache/config/socket roots) |
 | `ekko-client` | Attach client: event loop, snapshot building, extension host, action interpreter |
 | `ekko-keycast` | Keystroke display for screencasts (`:keycast`) — a non-builtin extension in its own crate |
 | `ekko-lua` | Lua scripting bridge: `~/.config/ekko/extensions/*.lua` become extensions, with instruction budgets and buffered draw ops |
@@ -66,9 +67,15 @@ references; it is not part of the build.
 ekko                  # start + attach a fresh session in the current directory
 ekko new [name]       # create + attach a session (named, or auto-named)
 ekko attach <name>    # attach; respawns from a resurrection manifest if needed
-ekko ls               # list live + resurrectable sessions
+ekko ls [--json]      # list live + resurrectable sessions (JSON lines for scripts)
 ekko kill <name>      # kill a session
+ekko send <name> <s>  # inject bytes into a session's primary pane (\n \r \t \xNN escapes)
+ekko dump <name>      # print a session's scrollback to stdout: `ekko dump work | grep error`
 ```
+
+Non-attach verbs are scriptable Unix citizens: data on stdout (`ls`,
+`dump`), diagnostics on stderr, and exit code 3 when the named session
+doesn't exist.
 
 Unnamed sessions are named by the registered session-namer extension; the
 stock policy is the tilde-abbreviated working directory plus a random word

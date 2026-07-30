@@ -9,10 +9,7 @@ use std::time::{Duration, Instant};
 
 use crossbeam_channel::{Receiver, RecvTimeoutError, Sender};
 use ekko_config::Config;
-use ekko_proto::{
-    AttachRejectReason, ClientToServer, ExitReason, GridPayload, GridUpdate, PaneGrid, PaneMeta,
-    PaneRect, ServerNotice, ServerToClient, WorkspaceUpdate,
-};
+use ekko_proto::{AttachRejectReason, ClientToServer, ExitReason, ServerNotice, ServerToClient};
 use ekko_pty::{PtyCommand, WinSize};
 use interprocess::local_socket::Stream as LocalSocketStream;
 
@@ -69,32 +66,32 @@ struct AttachRequest {
 
 pub struct Hub {
     session_name: String,
-    config: Config,
+    pub(crate) config: Config,
     runtime: AppRuntime,
     hub_tx: Sender<HubInstruction>,
-    clients: HashMap<ClientId, ClientHandle>,
+    pub(crate) clients: HashMap<ClientId, ClientHandle>,
     /// Attached clients and their terminal sizes (cols, rows). The session
     /// is sized to the smallest attached client, tmux-style.
-    attached: HashMap<ClientId, (u16, u16)>,
+    pub(crate) attached: HashMap<ClientId, (u16, u16)>,
     next_client_id: ClientId,
     /// First successful client probe; copied into every live pane parser.
     host_colors: Option<ekko_proto::TerminalColors>,
-    panes: HashMap<PaneId, TerminalPane>,
-    topology: Option<PaneTopology>,
+    pub(crate) panes: HashMap<PaneId, TerminalPane>,
+    pub(crate) topology: Option<PaneTopology>,
     /// Focus is daemon-owned and exists only while a client is attached.
-    focus: HashMap<ClientId, PaneId>,
+    pub(crate) focus: HashMap<ClientId, PaneId>,
     canvas_size: Option<(u16, u16)>,
     session_cwd: Option<PathBuf>,
     next_pane_id: u64,
     next_pane_generation: u64,
-    epoch: u64,
+    pub(crate) epoch: u64,
     /// Clients whose outgoing queue dropped a grid frame; they get a `Full`
     /// resync on the next broadcast since their state may have diverged.
-    needs_full: HashSet<ClientId>,
+    pub(crate) needs_full: HashSet<ClientId>,
     /// A metadata-only change (focus, topology, title) that no grid frame
     /// would otherwise carry: forces the next broadcast pass even when every
     /// pane's grid is steady.
-    workspace_dirty: bool,
+    pub(crate) workspace_dirty: bool,
     should_exit: bool,
 }
 
@@ -174,11 +171,11 @@ impl Hub {
             .min()
     }
 
-    fn topology(&self) -> Option<&PaneTopology> {
+    pub(crate) fn topology(&self) -> Option<&PaneTopology> {
         self.topology.as_ref()
     }
 
-    fn canvas(&self) -> Option<Rect> {
+    pub(crate) fn canvas(&self) -> Option<Rect> {
         self.canvas_size.map(|(cols, rows)| Rect {
             x: 0,
             y: 0,
@@ -201,6 +198,27 @@ impl Hub {
 
     fn focused_pane_mut(&mut self, client: ClientId) -> Option<&mut TerminalPane> {
         let pane = self.focused_pane_id(client)?;
+        self.panes.get_mut(&pane)
+    }
+    /// The pane out-of-band control verbs (`ekko send`/`ekko dump`) act on:
+    /// the focused pane of any attached client, else the first live pane by
+    /// creation order. Deterministic so scripts get a stable target.
+    fn primary_pane_id(&self) -> Option<PaneId> {
+        self.focus
+            .values()
+            .next()
+            .copied()
+            .filter(|pane| self.panes.contains_key(pane))
+            .or_else(|| self.panes.keys().min().copied())
+    }
+
+    fn primary_pane(&self) -> Option<&TerminalPane> {
+        self.primary_pane_id()
+            .and_then(|pane| self.panes.get(&pane))
+    }
+
+    fn primary_pane_mut(&mut self) -> Option<&mut TerminalPane> {
+        let pane = self.primary_pane_id()?;
         self.panes.get_mut(&pane)
     }
 
@@ -420,6 +438,30 @@ impl Hub {
             ClientToServer::KillSession(name) => self.on_kill_session(id, &name),
             ClientToServer::Ping => self.send_to(id, ServerToClient::Pong),
             ClientToServer::Activate => self.on_activate(id),
+            ClientToServer::Inject { bytes } => {
+                // Out-of-band scripting (`ekko send`): no attach state, so
+                // no scroll reset or cursor-key rewriting — the bytes go to
+                // the primary pane verbatim.
+                if let Some(pane) = self.primary_pane_mut() {
+                    pane.write(bytes);
+                }
+            }
+            ClientToServer::DumpSession => {
+                // Always answer, even with no live pane (a never-attached
+                // session): a script piping `ekko dump` must get EOF, not a
+                // hang.
+                let response = self
+                    .primary_pane()
+                    .map(|pane| ServerToClient::ScrollbackDump {
+                        pane: pane.key().id.0,
+                        text: pane.dump_scrollback(),
+                    })
+                    .unwrap_or(ServerToClient::ScrollbackDump {
+                        pane: 0,
+                        text: String::new(),
+                    });
+                self.send_to(id, response);
+            }
         }
     }
 
@@ -597,7 +639,7 @@ impl Hub {
         }
     }
 
-    fn resolved_geometry(
+    pub(crate) fn resolved_geometry(
         &self,
         canvas: Rect,
     ) -> Result<Vec<(PaneId, Rect)>, crate::topology::TopologyError> {
@@ -1019,132 +1061,10 @@ impl Hub {
 
     // -- rendering ------------------------------------------------------
 
-    /// Broadcast one workspace frame per attached client. Every frame
-    /// carries the complete canonical pane projection (metadata is cheap and
-    /// makes removal/topology recovery idempotent); grid payloads stay
-    /// incremental per pane. A client in `needs_full` (fresh attach or a
-    /// dropped frame) receives `Full` grids for every live pane.
+    /// Broadcast one workspace frame per attached client. The projection
+    /// itself lives in `broadcast.rs`; the hub stays the state owner.
     fn render_now(&mut self) {
-        let Some(canvas) = self.canvas() else {
-            return;
-        };
-        let Ok(geometry) = self.resolved_geometry(canvas) else {
-            return;
-        };
-        let geometry: HashMap<PaneId, Rect> = geometry.into_iter().collect();
-        let pane_ids = self
-            .topology()
-            .map(PaneTopology::leaves)
-            .unwrap_or_default();
-        let resync = self
-            .needs_full
-            .iter()
-            .any(|client| self.attached.contains_key(client));
-
-        let mut frames = Vec::new();
-        for pane_id in pane_ids {
-            if let Some(frame) = self
-                .panes
-                .get_mut(&pane_id)
-                .and_then(|pane| pane.prepare_render(resync))
-            {
-                frames.push(frame);
-            }
-        }
-        if frames.is_empty() && !self.workspace_dirty {
-            return;
-        }
-        self.workspace_dirty = false;
-
-        self.epoch += 1;
-        let epoch = self.epoch;
-        let metadata: Vec<PaneMeta> = self
-            .panes
-            .iter()
-            .filter_map(|(id, pane)| {
-                let rect = geometry.get(id)?;
-                Some(PaneMeta {
-                    id: id.0,
-                    rect: PaneRect {
-                        x: rect.x,
-                        y: rect.y,
-                        cols: rect.cols,
-                        rows: rect.rows,
-                    },
-                    title: pane.title().map(str::to_owned),
-                })
-            })
-            .collect();
-
-        let mut resync_failed = false;
-        for (&id, client) in &self.clients {
-            let Some(&focused) = self
-                .focus
-                .get(&id)
-                .filter(|_| self.attached.contains_key(&id))
-            else {
-                continue;
-            };
-            let full = self.needs_full.contains(&id);
-            let mut grids = Vec::new();
-            for frame in &frames {
-                let full_frame = full || frame.full_for_all;
-                if frame.steady && !full_frame {
-                    continue;
-                }
-                let payload = if full_frame {
-                    GridPayload::Full(frame.rows.clone())
-                } else {
-                    GridPayload::Rows(frame.patches.clone())
-                };
-                grids.push(PaneGrid {
-                    pane: frame.pane.id.0,
-                    update: GridUpdate {
-                        epoch,
-                        cols: frame.size.0,
-                        rows: frame.size.1,
-                        cursor: Some(frame.cursor),
-                        modes: frame.modes,
-                        scrollback: frame.scrollback,
-                        history: frame.history,
-                        payload,
-                    },
-                });
-            }
-            let update = WorkspaceUpdate {
-                epoch,
-                panes: metadata.clone(),
-                focused: focused.0,
-                grids,
-                border_style: self.config.ui.pane_borders,
-            };
-            if client
-                .tx
-                .try_send(ServerToClient::Workspace(update))
-                .is_err()
-            {
-                log::debug!(
-                    "hub: client {id}'s queue dropped a workspace frame; full resync queued"
-                );
-                resync_failed |= self.needs_full.insert(id);
-            } else {
-                self.needs_full.remove(&id);
-            }
-        }
-
-        for frame in &frames {
-            if let Some(pane) = self.panes.get_mut(&frame.pane.id) {
-                pane.commit_render(frame);
-            }
-        }
-        // Schedule the resync retry promptly, but only on the transition into
-        // `needs_full`: a persistently slow client otherwise waits for natural
-        // pane activity (or eviction by its writer thread's write timeout).
-        if resync_failed {
-            for pane in self.panes.values_mut() {
-                pane.mark_dirty();
-            }
-        }
+        crate::broadcast::render_now(self);
     }
 
     // -- pty / session bookkeeping ---------------------------------------
@@ -1262,7 +1182,7 @@ fn parse_client_thread_id(thread_name: &str) -> Option<ClientId> {
 mod tests {
     use std::time::Duration;
 
-    use ekko_proto::PaneBorderStyle;
+    use ekko_proto::{GridPayload, PaneBorderStyle, WorkspaceUpdate};
 
     use super::*;
 

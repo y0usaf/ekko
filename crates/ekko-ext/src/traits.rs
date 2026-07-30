@@ -2,8 +2,8 @@ use anyhow::Result;
 use ekko_event::EventHandlerRegistration;
 
 use crate::{
-    CommandSpec, ExtensionManifest, KeybindingSpec, ModeSpec, OverlaySpec, SessionGrouperSpec,
-    SessionNamerSpec, SpinnerSpec, SurfaceSpec, ThemeSpec,
+    ActionInterpreterSpec, CommandSpec, ExtensionManifest, KeybindingSpec, ModeSpec, OverlaySpec,
+    SessionGrouperSpec, SessionNamerSpec, SpinnerSpec, SurfaceSpec, ThemeSpec,
 };
 
 pub trait Extension: Send + Sync {
@@ -48,4 +48,9 @@ pub trait ExtensionHost {
 
     /// Subscribe to a lifecycle event.
     fn subscribe(&mut self, handler: EventHandlerRegistration) -> Result<()>;
+
+    /// Register an interpreter for `UiAction::Custom { name, .. }` — the
+    /// sanctioned escape hatch for extension-defined effects. Duplicate
+    /// names are hard errors, like every registry.
+    fn register_action_interpreter(&mut self, interpreter: ActionInterpreterSpec) -> Result<()>;
 }

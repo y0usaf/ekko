@@ -129,6 +129,78 @@ fn manifest_comes_from_the_script() {
 }
 
 #[test]
+fn custom_actions_round_trip_through_a_lua_interpreter() {
+    // The `UiAction::Custom` escape hatch, end to end: a script registers
+    // an interpreter; a second script's command returns the custom action;
+    // the runtime resolves it back to ordinary actions.
+    let interpreter = LuaExtension::from_source(
+        "interp.lua",
+        r#"
+        local ext = { id = "user.interp" }
+        function ext.register(ekko)
+          ekko.register_action_interpreter({
+            name = "notify",
+            description = "show a prefixed note",
+            handler = function(payload)
+              return { { set_status_note = { text = "lua: " .. payload, kind = "info" } } }
+            end,
+          })
+        end
+        return ext
+        "#,
+    )
+    .expect("interpreter script loads");
+    let caller = LuaExtension::from_source(
+        "caller.lua",
+        r#"
+        local ext = { id = "user.caller" }
+        function ext.register(ekko)
+          ekko.register_command({
+            name = "ping",
+            handler = function(args)
+              return { { custom = { name = "notify", payload = args } } }
+            end,
+          })
+        end
+        return ext
+        "#,
+    )
+    .expect("caller script loads");
+    let runtime = ekko_ext::RuntimeBuilder::new()
+        .register_boxed_extension(Box::new(interpreter))
+        .register_boxed_extension(Box::new(caller))
+        .build()
+        .expect("runtime builds");
+
+    // `:ping` yields the Custom action; the host (apply path) resolves it
+    // through the interpreter. Both halves are pinned here: the vocabulary
+    // item survives the bridge, and resolution produces the Lua-composed
+    // note.
+    let CommandDispatch::Invoked(actions) = runtime.invoke_command(":ping hello") else {
+        panic!("ping must invoke");
+    };
+    assert_eq!(
+        actions,
+        vec![UiAction::Custom {
+            name: "notify".into(),
+            payload: "hello".into(),
+        }]
+    );
+    let resolved = runtime
+        .resolve_custom_action("notify", "hello")
+        .expect("interpreter ran")
+        .expect("interpreter registered");
+    assert_eq!(
+        resolved,
+        vec![UiAction::SetStatusNote {
+            text: "lua: hello".into(),
+            kind: NoteKind::Info,
+            ttl_ms: 4_000,
+        }]
+    );
+}
+
+#[test]
 fn commands_round_trip_args_and_actions() {
     let runtime = runtime(
         r#"
@@ -724,7 +796,12 @@ fn every_event_payload_marshals_to_lua() {
     // fails compilation until it renders; this pins the table shape each
     // existing variant presents to scripts. One handler subscribed to every
     // canonical event name echoes the payload back as a sorted `key=value`
-    // line through the `notice` return.
+    // line, recorded to a shared file (see below).
+    // Every event is dispatched and its echo recorded by the script into a
+    // shared file (one line per event). Notification kinds run on workers
+    // whose returns are discarded by contract, so a file side channel — not
+    // the dispatch return — observes every kind uniformly.
+    let echo_file = tempfile::NamedTempFile::new().expect("echo file");
     let names: String = EventKind::ALL
         .iter()
         .map(|kind| format!("\"{}\", ", kind.name()))
@@ -744,13 +821,17 @@ fn every_event_payload_marshals_to_lua() {
           end
           for _, name in ipairs({ EVENT_NAMES }) do
             ekko.subscribe(name, function(payload)
+              local f = io.open("ECHO_FILE", "a")
+              f:write(name .. "|" .. describe(payload) .. "\n")
+              f:close()
               return { notice = { message = describe(payload) } }
             end)
           end
         end
         return ext
         "#
-    .replace("EVENT_NAMES", &names);
+    .replace("EVENT_NAMES", &names)
+    .replace("ECHO_FILE", &echo_file.path().display().to_string());
     let runtime = runtime(&source);
 
     let cases: Vec<(EventKind, EventPayload, &str)> = vec![
@@ -904,12 +985,39 @@ fn every_event_payload_marshals_to_lua() {
             "session_name=main",
         ),
     ];
-    for (kind, payload, expected) in cases {
-        let returns = runtime.dispatch(kind, payload);
-        let [EventReturn::EmitNotice { message, .. }] = returns.as_slice() else {
-            panic!("expected one notice for {kind:?}, got {returns:?}");
-        };
-        assert_eq!(message, expected, "payload table for {kind:?}");
+    // Gate/lifecycle kinds still collect returns synchronously;
+    // notification kinds run on workers (returns discarded). Either way
+    // the script appends `name|key=value ...` to the echo file; wait for
+    // every event's line, then pin each table shape.
+    for (kind, payload, _expected) in &cases {
+        runtime.dispatch(*kind, payload.clone());
+    }
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    let echoes = loop {
+        let content = std::fs::read_to_string(echo_file.path()).unwrap_or_default();
+        if content.lines().count() == cases.len() {
+            break content;
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "only {} of {} event echoes arrived",
+            content.lines().count(),
+            cases.len()
+        );
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    };
+    let mut echoes_by_kind: std::collections::HashMap<&str, Vec<&str>> =
+        std::collections::HashMap::new();
+    for line in echoes.lines() {
+        let (name, body) = line.split_once('|').expect("echo line is name|body");
+        echoes_by_kind.entry(name).or_default().push(body);
+    }
+    for (kind, _payload, expected) in &cases {
+        let bodies = echoes_by_kind
+            .get_mut(kind.name())
+            .unwrap_or_else(|| panic!("no echo line for {kind:?}"));
+        assert!(!bodies.is_empty(), "no echo line left for {kind:?}");
+        assert_eq!(bodies.remove(0), *expected, "payload table for {kind:?}");
     }
 }
 
@@ -991,15 +1099,15 @@ fn budget_blowout_on_before_pty_spawn_degrades_to_no_override() {
 }
 
 #[test]
-fn abandoned_lua_lock_is_skipped_by_timeout_and_spares_other_scripts() {
+fn abandoned_lua_lock_never_blocks_dispatch_and_spares_other_scripts() {
     // The one hole the instruction budget cannot cover: a single C call
     // (here: pathological pattern backtracking) never yields to the hook,
-    // so it outlives the dispatch timeout and the detached thread keeps the
-    // script's Lua lock. Subsequent callbacks into the same script must
-    // fail cleanly — blocked on the lock, timed out, logged, skipped — and
-    // other scripts (separate Lua states, separate locks) must be
-    // completely unaffected. This is the daemon's containment story for a
-    // wedged server script degrading exactly one extension, never the hub.
+    // so it outlives every timeout and the detached command thread keeps
+    // the script's Lua lock. With notification dispatch now mailbox-based,
+    // the containment story is: the wedged script's worker blocks on the
+    // lock forever, its mailbox fills, further events for it drop with a
+    // log line — while the dispatcher itself never blocks and other
+    // scripts (separate Lua states, separate workers) answer normally.
     use std::sync::Arc;
     use std::time::{Duration, Instant};
 
@@ -1068,17 +1176,14 @@ fn abandoned_lua_lock_is_skipped_by_timeout_and_spares_other_scripts() {
             session_name: "main".into(),
         },
     );
-    // user.stuck's bell handler blocked on the abandoned lock and was timed
-    // out; user.healthy answered normally; the dispatcher never wedged.
-    assert_eq!(returns.len(), 1, "got {returns:?}");
-    assert_eq!(returns[0].0, "user.healthy:bell");
-    assert!(matches!(
-        &returns[0].1,
-        EventReturn::EmitNotice { message, .. } if message == "healthy answered"
-    ));
+    // Bell is a notification: dispatch only enqueues. user.stuck's worker
+    // is parked on the abandoned lock; user.healthy's worker answers on
+    // its own thread. Either way the dispatcher never wedged, and returns
+    // are empty by the notification contract.
+    assert!(returns.is_empty(), "got {returns:?}");
     assert!(
-        start.elapsed() < Duration::from_secs(5),
-        "dispatch must time the blocked handler out, not wait for the lock"
+        start.elapsed() < Duration::from_secs(1),
+        "notification dispatch must enqueue, never wait on the lock"
     );
     let _ = std::fs::remove_file(&sentinel);
 }

@@ -27,7 +27,7 @@ const RENDER_SETTLE: Duration = Duration::from_millis(1);
 
 /// Stable server-internal identity. It is intentionally absent from the P1
 /// wire contract.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub(crate) struct PaneId(pub(crate) u64);
 
 /// Incarnation of a stable pane ID. Events from an older incarnation are

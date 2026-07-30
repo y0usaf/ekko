@@ -1,12 +1,18 @@
 //! The assembled, immutable extension runtime: registries plus the sync
 //! event dispatcher. ekko has no async runtime — the dispatcher gets phi's
-//! per-kind-timeout semantics from `std::thread` + `mpsc::recv_timeout`
-//! instead of tokio: run each handler on its own thread, bound the wait,
-//! and CONTINUE past errors/timeouts so one misbehaving extension never
-//! wedges the host. A timed-out handler's thread is detached, not killed.
+//! per-kind-timeout semantics from two mechanisms chosen per event class:
+//! - **Notifications** (returns discarded, can be hot — `GridUpdated` fires
+//!   per frame) run on a persistent worker per handler with a bounded
+//!   mailbox. Dispatch never spawns a thread; a full mailbox drops the
+//!   event for that handler and logs, so a slow extension can never stall
+//!   or OOM the host.
+//! - **Gates and lifecycle events** (returns consumed, or rare one-shots)
+//!   keep thread-per-dispatch with `mpsc::recv_timeout`, bound the wait,
+//!   and CONTINUE past errors/timeouts. A timed-out thread is detached.
+//! Either way, one misbehaving extension never wedges the host.
 
 use std::collections::BTreeMap;
-use std::sync::mpsc;
+use std::sync::mpsc::{self, SyncSender};
 use std::time::Duration;
 
 use ekko_event::{
@@ -15,25 +21,41 @@ use ekko_event::{
 
 use crate::host::RegistryHost;
 use crate::{
-    CommandInfo, CommandInvocation, CommandSpec, ExtensionManifest, KeybindingInfo, KeybindingSpec,
-    ModeSpec, OverlaySpec, SessionGrouperSpec, SessionNamerSpec, SpinnerSpec, SurfaceSpec,
-    ThemeSpec,
+    ActionInterpreterSpec, CommandInfo, CommandInvocation, CommandSpec, ExtensionManifest,
+    KeybindingInfo, KeybindingSpec, ModeSpec, OverlaySpec, SessionGrouperSpec, SessionNamerSpec,
+    SpinnerSpec, SurfaceSpec, ThemeSpec,
 };
 
-/// Per-[`EventKind`] timeout budget for a single extension handler:
-/// - **Notifications** (return discarded, can be frequent) get a tight
-///   bound so a slow extension can't stall the input or render loop.
+/// Whether an [`EventKind`] is a notification (return discarded, dispatch
+/// goes through a handler's persistent worker) or a gate/lifecycle event
+/// (return consumed or one-shot; dispatch spawns a bounded thread).
+fn is_notification(kind: EventKind) -> bool {
+    use EventKind::*;
+    matches!(
+        kind,
+        SessionDetached
+            | SessionSwitched
+            | SessionListRefreshed
+            | GridUpdated
+            | Bell
+            | Resize
+            | Tick
+            | ModeChanged
+            | ClientDetached
+            | PtyResized
+            | Heartbeat
+    )
+}
+
+/// Per-[`EventKind`] timeout budget for a single gate/lifecycle handler:
 /// - **Interception gates** (return drives control flow) get a longer bound
 ///   since their result is consumed.
 /// - **One-shot lifecycle** events (may do real work) get the longest bound.
+/// Notifications have no wall-clock budget: their backpressure is the
+/// bounded mailbox, which drops rather than waits.
 fn handler_timeout(kind: EventKind) -> Duration {
     use EventKind::*;
     match kind {
-        // Notifications.
-        SessionDetached | SessionSwitched | SessionListRefreshed | GridUpdated | Bell | Resize
-        | Tick | ModeChanged | ClientDetached | PtyResized | Heartbeat => {
-            Duration::from_millis(100)
-        }
         // Interception gates.
         KeyInput | CommandInvoked | BeforeSessionDetach | BeforeSessionSwitch | BeforePtySpawn => {
             Duration::from_millis(500)
@@ -42,6 +64,48 @@ fn handler_timeout(kind: EventKind) -> Duration {
         ClientReady | SessionAttached | SessionCreated | ClientAttached | SessionExited => {
             Duration::from_secs(2)
         }
+        // Notifications don't reach here (worker path), but keep the
+        // match total for future kinds.
+        _ => Duration::from_millis(100),
+    }
+}
+
+/// Mailbox depth per notification handler. Deep enough to absorb a burst
+/// (one render tick of grid updates plus a few bells/resizes), shallow
+/// enough that a wedged handler accumulates seconds, not minutes, of
+/// backlog before drops begin.
+const NOTIFICATION_MAILBOX: usize = 64;
+
+/// A notification handler plus its persistent worker's mailbox. Created
+/// once at runtime build; dispatch only ever `try_send`s.
+struct NotificationSubscription {
+    label: String,
+    event: EventKind,
+    mailbox: SyncSender<LifecycleEvent>,
+}
+
+/// Spawn the persistent worker behind one notification subscription: a
+/// plain thread draining a bounded mailbox, running the handler serially.
+/// Handler returns are discarded by the notification contract; errors are
+/// logged. The worker lives as long as the runtime — the mailbox sender
+/// keeps the channel open, and both drop together with `AppRuntime`.
+fn spawn_notification_worker(reg: EventHandlerRegistration) -> NotificationSubscription {
+    let (tx, rx) = mpsc::sync_channel::<LifecycleEvent>(NOTIFICATION_MAILBOX);
+    let label = reg.label.clone();
+    std::thread::Builder::new()
+        .name(format!("ext-notify-{}", reg.label))
+        .spawn(move || {
+            while let Ok(event) = rx.recv() {
+                if let Err(e) = (reg.handler)(event) {
+                    log::warn!("extension handler '{}' errored: {e:#}", reg.label);
+                }
+            }
+        })
+        .expect("failed to spawn notification worker");
+    NotificationSubscription {
+        label,
+        event: reg.event,
+        mailbox: tx,
     }
 }
 
@@ -57,7 +121,11 @@ pub struct AppRuntime {
     spinners: BTreeMap<String, SpinnerSpec>,
     session_grouper: Option<SessionGrouperSpec>,
     session_namer: Option<SessionNamerSpec>,
+    action_interpreters: BTreeMap<String, ActionInterpreterSpec>,
+    /// Gate and one-shot lifecycle handlers, run thread-per-dispatch.
     event_handlers: Vec<EventHandlerRegistration>,
+    /// Notification handlers, each with a persistent worker + mailbox.
+    notifications: Vec<NotificationSubscription>,
 }
 
 /// Outcome of routing a `:command` line through the registry.
@@ -77,6 +145,10 @@ pub enum CommandDispatch {
 
 impl AppRuntime {
     pub(crate) fn from_registry(manifests: Vec<ExtensionManifest>, host: RegistryHost) -> Self {
+        let (notifications, event_handlers) = host
+            .event_handlers
+            .into_iter()
+            .partition::<Vec<_>, _>(|reg| is_notification(reg.event));
         Self {
             manifests,
             commands: host.commands,
@@ -89,7 +161,12 @@ impl AppRuntime {
             spinners: host.spinners,
             session_grouper: host.session_grouper,
             session_namer: host.session_namer,
-            event_handlers: host.event_handlers,
+            action_interpreters: host.action_interpreters,
+            notifications: notifications
+                .into_iter()
+                .map(spawn_notification_worker)
+                .collect(),
+            event_handlers,
         }
     }
 
@@ -104,9 +181,10 @@ impl AppRuntime {
 
     // ── Event dispatch ──────────────────────────────────────────────────────
 
-    /// Dispatch an event to every subscribed handler, bounded per handler by
-    /// the kind's timeout budget. Never blocks past `handlers × budget`;
-    /// never fails: handler errors/timeouts are logged and skipped.
+    /// Dispatch an event to every subscribed handler. Notifications go to
+    /// each handler's worker mailbox (non-blocking, drop-on-full) and return
+    /// immediately with no returns; gates/lifecycle run thread-per-handler,
+    /// bounded by the kind's timeout. Never fails: errors are logged.
     pub fn dispatch(&self, kind: EventKind, payload: EventPayload) -> Vec<EventReturn> {
         self.dispatch_labeled(kind, payload)
             .into_iter()
@@ -116,12 +194,30 @@ impl AppRuntime {
 
     /// Like [`Self::dispatch`], but pairs each return with the handler label
     /// that produced it (used e.g. to attribute notices to their source).
+    /// Always empty for notification kinds: their returns are discarded by
+    /// contract, so dispatch enqueues and moves on.
     pub fn dispatch_labeled(
         &self,
         kind: EventKind,
         payload: EventPayload,
     ) -> Vec<(String, EventReturn)> {
         let event = LifecycleEvent { kind, payload };
+        if is_notification(kind) {
+            for sub in self.notifications.iter().filter(|s| s.event == kind) {
+                match sub.mailbox.try_send(event.clone()) {
+                    Ok(()) => {}
+                    Err(mpsc::TrySendError::Full(_)) => log::warn!(
+                        "notification handler '{}' backlogged; dropping {kind:?}",
+                        sub.label
+                    ),
+                    Err(mpsc::TrySendError::Disconnected(_)) => log::warn!(
+                        "notification handler '{}' is gone; dropping {kind:?}",
+                        sub.label
+                    ),
+                }
+            }
+            return Vec::new();
+        }
         let timeout = handler_timeout(kind);
         let mut returns = Vec::new();
         for reg in self.event_handlers.iter().filter(|h| h.event == kind) {
@@ -159,6 +255,7 @@ impl AppRuntime {
     /// construction on hot paths).
     pub fn has_subscribers(&self, kind: EventKind) -> bool {
         self.event_handlers.iter().any(|h| h.event == kind)
+            || self.notifications.iter().any(|s| s.event == kind)
     }
 
     // ── Commands ───────────────────────────────────────────────────────────
@@ -320,6 +417,21 @@ impl AppRuntime {
     pub fn session_namer(&self) -> Option<&SessionNamerSpec> {
         self.session_namer.as_ref()
     }
+
+    /// Resolve a `UiAction::Custom { name, payload }` through the registered
+    /// interpreters. `Ok(None)` = no interpreter under that name (the host
+    /// surfaces an error note); the interpreter's own actions chain through
+    /// the normal interpreter path, bounded by the host's recursion limit.
+    pub fn resolve_custom_action(
+        &self,
+        name: &str,
+        payload: &str,
+    ) -> anyhow::Result<Option<Vec<UiAction>>> {
+        let Some(spec) = self.action_interpreters.get(name) else {
+            return Ok(None);
+        };
+        (spec.handler)(payload).map(Some)
+    }
 }
 
 #[cfg(test)]
@@ -373,13 +485,46 @@ mod tests {
     }
 
     #[test]
-    fn dispatch_collects_returns_and_skips_observers() {
+    fn gate_dispatch_collects_returns_and_skips_observers() {
         let runtime = RuntimeBuilder::new()
             .register_extension(TestExt::new(|host| {
-                host.subscribe(subscription(EventKind::Bell, "observer", |_| Ok(None)))?;
-                host.subscribe(subscription(EventKind::Bell, "canceler", |_| {
+                host.subscribe(subscription(
+                    EventKind::BeforeSessionDetach,
+                    "observer",
+                    |_| Ok(None),
+                ))?;
+                host.subscribe(subscription(
+                    EventKind::BeforeSessionDetach,
+                    "canceler",
+                    |_| {
+                        Ok(Some(EventReturn::Cancel {
+                            reason: "no".into(),
+                        }))
+                    },
+                ))?;
+                Ok(())
+            }))
+            .build()
+            .unwrap();
+        let returns = runtime.dispatch(EventKind::BeforeSessionDetach, EventPayload::Empty);
+        assert_eq!(returns.len(), 1);
+        assert!(matches!(&returns[0], EventReturn::Cancel { reason } if reason == "no"));
+    }
+
+    #[test]
+    fn notifications_run_on_workers_and_discard_returns() {
+        // Bell is a notification: dispatch enqueues onto each handler's
+        // worker and returns immediately with no returns, even when the
+        // handler produces one.
+        let observed = Arc::new(AtomicUsize::new(0));
+        let observed_in = observed.clone();
+        let runtime = RuntimeBuilder::new()
+            .register_extension(TestExt::new(move |host| {
+                let observed = observed_in.clone();
+                host.subscribe(subscription(EventKind::Bell, "counter", move |_| {
+                    observed.fetch_add(1, Ordering::SeqCst);
                     Ok(Some(EventReturn::Cancel {
-                        reason: "no".into(),
+                        reason: "discarded".into(),
                     }))
                 }))?;
                 Ok(())
@@ -387,18 +532,25 @@ mod tests {
             .build()
             .unwrap();
         let returns = runtime.dispatch(EventKind::Bell, EventPayload::Empty);
-        assert_eq!(returns.len(), 1);
-        assert!(matches!(&returns[0], EventReturn::Cancel { reason } if reason == "no"));
+        assert!(returns.is_empty());
+        // The worker runs the handler asynchronously; poll briefly for it.
+        for _ in 0..100 {
+            if observed.load(Ordering::SeqCst) == 1 {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        assert_eq!(observed.load(Ordering::SeqCst), 1);
     }
 
     #[test]
     fn dispatch_continues_past_erroring_handler() {
         let runtime = RuntimeBuilder::new()
             .register_extension(TestExt::new(|host| {
-                host.subscribe(subscription(EventKind::Bell, "boom", |_| {
+                host.subscribe(subscription(EventKind::BeforeSessionDetach, "boom", |_| {
                     anyhow::bail!("boom")
                 }))?;
-                host.subscribe(subscription(EventKind::Bell, "ok", |_| {
+                host.subscribe(subscription(EventKind::BeforeSessionDetach, "ok", |_| {
                     Ok(Some(EventReturn::Cancel {
                         reason: "after".into(),
                     }))
@@ -407,19 +559,45 @@ mod tests {
             }))
             .build()
             .unwrap();
-        let returns = runtime.dispatch(EventKind::Bell, EventPayload::Empty);
+        let returns = runtime.dispatch(EventKind::BeforeSessionDetach, EventPayload::Empty);
         assert_eq!(returns.len(), 1);
     }
 
     #[test]
-    fn dispatch_times_out_blocked_handler_and_continues() {
+    fn notification_dispatch_never_blocks_on_a_wedged_handler() {
+        // A wedged notification handler fills its own mailbox; dispatch
+        // stays non-blocking (drop-on-full) the whole time.
         let runtime = RuntimeBuilder::new()
             .register_extension(TestExt::new(|host| {
                 host.subscribe(subscription(EventKind::Bell, "sleeper", |_| {
                     std::thread::sleep(Duration::from_secs(10));
                     Ok(None)
                 }))?;
-                host.subscribe(subscription(EventKind::Bell, "fast", |_| {
+                Ok(())
+            }))
+            .build()
+            .unwrap();
+        let start = std::time::Instant::now();
+        for _ in 0..(NOTIFICATION_MAILBOX * 4) {
+            let returns = runtime.dispatch(EventKind::Bell, EventPayload::Empty);
+            assert!(returns.is_empty());
+        }
+        assert!(start.elapsed() < Duration::from_secs(5));
+    }
+
+    #[test]
+    fn gate_dispatch_times_out_blocked_handler_and_continues() {
+        let runtime = RuntimeBuilder::new()
+            .register_extension(TestExt::new(|host| {
+                host.subscribe(subscription(
+                    EventKind::BeforeSessionDetach,
+                    "sleeper",
+                    |_| {
+                        std::thread::sleep(Duration::from_secs(10));
+                        Ok(None)
+                    },
+                ))?;
+                host.subscribe(subscription(EventKind::BeforeSessionDetach, "fast", |_| {
                     Ok(Some(EventReturn::Cancel {
                         reason: "fast".into(),
                     }))
@@ -429,9 +607,9 @@ mod tests {
             .build()
             .unwrap();
         let start = std::time::Instant::now();
-        let returns = runtime.dispatch(EventKind::Bell, EventPayload::Empty);
+        let returns = runtime.dispatch(EventKind::BeforeSessionDetach, EventPayload::Empty);
         assert_eq!(returns.len(), 1);
-        // Bell is a notification: 100ms budget, well under the 10s sleep.
+        // Gate budget is 500ms, well under the 10s sleep.
         assert!(start.elapsed() < Duration::from_secs(5));
     }
 
@@ -722,5 +900,64 @@ mod tests {
             runtime.invoke_command("help"),
             CommandDispatch::NotFound(_)
         ));
+        assert!(
+            runtime
+                .resolve_custom_action("anything", "")
+                .unwrap()
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn custom_actions_resolve_through_the_registered_interpreter() {
+        let runtime = RuntimeBuilder::new()
+            .register_extension(TestExt::new(|host| {
+                host.register_action_interpreter(crate::ActionInterpreterSpec {
+                    name: "notify".into(),
+                    description: "show a note".into(),
+                    handler: Arc::new(|payload| {
+                        Ok(vec![UiAction::SetStatusNote {
+                            text: format!("custom: {payload}"),
+                            kind: ekko_event::NoteKind::Info,
+                            ttl_ms: 1000,
+                        }])
+                    }),
+                })?;
+                Ok(())
+            }))
+            .build()
+            .unwrap();
+        let actions = runtime
+            .resolve_custom_action("notify", "hi")
+            .unwrap()
+            .expect("registered interpreter resolves");
+        assert_eq!(
+            actions,
+            vec![UiAction::SetStatusNote {
+                text: "custom: hi".into(),
+                kind: ekko_event::NoteKind::Info,
+                ttl_ms: 1000,
+            }]
+        );
+        assert!(runtime.resolve_custom_action("nope", "").unwrap().is_none());
+    }
+
+    #[test]
+    fn duplicate_action_interpreter_names_fail_loudly() {
+        fn spec(name: &str) -> crate::ActionInterpreterSpec {
+            crate::ActionInterpreterSpec {
+                name: name.into(),
+                description: String::new(),
+                handler: Arc::new(|_| Ok(Vec::new())),
+            }
+        }
+        let result = RuntimeBuilder::new()
+            .register_extension(TestExt::new(|host| {
+                host.register_action_interpreter(spec("notify"))?;
+                host.register_action_interpreter(spec("notify"))?;
+                Ok(())
+            }))
+            .build();
+        assert!(result.is_err());
     }
 }

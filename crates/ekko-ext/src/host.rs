@@ -6,8 +6,8 @@ use ekko_event::EventHandlerRegistration;
 
 use crate::traits::ExtensionHost;
 use crate::{
-    CommandSpec, KeybindingSpec, ModeSpec, OverlaySpec, SessionGrouperSpec, SessionNamerSpec,
-    SpinnerSpec, SurfaceSpec, ThemeSpec,
+    ActionInterpreterSpec, CommandSpec, KeybindingSpec, ModeSpec, OverlaySpec, SessionGrouperSpec,
+    SessionNamerSpec, SpinnerSpec, SurfaceSpec, ThemeSpec,
 };
 
 #[derive(Default)]
@@ -23,6 +23,7 @@ pub(crate) struct RegistryHost {
     pub(crate) spinners: BTreeMap<String, SpinnerSpec>,
     pub(crate) session_grouper: Option<SessionGrouperSpec>,
     pub(crate) session_namer: Option<SessionNamerSpec>,
+    pub(crate) action_interpreters: BTreeMap<String, ActionInterpreterSpec>,
     pub(crate) event_handlers: Vec<EventHandlerRegistration>,
 }
 
@@ -145,6 +146,18 @@ impl ExtensionHost for RegistryHost {
 
     fn subscribe(&mut self, handler: EventHandlerRegistration) -> Result<()> {
         self.event_handlers.push(handler);
+        Ok(())
+    }
+
+    fn register_action_interpreter(&mut self, interpreter: ActionInterpreterSpec) -> Result<()> {
+        if self.action_interpreters.contains_key(&interpreter.name) {
+            bail!(
+                "action interpreter '{}' is already registered",
+                interpreter.name
+            );
+        }
+        self.action_interpreters
+            .insert(interpreter.name.clone(), interpreter);
         Ok(())
     }
 }

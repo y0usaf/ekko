@@ -1,4 +1,8 @@
-//! `init.lua` config loading: the Lua settings source.
+//! `init.lua` config loading: the Lua settings source — the *evaluator*
+//! half of the config cascade. The *precedence policy* (init.lua supersedes
+//! config.toml supersedes defaults) lives in `ekko-config::Config::load_cascade`;
+//! this crate only implements [`ekko_config::LuaConfigEvaluator`] so the
+//! config crate stays a dumb, dependency-free store.
 //!
 //! `~/.config/ekko/init.lua`, when present, supersedes `config.toml`. It
 //! evaluates — in a throwaway Lua state, under the hard-coded bootstrap
@@ -6,8 +10,7 @@
 //! the budget it is itself read under) — to a table congruent with
 //! [`ekko_config::Config`];
 //! being Lua, users get conditionals and env dispatch for free, and ekko
-//! only ever sees the returned table. Evaluation lives here rather than in
-//! `ekko-config` so the config crate stays a dumb, dependency-free store.
+//! only ever sees the returned table.
 //!
 //! A broken `init.lua` is a **hard error**, not a fall-through to TOML:
 //! silently ignoring the user's config is worse than refusing to start.
@@ -16,31 +19,34 @@
 use std::path::Path;
 
 use anyhow::{Context, Result};
+use ekko_config::LuaConfigEvaluator;
 use mlua::{Lua, LuaSerdeExt, Table, Value};
 
 use crate::{BOOTSTRAP_BUDGET, with_budget};
 
+/// The stateless evaluator the config cascade calls. Lua state is created
+/// per evaluation (config is read once at process start), so there's
+/// nothing to share.
+pub struct InitLuaEvaluator;
+
+impl LuaConfigEvaluator for InitLuaEvaluator {
+    fn eval_init_lua(&self, path: &Path) -> Result<ekko_config::Config> {
+        load_config(path)
+    }
+}
+
 /// Load config per the cascade both processes share: `init.lua` if present,
-/// else `config.toml`, else defaults. Only the `init.lua` arm is a hard
-/// error; a broken `config.toml` degrades to defaults with a warning,
-/// exactly as it did before `init.lua` existed.
+/// else `config.toml`, else defaults. Thin wrapper over
+/// [`ekko_config::Config::load_cascade`] with this crate's evaluator
+/// injected; kept for the existing call sites.
 pub fn load_config_cascade() -> Result<ekko_config::Config> {
-    load_config_cascade_in(&ekko_config::config_dir())
+    ekko_config::Config::load_cascade(Some(&InitLuaEvaluator))
 }
 
 /// [`load_config_cascade`] against an explicit config directory — the seam
 /// the precedence tests use.
 pub fn load_config_cascade_in(dir: &Path) -> Result<ekko_config::Config> {
-    let init = dir.join("init.lua");
-    if init.exists() {
-        return load_config(&init);
-    }
-    Ok(
-        ekko_config::Config::load_from(&dir.join("config.toml")).unwrap_or_else(|err| {
-            log::warn!("falling back to default config: {err:#}");
-            ekko_config::Config::default()
-        }),
-    )
+    ekko_config::Config::load_cascade_in(dir, Some(&InitLuaEvaluator))
 }
 
 /// Evaluate one `init.lua` into a [`ekko_config::Config`].
