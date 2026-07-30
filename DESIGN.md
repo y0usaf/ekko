@@ -6,190 +6,171 @@ implemented through that API. The approach follows two sibling projects —
 phi (`phi-ext`/`phi-builtins`) and takhti (core-as-mechanism, dogfooded
 `wm.lua`) — and exists so that the API is proven by the product itself.
 
-## The Rule
+## Locked decisions
 
-> If a feature can be an extension, it must be an extension. Built-in
-> features are implemented through the same public extension API user
-> extensions use, and live in `ekko-builtins`.
-
-Corollaries:
-
-- The extension API's test suite is `ekko-builtins` itself. If a built-in
-  can't be expressed through the API, the fix is to **grow the API**, not to
-  bypass it.
-- Built-ins register first; duplicate names are hard errors. There is no
-  privileged path — a user extension can replace any built-in wholesale by
-  disabling it and registering its own.
-- **Acceptance criterion** (CI-checked): building without `ekko-builtins`
-  leaves a bare-but-functional harness — attach, raw key passthrough,
-  full-screen grid, minimal fallback palette, nothing else. If deleting the
+- **2026-07-02 — The Rule:** If a feature can be an extension, it must be an
+  extension. Built-in features use the same public extension API as user
+  extensions and live in `ekko-builtins`. The extension API's test suite is
+  `ekko-builtins` itself; when a builtin cannot be expressed, the API grows
+  rather than being bypassed. Builtins register first and duplicate names are
+  hard errors. There is no privileged path: a user extension can replace any
+  builtin by disabling it and registering its own.
+- **2026-07-02 — Bare harness:** The acceptance criterion, checked by
+  `nix flake check`, is that building without `ekko-builtins`, `ekko-keycast`,
+  and `ekko-lua` leaves a bare-but-functional harness: attach, raw key
+  passthrough, full-screen grid, and a minimal fallback palette. If removing
   builtins breaks core, core was cheating.
+- **2026-07-02 — Snapshot reads, action writes:** Extensions never see `&mut`
+  host state. They read an immutable `ClientSnapshot` (or event payload) made
+  before each entry point, and return `UiAction`/`EventReturn` values which
+  the host applies afterward. `ekko-client/src/actions.rs::apply_ui_action`
+  is the single write path. Builtin actions are closed and grow first-class
+  variants when needed; user extensions use `UiAction::Custom { name, payload }`,
+  interpreted through `ExtensionHost::register_action_interpreter`. Unknown
+  names become an error note, and resolved actions use the same
+  recursion-bounded interpreter.
+- **2026-07-02 — Bounded dispatch:** `AppRuntime::dispatch` chooses the
+  mechanism by event class. Hot notifications (including per-frame
+  `GridUpdated`) use persistent per-handler workers with bounded mailboxes of
+  64; a full mailbox drops the event with a log line. Gates and one-shot
+  lifecycle events use thread-per-dispatch with 500ms gate and 2s lifecycle
+  timeouts, logging and continuing after errors and timeouts. ekko is
+  synchronous end to end and uses no tokio.
+- **2026-07-02 — Hot-path exception:** surface, overlay, and mode `draw`
+  closures run directly and unguarded during rendering. They are trusted
+  in-process Rust and write cells only. The `ekko-lua` bridge instead applies
+  instruction budgets to every callback and buffers data-only draw operations,
+  replaying them after a clean return; native extensions pay no bridge cost.
+- **2026-07-02 — Extension state:** Extensions own state such as sidebar
+  scroll in `Arc<Mutex<..>>` captured by closures; modes and overlays use
+  host-stored type-erased state (`Box<dyn Any>`) created per activation.
+- **2026-07-02 — Wire and event boundaries:** `ekko-proto` is deliberately
+  independent of `ekko-event`: the wire contract changes rarely while the
+  event vocabulary grows with builtins. The hub and client event loop are the
+  only translation points. Every wire change bumps `WIRE_VERSION`; additive
+  changes preserve old clients and breaking changes reject them clearly,
+  never silently misparsing.
+- **2026-07-02 — WS8 API lesson:** `ekko-keycast` lives outside builtins and
+  depends only on `ekko-ext`, proving that a public extension can be separate.
+  Its real gap grew the API with dynamic `SurfaceSpec::visible` and generic
+  `OverlaySpec::build_payload`, removing the host's `OVERLAY_HELP` special
+  case.
+- **2026-07-13 — Pane ownership:** The daemon owns the pane set: stable
+  `PaneId`s, one PTY/parser and bounded reader/writer path per pane, a binary
+  split tree, and focus per attached client. Detach preserves all panes; the
+  client owns neither canonical topology nor PTY state. Core owns pane
+  mechanism and `ekko-builtins` owns stock commands, chords, and presentation.
+  Pane operations enter through public `UiAction`s and are bridged to Lua,
+  never through a builtin-only hub path.
+- **2026-07-13 — Pane snapshot and canvas:** The wire carries complete pane
+  metadata/topology, sparse or full grids, and each client's focused pane.
+  Client state is a discardable composition, hit-testing, and selection cache.
+  The daemon sizes one canonical session canvas to the smallest attached
+  terminal-pane area; viewers share geometry but may focus independently.
+  Input routes through the client's focus and mouse hits name a target pane.
+  A bare session still has one full-canvas pane, raw passthrough,
+  detach/attach, and correct rendering, but no stock pane-creation gesture.
+  Splits are explicit 50/50 right/down splits with a minimum child size;
+  invalid splits do not mutate topology. New panes start the configured shell
+  in the session cwd; inheriting a foreground process cwd is deferred because
+  it requires platform-specific process inspection.
 
-## Crate map
+The extension boundary for [[canon:functional-core]] is the public trait
+surface in `ekko-ext`; `ekko-client/src/actions.rs::apply_ui_action` is the
+single host write path. The daemon state required by
+[[canon:daemon-thin-client]] is the session's pane topology, pane PTYs and
+parsers, split geometry, and per-session workspace state; it survives client
+detach and reattach.
+
+The wire's current workspace contract carries complete pane metadata and
+client focus. Since `WIRE_VERSION` 8, `ServerToClient::Workspace` carries the
+pane projection and per-pane grids while `ClientToServer` carries split,
+focus, and close requests. Version 9 added `WorkspaceUpdate.border_style`:
+pane separation is session-level configuration (`compact` reserves shared
+separator cells; `frame` draws a ring), and clients draw zellij-style
+junction-resolved box glyphs from `ekko-client/src/borders.rs`. Version 10
+added scrollback search/dump (`SearchScrollback`/`DumpScrollback` to
+`SearchResults`/`ScrollbackDump`) in absolute history rows and
+`GridUpdate.history` for the scroll indicator. Version 11 added out-of-band
+`Inject` and `DumpSession` scripting verbs for `ekko send` and `ekko dump`;
+they need no attach or TTY and act on the session's primary pane.
+
+## Architecture
 
 | Crate | Role | Core or policy |
 |---|---|---|
 | `ekko-event` | Event vocabulary (`EventKind`/`EventPayload`/`EventReturn`, `UiAction`) shared by both hosts | core (vocabulary) |
-| `ekko-ext` | Extension API: `Extension`/`ExtensionHost` traits, registries, `RuntimeBuilder`/`AppRuntime`, `DrawContext`, dock layout resolver | core (mechanism) |
-| `ekko-builtins` | Sidebar, statusbar, command mode, commands, keybindings, help overlay, theme, spinner, session grouping, session naming, resurrection, spawn hooks | **policy** |
-| `ekko-client` | Attach client host: threads, socket glue, snapshot building, `apply_ui_action`, `DrawContext` adapter | core |
-| `ekko-server` | Per-session daemon host: hub actor, PTY lifecycle, render tick, hook dispatch sites | core |
-| `ekko-proto` | Wire contract (framing, socket, messages). Small and stable; independent of `ekko-event` | core |
-| `ekko-grid` | Cell surface, damage tracking, optimizing ANSI diff renderer | core |
-| `vt100` | Vendored upstream parser (0.16.2) + `history_len`/`history_rows` accessors for scrollback search/dump; upstream style, not ekko conventions | vendored |
-| `ekko-tui` | Terminal primitives: raw mode, color probing, cell-width math, spinner math | core |
-| `ekko-pty` | PTY spawn/IO/reaping | core |
-| `ekko-config` | Config schema + TOML parsing; the `init.lua` settings source that supersedes `config.toml` is evaluated in `ekko-lua`. Depends on `ekko-proto` for the `PaneBorderStyle` vocabulary the wire shares. Holds binding *strings*; binding *meanings* live in builtins | core |
-| `ekko-resurrection` | Manifest I/O library (used by the resurrection builtin and by `ekko ls`) | core (I/O) |
-| `ekko-keycast` | Keystroke display (`:keycast`). The WS8 extension: lives outside the builtins, depends only on `ekko-ext` | **policy** |
-| `ekko-lua` | Lua scripting bridge: `~/.config/ekko/extensions/*.lua` scripts become `Extension`s, guarded by instruction budgets + buffered draw ops; also evaluates `init.lua` into `ekko_config::Config` and exposes the resolved config to scripts as `ekko.config` | core (bridge) |
+| `ekko-ext` | Extension API traits, registries, runtime, draw context, dock resolver | core (decision-making mechanism) |
+| `ekko-builtins` | Sidebar, statusbar, command mode, commands, keybindings, help, theme, spinner, sessions, resurrection, spawn hooks | **policy** |
+| `ekko-client` | Attach host, threads, socket glue, snapshots, single action application, draw adapter | core (machinery) |
+| `ekko-server` | Session daemon hub, PTYs, render tick, hook dispatch | core (machinery) |
+| `ekko-proto` | Stable wire framing, sockets, and messages | core (machinery) |
+| `ekko-grid` | Cells, damage tracking, ANSI diff renderer | core (machinery) |
+| `vt100` | Vendored parser plus scrollback accessors | vendored machinery |
+| `ekko-tui` | Raw mode, color probing, cell widths, spinner math | core (machinery) |
+| `ekko-pty` | PTY spawn, I/O, and reaping | core (machinery) |
+| `ekko-paths` | XDG/env path resolution for disk and socket roots | core (policy boundary) |
+| `ekko-config` | Config schema, TOML/Lua cascade, binding strings, shared border vocabulary | core (policy) |
+| `ekko-resurrection` | Manifest I/O used by resurrection and `ekko ls` | core (machinery) |
+| `ekko-keycast` | Keystroke display extension | **policy** |
+| `ekko-lua` | Lua-to-Extension bridge, instruction budgets, buffered draw ops, config evaluation | core (bridge machinery) |
 
-## Extension surface contract
+Both client and server are separate processes with their own `AppRuntime`
+built by the same `RuntimeBuilder`; each dispatches only its event subset.
 
-- **Snapshot reads, action writes** (the takhti discipline): extensions
-  never see `&mut` host state. Reads come from an immutable
-  `ClientSnapshot` (or the event payload) built before each entry point;
-  writes happen only through returned `UiAction`/`EventReturn` values,
-  applied by the host after the callback returns. `apply_ui_action` in the
-  client is the single write path.
-- **Bounded dispatch**: `AppRuntime::dispatch` runs each subscribed handler
-  on its own thread with a per-kind timeout (notifications 100ms, gates
-  500ms, one-shot lifecycle 2s), logging and continuing past errors and
-  timeouts. ekko is synchronous end to end — no tokio.
-- **Hot-path exception**: surface/overlay/mode `draw` closures are called
-  directly and unguarded on the render pass. They are trusted in-process
-  Rust and write cells only. The `ekko-lua` bridge adds its own guard —
-  instruction budgets on every callback, and draw calls buffered as
-  data-only ops replayed after the Lua call returns cleanly — behind the
-  same `DrawContext` trait; native extensions pay nothing for it.
-- **Extension-owned state**: extensions hold their own state (e.g. sidebar
-  scroll) via `Arc<Mutex<..>>` captured in their closures; modes and
-  overlays get host-stored type-erased state (`Box<dyn Any>`) created per
-  activation.
-- Client and server each run their **own** `AppRuntime` (they are separate
-  processes), built with the same `RuntimeBuilder`. `ekko-event` is one flat
-  vocabulary; each side dispatches only its own subset.
+## Deferred
 
-## Wire protocol vs. event vocabulary
+- **Raw PTY output chunks:** up to 64KB per read inside the 16ms render
+  budget is the daemon's hottest path. If observation is wanted, hook the
+  already-coalesced `GridUpdate` through a persistent worker with a bounded,
+  non-blocking mailbox, not thread-per-dispatch.
+- **Server-side Key/Paste interception:** every keystroke would pay a
+  dispatch round trip, so the client owns input policy.
+- **Lua hot reload:** both processes evaluate scripts once per runtime build;
+  the client rereads on next attach and the daemon on next session. `ekko kill`
+  plus resurrection is the reload path. A manifest `host` field selects
+  `client` (default), `server`, or `both`; `both` means independent Lua
+  states sharing nothing.
+- **Foreground-process cwd inheritance:** it requires platform-specific
+  process inspection rather than pane mechanism.
+- **Floating panes, tabs, stacks, pane rename/move/zoom, layout files,
+  synchronized input, and exact pane-topology restoration after daemon death:**
+  these are follow-ups to the deliberately smaller tiled-pane vertical slice.
 
-`ekko-proto` and `ekko-event` are deliberately independent. The wire contract
-changes rarely and every change is a `WIRE_VERSION` bump; the event
-vocabulary grows continuously with the builtins. The hub and the client
-event loop are the only translation points (e.g. `EventReturn::EmitNotice`
-→ `ServerToClient::Notice`). Since `WIRE_VERSION` 8 the visual contract is
-the workspace frame: `ServerToClient::Workspace` carries the complete pane
-metadata projection and the receiving client's focus plus incremental
-per-pane grids; `ClientToServer` carries pane requests (split, focus,
-close). The client holds a discardable `WorkspaceState` cache and composes
-each pane at its server-provided rect. `WIRE_VERSION` 10 adds scrollback search/dump (`SearchScrollback`/`DumpScrollback` → `SearchResults`/`ScrollbackDump`, matches in absolute history rows) plus `GridUpdate.history` for the client's scroll indicator; v9 added
-`WorkspaceUpdate.border_style`: pane separation is a session-level
-property (the daemon reserves the separator cells in its canvas layout —
-one shared cell per split edge for `compact`, a full ring per pane for
-`frame`), so the style is set in the server's `ui.pane_borders` config and
-rides the workspace to clients, which draw the glyphs (zellij-style box
-drawing, junction-resolved for compact) from `ekko-client/src/borders.rs`.
+## Roadmap
 
-## Deferred hooks (and why)
+Each phase has a criterion that can be checked without treating this document
+as a status ledger:
 
-- **Raw PTY output chunks**: up to 64KB per read inside the 16ms render
-  budget — the daemon's hottest path. If output observation is ever wanted,
-  hook the already-coalesced `GridUpdate` via a persistent worker with a
-  bounded, non-blocking mailbox (real queued-write-ops), not
-  thread-per-dispatch.
-- **Server-side Key/Paste interception**: every keystroke would pay a
-  dispatch round trip; the client owns input policy.
-- **Lua hot reload**: both processes evaluate scripts once at runtime
-  build. The client re-reads them on the next attach; the daemon on the
-  next session (`ekko kill` + resurrection is the reload path). A script
-  declares where it runs via the manifest's `host` field (`"client"`
-  default / `"server"` / `"both"` — the latter is two independent Lua
-  states, one per process, sharing nothing).
-
-## Workstreams
-
-- [x] WS0 — `ekko-event` + `ekko-ext` scaffolding, sync dispatch, this document
-- [x] WS1 — surfaces & dock layout; sidebar/statusbar as builtins
-- [x] WS2 — command registry; command mode as a builtin
-- [x] WS3 — keybinding registry; default chords as a builtin
-- [x] WS4 — session grouper; surface-routed mouse input
-- [x] WS5 — help overlay from live registries; theme + spinner as builtins
-- [x] WS6 — server hooks (`BeforePtySpawn`, lifecycle, bell, heartbeat);
-      resurrection as a builtin; `.ekko-env` spawn override; wire `Notice`;
-      `WIRE_VERSION` 2
-- [x] WS7 — bare-harness build (`--no-default-features` feature `builtins`)
-      + integration test (`crates/ekko-server/tests/extensions.rs`)
-- [x] WS8 — `ekko-keycast`: a keystroke display built purely against the
-      public API from its own crate. Proved a real gap and grew the API for
-      it: dynamic surface visibility (`SurfaceSpec::visible`), plus the
-      generic overlay payload builder (`OverlaySpec::build_payload`) that
-      removed the host's `OVERLAY_HELP` special case
-- [x] WS9 — `ekko-lua`: scripts from `~/.config/ekko/extensions/*.lua`
-      terminate in the same `Extension`/`ExtensionHost` traits (the phi-lua
-      pattern); instruction budgets + buffered draw ops guard the render
-      path (`crates/ekko-lua/tests/bridge.rs`)
-- [x] WS10 — terminal fidelity + scrollback (`WIRE_VERSION` 4). Fixed the
-      client's per-frame full repaint (`CellSurface::resize` same-size
-      no-op); scroll mode as a builtin (grew the API:
-      `ModeOutcome::ContinueWith`, `UiAction::Scroll`/`ScrollToBottom`,
-      `ClientSnapshot::scrollback`) over server-side vt100 scrollback with
-      wheel scrolling and a statusbar indicator; mouse passthrough to
-      mouse-aware children (`TermModes` on every `GridUpdate`, SGR + legacy
-      re-encoding); drag selection + OSC 52 copy (wired the dormant
-      `ekko-grid::selection`); bracketed paste re-wrapped (and
-      injection-stripped) server-side; OSC 0/2 title, child OSC 52,
-      DECSCUSR cursor shape, and focus reporting (1004) passthrough;
-      grapheme clusters + wide-cell spans + italic on the wire and in the
-      renderer; read-direction PTY backpressure cap mirroring the writer's
-- [x] WS11 — leader key + which-key panel as a builtin. Grew the mechanism:
-      mode-scoped keybindings now *dispatch* (the client matches
-      `match_keybinding(bytes, Some(mode))` before the active mode's
-      `on_key`, so any extension extends a mode's vocabulary without owning
-      the mode), `KeybindingInfo` carries its mode scope (statusbar hints
-      filter to normal, help groups per mode, the panel renders its own
-      scope), and the chord vocabulary gained `ctrl+space`, `space`, and
-      case-sensitive bare printables for mode-scoped maps. The leader map
-      itself is policy: registry entries under `mode = "leader"`
-      (`crates/ekko-builtins/src/leader.rs`, user side
-      `examples/leader-map.lua`)
-
-
-## Pane MVP contract (landed, WS-P)
-
-Panes are the next core multiplexer mechanism. The minimum useful vertical
-slice is deliberately smaller than Zellij: tiled terminal panes with split,
-directional focus, and close. Floating panes, tabs, stacks, pane
-rename/move/zoom, layout files, synchronized input, and restoring an exact pane
-topology after daemon death are follow-ups.
-
-Locked ownership and boundaries:
-
-- **Daemon owns the pane set.** A session hub owns stable `PaneId`s, one PTY +
-  parser + bounded reader/writer path per pane, a binary split tree, and focus
-  per attached client. Detach must preserve all panes. The client never owns
-  canonical topology or PTY state.
-- **Core owns mechanism, builtins own product policy.** Core implements pane
-  identity, split-tree mutation/geometry, directional neighbor selection,
-  lifecycle cleanup, wire transport, and action application. `ekko-builtins`
-  alone chooses stock commands/chords and presentation. Pane operations enter
-  through public `UiAction`s and are bridged to Lua; no builtin-only hub path.
-- **Snapshot in, actions out.** Client extensions read pane metadata from
-  `ClientSnapshot` and request split/focus/close through returned actions. The
-  client translates those actions to versioned wire requests; the hub is the
-  single canonical write path.
-- **Thin client.** The wire carries a workspace snapshot: complete pane
-  metadata/topology projection each frame, sparse/full grid payloads per pane,
-  and the receiving client's focused pane. Client state is a discardable cache
-  used for composition, mouse hit-testing, and selection.
-- **One canonical canvas.** As today, the daemon sizes a session to the
-  smallest attached terminal-pane area. All viewers receive the same pane
-  geometry, while each viewer may focus a different pane. Keyboard/paste/scroll
-  route through that client's focus; a mouse hit names the target pane.
-- **Bare behavior stays real.** Without builtins, a session still starts with
-  one full-canvas pane, supports raw passthrough, detach/attach, and renders
-  correctly. It has no stock gesture for creating more panes.
-
-The initial split policy is an explicit 50/50 split of the focused leaf to the
-right or downward, with a minimum viable child size; invalid splits are
-rejected without mutating topology. New panes start the configured shell in the
-session cwd. Inheriting the live foreground process cwd is deferred because it
-requires platform-specific process inspection rather than pane mechanism.
+- **WS0 — event/ext foundation:** the workspace exposes the event vocabulary,
+  extension traits, and synchronous bounded dispatch.
+- **WS1 — surfaces and dock:** sidebar and statusbar are extensions registered
+  through the public API and the dock resolver lays them out.
+- **WS2 — commands:** command registration and command mode operate through
+  the extension API.
+- **WS3 — keybindings:** default chords are registry entries, not host paths.
+- **WS4 — session and mouse:** session grouping and surface-routed mouse input
+  reach extensions through snapshots and actions.
+- **WS5 — help/theme/spinner:** help is generated from live registries and
+  theme and spinner are builtins using the same surface API.
+- **WS6 — server hooks and resurrection:** lifecycle, PTY, bell, and heartbeat
+  hooks dispatch through the runtime; resurrection and `.ekko-env` are
+  builtins and notices cross the wire.
+- **WS7 — bare harness:** `nix flake check` compiles the workspace binary with
+  `--no-default-features`.
+- **WS8 — keycast:** a separate public-API extension can provide keystroke
+  display without a builtin-only dependency.
+- **WS9 — Lua bridge:** extension scripts load through `Extension`/
+  `ExtensionHost`, with instruction budgets and buffered draw operations.
+- **WS10 — terminal fidelity:** scrollback, selection, mouse/paste/OSC
+  behavior, wide cells, cursor/focus reporting, and PTY backpressure are
+  represented and rendered correctly.
+- **WS11 — leader and which-key:** mode-scoped registry bindings dispatch
+  before mode handlers and the panel presents their scopes.
+- **WS-P — tiled panes:** daemon-owned pane topology supports split, directional
+  focus, close, canonical geometry, workspace transport, and bare one-pane
+  behavior; invalid splits are rejected without mutation.
+- **WS-PB — pane borders:** configured session-level border style is carried
+  over the wire and clients render compact and framed separation correctly.
+- **WS-SB — scrollback UX:** search and dump return absolute history matches
+  and dumps, while clients expose the scroll indicator from grid history.

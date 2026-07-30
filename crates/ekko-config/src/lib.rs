@@ -11,7 +11,7 @@
 
 use std::collections::BTreeMap;
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use anyhow::Context;
 use ekko_proto::PaneBorderStyle;
@@ -148,6 +148,41 @@ impl Config {
         Ok(config)
     }
 
+    /// The config cascade, owned here so every process resolves config the
+    /// same way: `init.lua` in `dir` supersedes `config.toml`, which
+    /// supersedes defaults.
+    ///
+    /// Lua evaluation is injected via [`LuaConfigEvaluator`] (implemented by
+    /// `ekko-lua`) so this crate stays a dumb, dependency-free store while
+    /// still owning the *precedence policy*:
+    /// - `init.lua` present → evaluate it. A broken one is a **hard error**,
+    ///   never a silent fall-through: refusing to start beats ignoring the
+    ///   user's config.
+    /// - else `config.toml` → parse. A broken one is a **hard error**;
+    ///   refusing to start beats ignoring the user's config.
+    /// - neither → defaults.
+    ///
+    /// With `lua = None` (a build without the bridge), the `init.lua` arm is
+    /// skipped entirely and TOML/defaults apply.
+    pub fn load_cascade_in(
+        dir: &Path,
+        lua: Option<&dyn LuaConfigEvaluator>,
+    ) -> anyhow::Result<Self> {
+        let init = dir.join("init.lua");
+        if init.exists()
+            && let Some(evaluator) = lua
+        {
+            return evaluator.eval_init_lua(&init);
+        }
+        Self::load_from(&dir.join("config.toml"))
+    }
+
+    /// [`Self::load_cascade_in`] against the platform config directory —
+    /// the single entry point both processes (client and daemon) call.
+    pub fn load_cascade(lua: Option<&dyn LuaConfigEvaluator>) -> anyhow::Result<Self> {
+        Self::load_cascade_in(&config_dir(), lua)
+    }
+
     /// Sidebar width clamped to the valid range.
     pub fn sidebar_width(&self) -> u16 {
         self.ui
@@ -195,10 +230,20 @@ impl Config {
     }
 }
 
+/// The Lua `init.lua` evaluator, injected into the config cascade by the
+/// process's runtime builder. Implemented by `ekko-lua` (the only crate
+/// that may depend on a Lua VM); `ekko-config` depends only on this trait,
+/// keeping the crate graph acyclic: `ekko-lua → ekko-config`, never back.
+pub trait LuaConfigEvaluator {
+    /// Evaluate `init.lua` at `path` into a normalized [`Config`]. A broken
+    /// script must be an error, not a fall-through.
+    fn eval_init_lua(&self, path: &Path) -> anyhow::Result<Config>;
+}
+
+/// Config directory, resolved by the workspace's single resolver
+/// (`ekko-paths`): `$XDG_CONFIG_HOME/ekko` (or `~/.config/ekko`).
 pub fn config_dir() -> PathBuf {
-    directories::BaseDirs::new()
-        .map(|dirs| dirs.config_dir().join("ekko"))
-        .unwrap_or_else(|| PathBuf::from(".config/ekko"))
+    ekko_paths::config_dir()
 }
 
 pub fn default_config_path() -> PathBuf {

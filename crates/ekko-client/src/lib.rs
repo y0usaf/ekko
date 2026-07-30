@@ -4,8 +4,10 @@
 //! lives in extensions, stock behavior in `ekko-builtins`), and forwards
 //! keyboard/mouse input.
 
+mod actions;
 mod borders;
 mod clipboard;
+mod ctl;
 mod drawctx;
 mod event_loop;
 mod gridblit;
@@ -26,6 +28,8 @@ use ekko_proto::{
     AttachRejectReason, ClientToServer, ExitReason, ServerToClient, WIRE_VERSION, socket_path,
 };
 use interprocess::local_socket::traits::{RecvHalf as _, Stream as StreamTrait};
+
+pub use ctl::{CtlError, dump, is_no_such_session, send};
 
 /// Options controlling how [`run`] attaches to a session.
 #[derive(Clone, Debug)]
@@ -134,13 +138,14 @@ fn build_runtime(
 /// navigation) and left an orphaned stdin reader that ate the next
 /// keystroke.
 pub fn run(options: ClientOptions) -> Result<()> {
-    // `init.lua` supersedes `config.toml`; a broken `init.lua` refuses to
-    // start rather than silently running on defaults. Loaded before raw
-    // mode, so the error prints normally.
+    // The cascade (`init.lua` supersedes `config.toml` supersedes defaults)
+    // lives in ekko-config; the lua feature just injects the evaluator.
+    // A broken `init.lua` refuses to start rather than silently running on
+    // defaults. Loaded before raw mode, so the error prints normally.
     #[cfg(feature = "lua")]
     let config = ekko_lua::load_config_cascade()?;
     #[cfg(not(feature = "lua"))]
-    let config = Config::load_default().unwrap_or_default();
+    let config = Config::load_cascade(None)?;
 
     // Restore the terminal from anywhere a panic unwinds through, since the
     // `RawModeGuard`'s `Drop` won't run during an abort/unhandled unwind out
@@ -327,9 +332,10 @@ fn attach_rejected_error(reason: AttachRejectReason) -> anyhow::Error {
 /// — is escalated to an out-of-band `SIGKILL` using the PID recorded in its
 /// resurrection manifest, after verifying the PID still belongs to this
 /// session's daemon.
-pub fn kill_session(name: &str, force: bool) -> Result<()> {
+pub fn kill_session(name: &str, force: bool) -> Result<(), CtlError> {
     let path = socket_path(name);
-    if path.exists() {
+    let path_was_present = path.exists();
+    if path_was_present {
         match ekko_proto::ipc_connect(&path) {
             Ok(stream) => {
                 let (recv, mut send) = stream.split();
@@ -337,19 +343,21 @@ pub fn kill_session(name: &str, force: bool) -> Result<()> {
                 // this command forever, the user interrupts, and the kill
                 // silently never happened.
                 recv.set_timeout(Some(KILL_REPLY_TIMEOUT))
-                    .context("arming kill-confirmation timeout")?;
+                    .context("arming kill-confirmation timeout")
+                    .map_err(CtlError::Other)?;
                 ekko_proto::write_msg(&mut send, &ClientToServer::KillSession(name.to_string()))
-                    .context("sending kill request")?;
-                return confirm_kill(name, force, recv, &path);
+                    .context("sending kill request")
+                    .map_err(CtlError::Other)?;
+                return confirm_kill(name, force, recv, &path).map_err(CtlError::Other);
             }
             Err(_) => {
                 // Connect failed: stale socket from a dead daemon — or a
                 // live daemon whose accept queue is flooded. With --force,
                 // resolve that ambiguity via the daemon's PID file.
                 if force && daemon_pid(name).is_some() {
-                    return force_kill_daemon(name, &path);
+                    return force_kill_daemon(name, &path).map_err(CtlError::Other);
                 }
-                println!("session '{name}' has a stale socket; cleaning up");
+                eprintln!("session '{name}' has a stale socket; cleaning up");
                 let _ = std::fs::remove_file(&path);
                 let _ = std::fs::remove_file(ekko_proto::pid_path(name));
             }
@@ -358,9 +366,8 @@ pub fn kill_session(name: &str, force: bool) -> Result<()> {
 
     if ekko_resurrection::read(name).is_some() {
         ekko_resurrection::delete(name);
-        println!("removed manifest for session '{name}'");
-    } else if !path.exists() {
-        println!("no such session: '{name}'");
+    } else if !path_was_present {
+        return Err(CtlError::NoSuchSession(name.to_string()));
     }
     Ok(())
 }
@@ -407,7 +414,6 @@ fn confirm_kill<R: Read>(name: &str, force: bool, mut recv: R, path: &Path) -> R
         bail!("daemon refused to kill session '{name}': {message}");
     }
     if wait_socket_gone(path, KILL_CLEANUP_TIMEOUT) {
-        println!("killed session '{name}'");
         return Ok(());
     }
     if force {
@@ -457,10 +463,10 @@ fn force_kill_daemon(name: &str, path: &Path) -> Result<()> {
             unsafe {
                 libc::kill(pid as i32, libc::SIGKILL);
             }
-            println!("force-killed wedged daemon for session '{name}' (pid {pid})");
+            eprintln!("force-killed wedged daemon for session '{name}' (pid {pid})");
         }
         Ok(false) => {
-            println!("daemon for session '{name}' (pid {pid}) is already gone; cleaning up");
+            eprintln!("daemon for session '{name}' (pid {pid}) is already gone; cleaning up");
         }
         Err(e) => return Err(e),
     }
