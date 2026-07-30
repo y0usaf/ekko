@@ -113,10 +113,13 @@ fn cascade_prefers_init_lua_over_config_toml() {
     let config = ekko_lua::load_config_cascade_in(&dir).unwrap();
     assert_eq!(config.sidebar_width(), 28);
 
-    // Without init.lua the TOML applies; with neither, defaults.
+    // Without init.lua the TOML applies; a broken TOML is a hard error;
+    // with neither, defaults.
     std::fs::remove_file(dir.join("init.lua")).unwrap();
     let config = ekko_lua::load_config_cascade_in(&dir).unwrap();
     assert_eq!(config.sidebar_width(), 50);
+    std::fs::write(dir.join("config.toml"), "[ui\n").unwrap();
+    assert!(ekko_lua::load_config_cascade_in(&dir).is_err());
     std::fs::remove_file(dir.join("config.toml")).unwrap();
     let config = ekko_lua::load_config_cascade_in(&dir).unwrap();
     assert_eq!(config.sidebar_width(), ekko_config::SIDEBAR_WIDTH_DEFAULT);
