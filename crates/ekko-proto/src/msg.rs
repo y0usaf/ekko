@@ -68,6 +68,13 @@ pub enum ClientToServer {
     /// focus/attention from its host terminal (e.g. BEL → XDG activation
     /// urgency in foot).
     Activate,
+    /// `ekko send`: inject raw bytes into the session's primary pane — the
+    /// focused pane of any attached client, else the first live pane. For
+    /// scripting a session from outside; no attach required.
+    Inject { bytes: Vec<u8> },
+    /// `ekko dump`: dump the primary pane's scrollback + live screen as
+    /// plain text. Replied to with `ServerToClient::ScrollbackDump`.
+    DumpSession,
 }
 
 /// Messages sent from the server to a client.
@@ -113,8 +120,9 @@ pub enum ServerToClient {
         query: String,
         matches: Vec<SearchMatch>,
     },
-    /// Reply to `ClientToServer::DumpScrollback`: the pane's scrollback
-    /// and live screen as plain text, wrapped logical lines joined.
+    /// Reply to `ClientToServer::DumpScrollback` or `DumpSession`: the
+    /// pane's scrollback and live screen as plain text, wrapped logical
+    /// lines joined.
     ScrollbackDump { pane: u64, text: String },
 }
 

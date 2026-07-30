@@ -14,8 +14,7 @@ use std::time::{Duration, Instant};
 use anyhow::Result;
 use ekko_ext::{
     AppRuntime, ClientSnapshot, EventKind, EventPayload, EventReturn, KeyIntercept, ModeOutcome,
-    NoteKind, OverlayOutcome, ResolvedLayout, ThemePalette, UiAction, fallback_group,
-    resolve_layout,
+    NoteKind, OverlayOutcome, ResolvedLayout, ThemePalette, fallback_group, resolve_layout,
 };
 use ekko_grid::ansi::AnsiRenderer;
 use ekko_grid::cell_surface::CellSurface;
@@ -28,7 +27,6 @@ use crate::drawctx::{gc, to_cell_rect};
 use crate::input::{PasteAccumulator, PasteFeed};
 use crate::scene;
 use crate::sessions;
-use crate::spawn;
 use crate::state::{ActiveOverlay, ClientState};
 
 const SESSION_REFRESH_INTERVAL: Duration = Duration::from_secs(2);
@@ -38,10 +36,10 @@ const EDGE_SCROLL_INTERVAL: Duration = Duration::from_millis(50);
 const EDGE_SCROLL_LINES: i32 = 1;
 const ANIMATION_INTERVAL: Duration = Duration::from_millis(80);
 const IDLE_INTERVAL: Duration = Duration::from_secs(1);
-const STATUS_NOTE_TTL: Duration = Duration::from_secs(4);
+pub(crate) const STATUS_NOTE_TTL: Duration = Duration::from_secs(4);
 /// Bound on `InvokeCommand` -> command -> `InvokeCommand` chains so a
 /// misbehaving extension can't recurse the action interpreter forever.
-const MAX_ACTION_DEPTH: u8 = 4;
+pub(crate) const MAX_ACTION_DEPTH: u8 = 4;
 
 /// Events multiplexed onto the client's single input channel. The channel
 /// (and the stdin/resize producer threads) outlives any one server
@@ -174,32 +172,32 @@ pub(crate) fn spawn_resize_watcher(tx: mpsc::Sender<Event>) {
     });
 }
 
-struct App<'a> {
-    send: Box<dyn Write + Send>,
-    state: ClientState,
-    paste: PasteAccumulator,
-    palette: ThemePalette,
-    surface: CellSurface,
-    renderer: AnsiRenderer,
-    runtime: &'a AppRuntime,
+pub(crate) struct App<'a> {
+    pub(crate) send: Box<dyn Write + Send>,
+    pub(crate) state: ClientState,
+    pub(crate) paste: PasteAccumulator,
+    pub(crate) palette: ThemePalette,
+    pub(crate) surface: CellSurface,
+    pub(crate) renderer: AnsiRenderer,
+    pub(crate) runtime: &'a AppRuntime,
     /// Connection generation; socket events from other generations are stale.
-    generation: u64,
-    last_size: (u16, u16),
+    pub(crate) generation: u64,
+    pub(crate) last_size: (u16, u16),
     /// The grid size last reported to the server: the terminal pane the
     /// layout leaves over, not the raw frame. Attach reports the raw frame
     /// (the runtime doesn't exist yet), so this starts at (0, 0) and the
     /// first loop pass corrects the session size.
-    last_sent_grid: (u16, u16),
-    last_session_refresh: Instant,
+    pub(crate) last_sent_grid: (u16, u16),
+    pub(crate) last_session_refresh: Instant,
     /// Last DECSCUSR shape pushed to the host terminal (0 = default).
-    last_cursor_shape: u8,
+    pub(crate) last_cursor_shape: u8,
     /// Reusable frame buffer: each frame is composed here in full, then
     /// pushed to the terminal with a single locked write + flush instead of
     /// many small locked writes.
-    render_buf: Vec<u8>,
+    pub(crate) render_buf: Vec<u8>,
     /// Raw-mode ownership, used to hand the tty to `$EDITOR` for
     /// `UiAction::EditScrollback`.
-    raw_guard: &'a ekko_tui::RawModeGuard,
+    pub(crate) raw_guard: &'a ekko_tui::RawModeGuard,
 }
 
 impl App<'_> {
@@ -476,7 +474,7 @@ impl App<'_> {
         Ok(())
     }
 
-    fn send_message(&mut self, msg: ClientToServer) -> Result<()> {
+    pub(crate) fn send_message(&mut self, msg: ClientToServer) -> Result<()> {
         ekko_proto::write_msg(&mut self.send, &msg)?;
         Ok(())
     }
@@ -1039,7 +1037,7 @@ impl App<'_> {
 
     /// Scroll the search pane's viewport so the current match is visible
     /// (minimal movement: no scroll when already on screen).
-    fn scroll_to_current_match(&mut self) {
+    pub(crate) fn scroll_to_current_match(&mut self) {
         let Some((hit_row, pane_id)) = self.state.search.as_ref().and_then(|search| {
             search
                 .matches
@@ -1073,301 +1071,15 @@ impl App<'_> {
     /// Write the dump to a temp file and hand the tty to $VISUAL/$EDITOR
     /// (zellij's `e` in scroll mode; the client owns the terminal, so the
     /// editor takes it over directly rather than living in a pane).
-    fn open_scrollback_in_editor(&mut self, text: &str) {
-        let editor = std::env::var("VISUAL")
-            .ok()
-            .filter(|v| !v.trim().is_empty())
-            .or_else(|| std::env::var("EDITOR").ok())
-            .filter(|v| !v.trim().is_empty())
-            .unwrap_or_else(|| "vi".to_string());
-        let path = std::env::temp_dir().join(format!(
-            "ekko-scrollback-{}-{}.txt",
-            self.state.session_name,
-            std::process::id()
-        ));
-        let outcome = std::fs::write(&path, text).map_err(|e| e.to_string());
-        let status = outcome.and_then(|_| {
-            let mut parts = editor.split_whitespace();
-            let program = parts.next().unwrap_or("vi");
-            let args: Vec<&str> = parts.collect();
-            self.raw_guard.with_suspended(|| {
-                std::process::Command::new(program)
-                    .args(args)
-                    .arg(&path)
-                    .status()
-                    .map_err(|e| e.to_string())
-            })
-        });
-        let _ = std::fs::remove_file(&path);
-        // The editor scribbled over the tty: repaint everything.
-        self.renderer.invalidate();
-        self.state.dirty = true;
-        match status {
-            Ok(exit) if exit.success() => {}
-            Ok(exit) => self.state.set_note(
-                format!("{editor} exited with {exit}"),
-                NoteKind::Error,
-                STATUS_NOTE_TTL,
-            ),
-            Err(error) => self.state.set_note(
-                format!("editor failed: {error}"),
-                NoteKind::Error,
-                STATUS_NOTE_TTL,
-            ),
-        }
-    }
-
-    // ── UiAction interpreter: the single write path ─────────────────────────
-
-    fn apply_ui_actions(
-        &mut self,
-        actions: Vec<UiAction>,
-        depth: u8,
-    ) -> Result<Option<ClientOutcome>> {
-        if depth > MAX_ACTION_DEPTH {
-            self.state.set_note(
-                "action recursion limit reached",
-                NoteKind::Error,
-                STATUS_NOTE_TTL,
-            );
-            return Ok(None);
-        }
-        let mut outcome = None;
-        for action in actions {
-            if let Some(value) = self.apply_ui_action(action, depth)? {
-                outcome.get_or_insert(value);
-            }
-        }
-        Ok(outcome)
-    }
-
-    fn apply_ui_action(&mut self, action: UiAction, depth: u8) -> Result<Option<ClientOutcome>> {
-        match action {
-            UiAction::Detach => {
-                if let Some(reason) = self.runtime.dispatch_cancelable(
-                    EventKind::BeforeSessionDetach,
-                    EventPayload::BeforeSessionDetach {
-                        session_name: self.state.session_name.clone(),
-                    },
-                ) {
-                    self.state.set_note(
-                        format!("detach canceled: {reason}"),
-                        NoteKind::Error,
-                        STATUS_NOTE_TTL,
-                    );
-                    return Ok(None);
-                }
-                let _ = self.send_message(ClientToServer::Detach);
-                self.runtime
-                    .dispatch(EventKind::SessionDetached, EventPayload::Empty);
-                Ok(Some(ClientOutcome::Exited))
-            }
-            UiAction::Quit => Ok(Some(ClientOutcome::Exited)),
-            UiAction::NewSession { name } => {
-                let name = name.unwrap_or_else(|| crate::next_session_name(self.runtime));
-                match spawn::spawn_daemon(&name) {
-                    Ok(()) => Ok(Some(ClientOutcome::SwitchTo {
-                        name,
-                        mode: self.mode_carry(),
-                    })),
-                    Err(err) => {
-                        self.state.set_note(
-                            format!("failed to spawn session: {err}"),
-                            NoteKind::Error,
-                            STATUS_NOTE_TTL,
-                        );
-                        Ok(None)
-                    }
-                }
-            }
-            UiAction::SwitchSession { name } => {
-                if name == self.state.session_name {
-                    return Ok(None);
-                }
-                if let Some(reason) = self.runtime.dispatch_cancelable(
-                    EventKind::BeforeSessionSwitch,
-                    EventPayload::SessionSwitch {
-                        from: self.state.session_name.clone(),
-                        to: name.clone(),
-                    },
-                ) {
-                    self.state.set_note(
-                        format!("switch canceled: {reason}"),
-                        NoteKind::Error,
-                        STATUS_NOTE_TTL,
-                    );
-                    return Ok(None);
-                }
-                self.runtime.dispatch(
-                    EventKind::SessionSwitched,
-                    EventPayload::SessionSwitch {
-                        from: self.state.session_name.clone(),
-                        to: name.clone(),
-                    },
-                );
-                Ok(Some(ClientOutcome::SwitchTo {
-                    name,
-                    mode: self.mode_carry(),
-                }))
-            }
-            UiAction::KillCurrentSession => {
-                // Never fire-and-forget silently: if the request can't even
-                // reach the daemon the session survives, and the user must
-                // know instead of finding a ghost in the sidebar later.
-                if let Err(error) = self.send_message(ClientToServer::KillCurrentSession) {
-                    self.state.set_note(
-                        format!("kill request failed: {error}"),
-                        NoteKind::Error,
-                        STATUS_NOTE_TTL,
-                    );
-                }
-                Ok(None)
-            }
-            UiAction::EnterMode { name } => {
-                self.enter_mode(&name);
-                Ok(None)
-            }
-            UiAction::ExitMode => {
-                self.exit_mode();
-                Ok(None)
-            }
-            UiAction::OpenOverlay { name } => {
-                self.open_overlay(&name);
-                Ok(None)
-            }
-            UiAction::CloseOverlay => {
-                self.state.overlay = None;
-                Ok(None)
-            }
-            UiAction::SetStatusNote { text, kind, ttl_ms } => {
-                self.state
-                    .set_note(text, kind, Duration::from_millis(ttl_ms));
-                Ok(None)
-            }
-            UiAction::ForwardKey { bytes } => {
-                self.send_message(ClientToServer::Key(bytes))?;
-                Ok(None)
-            }
-            UiAction::Scroll { delta } => {
-                self.send_message(ClientToServer::Scroll { delta })?;
-                Ok(None)
-            }
-            UiAction::ScrollToBottom => {
-                self.send_message(ClientToServer::ScrollReset)?;
-                Ok(None)
-            }
-            UiAction::SearchScrollback { query } => {
-                self.send_message(ClientToServer::SearchScrollback { query })?;
-                Ok(None)
-            }
-            UiAction::SearchMatchJump { forward } => {
-                if let Some(search) = &mut self.state.search {
-                    let len = search.matches.len();
-                    if len > 0 {
-                        search.current = if forward {
-                            (search.current + 1) % len
-                        } else {
-                            (search.current + len - 1) % len
-                        };
-                        self.scroll_to_current_match();
-                        self.state.dirty = true;
-                    }
-                }
-                Ok(None)
-            }
-            UiAction::SearchClear => {
-                self.state.search = None;
-                self.state.dirty = true;
-                Ok(None)
-            }
-            UiAction::EditScrollback => {
-                self.send_message(ClientToServer::DumpScrollback)?;
-                Ok(None)
-            }
-            UiAction::SplitRight => {
-                self.send_message(ClientToServer::SplitPane {
-                    direction: ekko_proto::SplitDirection::Right,
-                })?;
-                Ok(None)
-            }
-            UiAction::SplitDown => {
-                self.send_message(ClientToServer::SplitPane {
-                    direction: ekko_proto::SplitDirection::Down,
-                })?;
-                Ok(None)
-            }
-            UiAction::FocusPaneDirection { direction } => {
-                let direction = match direction {
-                    ekko_ext::PaneDirection::Left => ekko_proto::Direction::Left,
-                    ekko_ext::PaneDirection::Right => ekko_proto::Direction::Right,
-                    ekko_ext::PaneDirection::Up => ekko_proto::Direction::Up,
-                    ekko_ext::PaneDirection::Down => ekko_proto::Direction::Down,
-                };
-                self.send_message(ClientToServer::FocusDirection { direction })?;
-                Ok(None)
-            }
-            UiAction::CloseFocusedPane => {
-                self.send_message(ClientToServer::CloseFocusedPane)?;
-                Ok(None)
-            }
-            UiAction::ToggleSurface { name } => {
-                if self.runtime.surface(&name).is_none() {
-                    self.state.set_note(
-                        format!("unknown surface: {name}"),
-                        NoteKind::Error,
-                        STATUS_NOTE_TTL,
-                    );
-                    return Ok(None);
-                }
-                if !self.state.hidden_surfaces.remove(&name) {
-                    self.state.hidden_surfaces.insert(name);
-                }
-                // The terminal pane grows/shrinks with the toggle; the next
-                // loop pass resizes the session grid via
-                // `apply_resize_if_changed`.
-                self.state.dirty = true;
-                Ok(None)
-            }
-            UiAction::InvokeCommand { line } => {
-                use ekko_ext::CommandDispatch;
-                match self.runtime.invoke_command(&line) {
-                    CommandDispatch::Empty => Ok(None),
-                    CommandDispatch::NotFound(line) => {
-                        self.state.set_note(
-                            format!("unknown command: {line}"),
-                            NoteKind::Error,
-                            STATUS_NOTE_TTL,
-                        );
-                        Ok(None)
-                    }
-                    CommandDispatch::Canceled(reason) => {
-                        self.state.set_note(
-                            format!("command canceled: {reason}"),
-                            NoteKind::Error,
-                            STATUS_NOTE_TTL,
-                        );
-                        Ok(None)
-                    }
-                    CommandDispatch::Failed(message) => {
-                        self.state
-                            .set_note(message, NoteKind::Error, STATUS_NOTE_TTL);
-                        Ok(None)
-                    }
-                    CommandDispatch::Invoked(actions) => self.apply_ui_actions(actions, depth + 1),
-                }
-            }
-        }
-    }
-
     /// The mode to re-enter after a session switch. A sticky mode-scoped
     /// action (a leader map walking sessions) runs without `ExitMode`, so
     /// the mode it was invoked from survives the reattach; actions that
     /// exited the mode first carry nothing.
-    fn mode_carry(&self) -> Option<String> {
+    pub(crate) fn mode_carry(&self) -> Option<String> {
         (!self.state.in_normal_mode()).then(|| self.state.mode.clone())
     }
 
-    fn enter_mode(&mut self, name: &str) {
+    pub(crate) fn enter_mode(&mut self, name: &str) {
         let Some(spec) = self.runtime.mode(name) else {
             self.state.set_note(
                 format!("unknown mode: {name}"),
@@ -1401,7 +1113,7 @@ impl App<'_> {
         );
     }
 
-    fn exit_mode(&mut self) {
+    pub(crate) fn exit_mode(&mut self) {
         if self.state.in_normal_mode() {
             return;
         }
@@ -1434,7 +1146,7 @@ impl App<'_> {
         }
     }
 
-    fn open_overlay(&mut self, name: &str) {
+    pub(crate) fn open_overlay(&mut self, name: &str) {
         let Some(spec) = self.runtime.overlay(name) else {
             self.state.set_note(
                 format!("unknown overlay: {name}"),

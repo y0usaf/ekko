@@ -7,7 +7,7 @@ license.workspace = true
 [dependencies]
 anyhow.workspace = true
 bincode.workspace = true
-directories.workspace = true
+ekko-paths.workspace = true
 interprocess.workspace = true
 libc.workspace = true
 serde.workspace = true

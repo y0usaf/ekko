@@ -369,6 +369,16 @@ pub enum UiAction {
     /// Close the focused pane; its sibling absorbs the space. Closing the
     /// last pane ends the session.
     CloseFocusedPane,
+    /// An extension-defined effect, resolved through the host's custom-action
+    /// interpreter registry (`ExtensionHost::register_action_interpreter`).
+    /// This is the sanctioned escape hatch from the closed world: anything a
+    /// builtin needs that isn't expressible here is still an API gap to fill
+    /// with a first-class variant — `Custom` exists so *user* extensions can
+    /// compose effects the core never foresaw (bridged, e.g., through Lua),
+    /// not so builtins can bypass growing the vocabulary. The host resolves
+    /// `name` to one or more ordinary `UiAction`s; unknown names surface an
+    /// error note.
+    Custom { name: String, payload: String },
 }
 
 /// A cardinal direction for pane focus moves.

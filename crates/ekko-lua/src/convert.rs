@@ -334,6 +334,12 @@ fn action_from_value(value: &Value) -> Result<UiAction> {
             if let Some(line) = t.get::<Option<String>>("invoke_command")? {
                 return Ok(UiAction::InvokeCommand { line });
             }
+            if let Some(spec) = t.get::<Option<Table>>("custom")? {
+                return Ok(UiAction::Custom {
+                    name: spec.get::<Option<String>>("name")?.unwrap_or_default(),
+                    payload: spec.get::<Option<String>>("payload")?.unwrap_or_default(),
+                });
+            }
             if let Some(bytes) = t.get::<Option<mlua::String>>("forward_key")? {
                 return Ok(UiAction::ForwardKey {
                     bytes: bytes.as_bytes().to_vec(),

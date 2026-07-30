@@ -55,7 +55,7 @@ mod config;
 mod convert;
 mod draw;
 
-pub use config::{load_config, load_config_cascade, load_config_cascade_in};
+pub use config::{InitLuaEvaluator, load_config, load_config_cascade, load_config_cascade_in};
 
 use std::path::Path;
 use std::sync::{Arc, Mutex};
@@ -287,6 +287,7 @@ impl Extension for LuaExtension {
                       commands = {}, keybindings = {}, surfaces = {},
                       overlays = {}, modes = {}, themes = {}, spinners = {},
                       groupers = {}, namers = {}, subscriptions = {},
+                      interpreters = {},
                     }
                     regs.ekko = {
                       register_command = function(spec) table.insert(regs.commands, spec) end,
@@ -298,6 +299,7 @@ impl Extension for LuaExtension {
                       register_spinner = function(spec) table.insert(regs.spinners, spec) end,
                       register_session_grouper = function(spec) table.insert(regs.groupers, spec) end,
                       register_session_namer = function(spec) table.insert(regs.namers, spec) end,
+                      register_action_interpreter = function(spec) table.insert(regs.interpreters, spec) end,
                       subscribe = function(event, handler)
                         table.insert(regs.subscriptions, { event = event, handler = handler })
                       end,
@@ -344,6 +346,9 @@ impl Extension for LuaExtension {
         }
         for spec in collector.get::<Table>("namers")?.sequence_values() {
             self.register_session_namer(host, &lua, spec?)?;
+        }
+        for spec in collector.get::<Table>("interpreters")?.sequence_values() {
+            self.register_action_interpreter(host, &lua, spec?)?;
         }
         for spec in collector.get::<Table>("subscriptions")?.sequence_values() {
             self.register_subscription(host, &lua, spec?)?;
@@ -991,6 +996,40 @@ impl LuaExtension {
                     log::warn!("lua session namer errored: {err:#}");
                     String::new()
                 })
+            }),
+        })
+    }
+
+    fn register_action_interpreter(
+        &self,
+        host: &mut dyn ExtensionHost,
+        lua: &Lua,
+        spec: Table,
+    ) -> Result<()> {
+        let name: String = spec
+            .get::<Option<String>>("name")?
+            .ok_or_else(|| anyhow!("action interpreter spec needs a 'name'"))?;
+        let description: String = spec
+            .get::<Option<String>>("description")?
+            .unwrap_or_default();
+        let handler = self.stash(
+            lua,
+            spec.get::<Option<Function>>("handler")?
+                .ok_or_else(|| anyhow!("action interpreter '{name}' needs a 'handler' function"))?,
+        )?;
+        let shared = self.lua.clone();
+        let handler_budget = self.handler_budget();
+        host.register_action_interpreter(ekko_ext::ActionInterpreterSpec {
+            name,
+            description,
+            handler: Arc::new(move |payload| {
+                let lua = shared.lock().unwrap();
+                with_budget(&lua, handler_budget, |lua| {
+                    let f: Function = lua.registry_value(&handler)?;
+                    let value = f.call::<Value>(payload.to_string())?;
+                    actions_from_value(&value).map_err(mlua::Error::external)
+                })
+                .map_err(|e| anyhow!("{e:#}"))
             }),
         })
     }

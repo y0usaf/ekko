@@ -13,7 +13,6 @@ lua = ["dep:ekko-lua"]
 anyhow.workspace = true
 crossbeam-channel.workspace = true
 daemonize.workspace = true
-directories.workspace = true
 interprocess.workspace = true
 log = { workspace = true, features = ["std"] }
 ekko-builtins = { workspace = true, optional = true }
@@ -22,6 +21,7 @@ ekko-lua = { workspace = true, optional = true }
 ekko-event.workspace = true
 ekko-ext.workspace = true
 ekko-proto.workspace = true
+ekko-paths.workspace = true
 ekko-pty.workspace = true
 ekko-resurrection.workspace = true
 serde.workspace = true

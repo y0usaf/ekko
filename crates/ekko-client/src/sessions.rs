@@ -11,29 +11,12 @@ use ekko_ext::{SessionEntry, SessionState};
 use ekko_proto::socket_dir;
 
 /// Directory holding per-session manifests: `<cache_root>/wire_v<N>/session_info`.
-/// Must resolve identically to the server's `resurrection::cache_root` —
-/// `EKKO_CACHE_DIR` override first, then `$XDG_CACHE_HOME/ekko`, then `~/.cache/ekko`.
+/// Resolves through the workspace's single resolver (`ekko-paths`), shared
+/// with the server's `ekko-resurrection` manifest writer.
 pub fn session_info_dir() -> PathBuf {
-    cache_root()
+    ekko_paths::cache_root()
         .join(format!("wire_v{}", ekko_proto::WIRE_VERSION))
         .join("session_info")
-}
-
-fn cache_root() -> PathBuf {
-    if let Some(dir) = std::env::var_os("EKKO_CACHE_DIR")
-        && !dir.is_empty()
-    {
-        return PathBuf::from(dir);
-    }
-    if let Some(dir) = std::env::var_os("XDG_CACHE_HOME")
-        && !dir.is_empty()
-    {
-        return PathBuf::from(dir).join("ekko");
-    }
-    let home = std::env::var_os("HOME")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from("/tmp"));
-    home.join(".cache").join("ekko")
 }
 
 /// Scan sockets + manifests and return the merged, deduplicated session list.

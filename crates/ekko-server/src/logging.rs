@@ -10,10 +10,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use log::{Level, LevelFilter, Log, Metadata, Record};
 
-use ekko_resurrection::cache_root;
-
 fn log_dir() -> PathBuf {
-    cache_root().join("logs")
+    ekko_paths::log_dir()
 }
 
 fn log_path(session_name: &str) -> PathBuf {
