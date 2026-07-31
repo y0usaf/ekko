@@ -4,6 +4,7 @@ resolver = "2"
 
 [workspace.package]
 edition = "2024"
+rust-version = "1.85"
 license = "MIT"
 version = "0.1.0"
 
@@ -14,7 +15,6 @@ clap = { version = "4.5", features = ["derive"] }
 close_fds = "0.3"
 crossbeam-channel = "0.5"
 daemonize = { version = "0.5", default-features = false }
-directories = "6.0"
 interprocess = { version = "2.2", default-features = false }
 libc = "0.2"
 log = "0.4"
@@ -24,9 +24,7 @@ serde_json = "1.0"
 signal-hook = { version = "0.3", default-features = false, features = ["iterator"] }
 tempfile = "3"
 thiserror = "2.0"
-tokio = { version = "1.45", features = ["rt-multi-thread", "macros", "io-util", "sync", "time", "net"] }
 toml = "0.8"
-unicode-segmentation = "1.12"
 unicode-width = "0.2"
 vt100 = { path = "crates/vt100" }
 
