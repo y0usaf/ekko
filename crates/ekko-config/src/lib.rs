@@ -27,6 +27,14 @@ pub const SCROLLBACK_LINES_DEFAULT: usize = 10_000;
 pub const LUA_DRAW_BUDGET_DEFAULT: u32 = 200_000;
 pub const LUA_HANDLER_BUDGET_DEFAULT: u32 = 2_000_000;
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum PaneLayout {
+    #[default]
+    Manual,
+    Equal,
+}
+
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Config {
@@ -97,6 +105,8 @@ pub struct Ui {
     /// reserves the separator cells in the canvas layout — and announced
     /// to clients over the wire, so set it where the server reads config.
     pub pane_borders: PaneBorderStyle,
+    /// Pane sizing policy; manual preserves the canonical BSP behavior.
+    pub pane_layout: PaneLayout,
 }
 
 impl Default for Ui {
@@ -105,6 +115,7 @@ impl Default for Ui {
             sidebar_width: SIDEBAR_WIDTH_DEFAULT,
             animation_interval_ms: ANIMATION_INTERVAL_MS_DEFAULT,
             pane_borders: PaneBorderStyle::None,
+            pane_layout: PaneLayout::Manual,
         }
     }
 }

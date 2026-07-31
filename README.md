@@ -125,7 +125,7 @@ Lua state — to a table congruent with the config schema:
 ```lua
 return {
   general = { default_shell = "/run/current-system/sw/bin/nu", scrollback_lines = 50000 },
-  ui = { sidebar_width = 28, pane_borders = "compact", animation_interval_ms = 80 }, -- "none" | "compact" | "frame"
+  ui = { sidebar_width = 28, pane_borders = "compact", pane_layout = "manual", animation_interval_ms = 80 }, -- borders: "none" | "compact" | "frame"; layout: "manual" | "equal"
   keybinds = { detach = "ctrl+q", session_next = { "ctrl+j", "ctrl+down" } },
   extensions = { disabled = { "ekko-builtins.sidebar" } },
   lua = { draw_budget = 200000, handler_budget = 2000000 },
@@ -151,7 +151,9 @@ daemon load the same cascade, and scripts read the resolved result as a
 read-only `ekko.config` table.
 
 `ui.animation_interval_ms` controls the client animation tick cadence (default
-80ms; values are clamped to 8–1000ms). `ui.pane_borders` picks how tiled panes are separated: `"none"` (default,
+80ms; values are clamped to 8–1000ms). `ui.pane_layout` selects pane sizing: `"manual"` (default, preserving the
+BSP split behavior) or `"equal"` (recomputes a proportional equal-area layout
+when panes are added or closed). `ui.pane_borders` picks how tiled panes are separated: `"none"` (default,
 edge-to-edge), `"compact"` (zellij-style shared boundary lines with
 junction glyphs), or `"frame"` (a full box frame around every pane). The
 daemon owns the canvas, so it reserves the separator cells in the layout

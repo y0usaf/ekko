@@ -13,6 +13,10 @@ use crate::terminal_pane::PaneId;
 /// Smallest terminal parser/PTY geometry accepted for a new tiled child.
 pub(crate) const MIN_PANE_COLS: u16 = 2;
 pub(crate) const MIN_PANE_ROWS: u16 = 1;
+/// Terminal cells are approximately twice as tall as they are wide.
+const CELL_ASPECT: u32 = 2;
+/// Integer cuts can make areas differ by at most one row/column strip.
+pub(crate) const EQUAL_AREA_ROUNDING_BOUND: u32 = 80;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct Rect {
@@ -139,6 +143,23 @@ impl PaneTopology {
 
     /// Return a proposed split without mutating this tree. The caller can
     /// resolve/validate it and spawn the child before committing the clone.
+    pub(crate) fn with_append(&self, child: PaneId) -> Result<Self, TopologyError> {
+        if self.contains(child) {
+            return Err(TopologyError::DuplicateLeaf);
+        }
+        let Some(root) = &self.root else {
+            return Err(TopologyError::MissingLeaf);
+        };
+        Ok(Self {
+            root: Some(Node::Split {
+                axis: SplitAxis::Horizontal,
+                ratio: SplitRatio::HALF,
+                first: Box::new(root.clone()),
+                second: Box::new(Node::Leaf(child)),
+            }),
+        })
+    }
+
     pub(crate) fn with_split(
         &self,
         target: PaneId,
@@ -218,6 +239,39 @@ impl PaneTopology {
             resolved.len()
         );
         Ok(resolved)
+    }
+
+    /// Resolve leaves by recursive proportional halving, independent of the
+    /// historical BSP split directions. Separator cells are removed at every
+    /// cut exactly as in `resolve_node`.
+    pub(crate) fn resolve_equal(
+        &self,
+        canvas: Rect,
+        style: PaneBorderStyle,
+    ) -> Result<Vec<(PaneId, Rect)>, TopologyError> {
+        if canvas.cols == 0 || canvas.rows == 0 {
+            return Err(TopologyError::ZeroCanvas);
+        }
+        let margin = style.margin();
+        let inner = Rect {
+            x: canvas.x + margin,
+            y: canvas.y + margin,
+            cols: canvas
+                .cols
+                .checked_sub(margin * 2)
+                .ok_or(TopologyError::ChildTooSmall)?,
+            rows: canvas
+                .rows
+                .checked_sub(margin * 2)
+                .ok_or(TopologyError::ChildTooSmall)?,
+        };
+        if inner.cols == 0 || inner.rows == 0 {
+            return Err(TopologyError::ChildTooSmall);
+        }
+        let ids = self.leaves();
+        let mut out = Vec::with_capacity(ids.len());
+        resolve_equal_nodes(&ids, inner, style.gap(), &mut out)?;
+        Ok(out)
     }
 
     pub(crate) fn resolve_viable(
@@ -361,6 +415,62 @@ fn remove_leaf(node: Node, pane: PaneId) -> (Option<Node>, bool) {
     }
 }
 
+fn resolve_equal_nodes(
+    ids: &[PaneId],
+    rect: Rect,
+    gap: u16,
+    out: &mut Vec<(PaneId, Rect)>,
+) -> Result<(), TopologyError> {
+    if ids.len() == 1 {
+        out.push((ids[0], rect));
+        return Ok(());
+    }
+    let a = ids.len().div_ceil(2);
+    let extent = if u32::from(rect.cols) > u32::from(rect.rows) * CELL_ASPECT {
+        rect.cols
+    } else {
+        rect.rows
+    };
+    let working = extent
+        .checked_sub(gap)
+        .ok_or(TopologyError::ChildTooSmall)?;
+    let first_extent = ((u32::from(working) * a as u32) / ids.len() as u32) as u16;
+    let second_extent = working - first_extent;
+    let horizontal = extent == rect.cols;
+    if (horizontal && (first_extent < MIN_PANE_COLS || second_extent < MIN_PANE_COLS))
+        || (!horizontal && (first_extent < MIN_PANE_ROWS || second_extent < MIN_PANE_ROWS))
+    {
+        return Err(TopologyError::ChildTooSmall);
+    }
+    let (first, second) = if horizontal {
+        (
+            Rect {
+                cols: first_extent,
+                ..rect
+            },
+            Rect {
+                x: rect.x + first_extent + gap,
+                cols: second_extent,
+                ..rect
+            },
+        )
+    } else {
+        (
+            Rect {
+                rows: first_extent,
+                ..rect
+            },
+            Rect {
+                y: rect.y + first_extent + gap,
+                rows: second_extent,
+                ..rect
+            },
+        )
+    };
+    resolve_equal_nodes(&ids[..a], first, gap, out)?;
+    resolve_equal_nodes(&ids[a..], second, gap, out)
+}
+
 fn resolve_node(
     node: &Node,
     rect: Rect,
@@ -465,10 +575,10 @@ mod tests {
 
     fn assert_geometry(topology: &PaneTopology, bounds: Rect) {
         let first = topology
-            .resolve_viable(bounds, PaneBorderStyle::None)
+            .resolve_equal(bounds, PaneBorderStyle::None)
             .unwrap();
         let second = topology
-            .resolve_viable(bounds, PaneBorderStyle::None)
+            .resolve_equal(bounds, PaneBorderStyle::None)
             .unwrap();
         assert_eq!(first, second, "resolution must be deterministic");
         assert_eq!(first.len(), topology.len());
@@ -522,6 +632,86 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn equal_layout_worked_examples_and_tile_invariants() {
+        for n in [1usize, 2, 3, 4, 5, 6, 7, 8, 9, 12] {
+            let mut topology = PaneTopology::new(id(1));
+            for value in 2..=n as u64 {
+                topology = topology.with_append(id(value)).unwrap();
+            }
+            let geometry = topology
+                .resolve_equal(canvas(80, 24), PaneBorderStyle::None)
+                .unwrap();
+            assert_eq!(geometry.len(), n);
+            let areas: Vec<u32> = geometry
+                .iter()
+                .map(|(_, r)| u32::from(r.cols) * u32::from(r.rows))
+                .collect();
+            let min = *areas.iter().min().unwrap();
+            let max = *areas.iter().max().unwrap();
+            assert!(max - min <= EQUAL_AREA_ROUNDING_BOUND);
+            assert_geometry(&topology, canvas(80, 24));
+            for (i, (_, a)) in geometry.iter().enumerate() {
+                for (_, b) in &geometry[i + 1..] {
+                    assert!(!a.overlaps_x(*b) || !a.overlaps_y(*b));
+                }
+            }
+            if n == 3 {
+                assert_eq!(
+                    geometry
+                        .iter()
+                        .map(|(_, r)| (r.x, r.y, r.cols, r.rows))
+                        .collect::<Vec<_>>(),
+                    vec![(0, 0, 26, 24), (26, 0, 27, 24), (53, 0, 27, 24)]
+                );
+            }
+            if n == 4 {
+                assert_eq!(
+                    geometry
+                        .iter()
+                        .map(|(_, r)| (r.x, r.y, r.cols, r.rows))
+                        .collect::<Vec<_>>(),
+                    vec![
+                        (0, 0, 40, 12),
+                        (0, 12, 40, 12),
+                        (40, 0, 40, 12),
+                        (40, 12, 40, 12)
+                    ]
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn equal_layout_directional_neighbors_use_geometry() {
+        let mut topology = PaneTopology::new(id(1));
+        for value in 2..=4 {
+            topology = topology.with_append(id(value)).unwrap();
+        }
+        let geometry = topology
+            .resolve_equal(canvas(80, 24), PaneBorderStyle::None)
+            .unwrap();
+        assert_eq!(
+            topology.neighbor(
+                id(1),
+                Direction::Right,
+                canvas(80, 24),
+                PaneBorderStyle::None
+            ),
+            Some(id(2))
+        );
+        assert_eq!(
+            topology.neighbor(
+                id(2),
+                Direction::Left,
+                canvas(80, 24),
+                PaneBorderStyle::None
+            ),
+            Some(id(1))
+        );
+        assert_eq!(geometry.len(), 4);
     }
 
     #[test]
