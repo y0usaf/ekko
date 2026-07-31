@@ -1,5 +1,12 @@
 # ekko — Design
 
+## Pane layout
+
+The daemon's `[ui].pane_layout` is `manual` by default, retaining the BSP
+split geometry. `equal` recursively halves pane counts proportionally, cutting
+the longer pixel axis (terminal cell height is approximately twice its width),
+while accounting for border separator cells and minimum pane dimensions.
+
 ekko is a terminal multiplexer built extension-first: a small core of
 mechanism exposing a public extension API, with **all** stock behavior
 implemented through that API. The approach follows two sibling projects —

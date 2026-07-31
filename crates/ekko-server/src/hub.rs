@@ -8,7 +8,7 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use crossbeam_channel::{Receiver, RecvTimeoutError, Sender};
-use ekko_config::Config;
+use ekko_config::{Config, PaneLayout};
 use ekko_proto::{AttachRejectReason, ClientToServer, ExitReason, ServerNotice, ServerToClient};
 use ekko_pty::{PtyCommand, WinSize};
 use interprocess::local_socket::Stream as LocalSocketStream;
@@ -646,7 +646,9 @@ impl Hub {
         let topology = self
             .topology()
             .ok_or(crate::topology::TopologyError::MissingLeaf)?;
-        if topology.len() == 1 {
+        if self.config.ui.pane_layout == PaneLayout::Equal {
+            topology.resolve_equal(canvas, self.config.ui.pane_borders)
+        } else if topology.len() == 1 {
             topology.resolve(canvas, self.config.ui.pane_borders)
         } else {
             topology.resolve_viable(canvas, self.config.ui.pane_borders)
@@ -811,11 +813,19 @@ impl Hub {
         let Some(topology) = self.topology() else {
             return Ok(None);
         };
-        let proposed = match topology.with_split(target, candidate, axis, SplitRatio::HALF) {
+        let proposed = match if self.config.ui.pane_layout == PaneLayout::Equal {
+            topology.with_append(candidate)
+        } else {
+            topology.with_split(target, candidate, axis, SplitRatio::HALF)
+        } {
             Ok(proposed) => proposed,
             Err(_) => return Ok(None),
         };
-        let geometry = match proposed.resolve_viable(canvas, self.config.ui.pane_borders) {
+        let geometry = match if self.config.ui.pane_layout == PaneLayout::Equal {
+            proposed.resolve_equal(canvas, self.config.ui.pane_borders)
+        } else {
+            proposed.resolve_viable(canvas, self.config.ui.pane_borders)
+        } {
             Ok(geometry) => geometry,
             Err(_) => return Ok(None),
         };
