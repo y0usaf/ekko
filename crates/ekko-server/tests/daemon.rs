@@ -150,8 +150,19 @@ impl TestClient {
     }
 
     fn attach_with_size(&mut self, cwd: PathBuf, force: bool, cols: u16, rows: u16) {
+        self.attach_with_version(cwd, force, cols, rows, WIRE_VERSION);
+    }
+
+    fn attach_with_version(
+        &mut self,
+        cwd: PathBuf,
+        force: bool,
+        cols: u16,
+        rows: u16,
+        wire_version: u32,
+    ) {
         self.send(&ClientToServer::Attach {
-            wire_version: WIRE_VERSION,
+            wire_version,
             cols,
             rows,
             cwd,
@@ -449,6 +460,51 @@ fn session_sizes_to_smallest_attached_client() {
     );
 
     kill_and_join(client1, daemon, &env.session_name);
+}
+
+#[test]
+fn wrong_wire_version_rejected_session_survives() {
+    let env = TestEnv::new("t-wrong-wire");
+    let daemon = spawn_daemon(env.session_name.clone());
+
+    let mut owner = TestClient::connect(&env.session_name);
+    owner.attach(env.cwd(), false);
+    assert!(
+        owner
+            .wait_for(Duration::from_secs(5), |m| matches!(
+                m,
+                ServerToClient::Attached { .. }
+            ))
+            .is_some()
+    );
+    owner.send(&ClientToServer::Key(b"printf survived\\n".to_vec()));
+    assert!(
+        owner
+            .wait_for(Duration::from_secs(10), |m| grid_contains(m, "survived"))
+            .is_some()
+    );
+
+    let mut wrong = TestClient::connect(&env.session_name);
+    wrong.attach_with_version(env.cwd(), false, 80, 24, WIRE_VERSION + 1);
+    assert!(
+        wrong
+            .wait_for(Duration::from_secs(5), |m| matches!(
+                m,
+                ServerToClient::AttachRejected(ekko_proto::AttachRejectReason::WrongWireVersion)
+            ))
+            .is_some(),
+        "expected WrongWireVersion rejection"
+    );
+
+    let mut survivor = TestClient::connect(&env.session_name);
+    survivor.attach(env.cwd(), false);
+    assert!(
+        survivor
+            .wait_for(Duration::from_secs(10), |m| grid_contains(m, "survived"))
+            .is_some(),
+        "expected state after rejected attach"
+    );
+    kill_and_join(survivor, daemon, &env.session_name);
 }
 
 #[test]
