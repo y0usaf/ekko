@@ -54,10 +54,9 @@ pub fn read(fd: RawFd, buf: &mut [u8]) -> io::Result<usize> {
 
 /// Set or clear `O_NONBLOCK` on `fd`.
 ///
-/// The server wraps the PTY master fd in a `tokio::io::unix::AsyncFd` for
-/// async reads, which requires the fd to be non-blocking; this helper lets
-/// callers flip that on (or off, for plain synchronous use) without ekko-pty
-/// needing to know about tokio at all.
+/// Configure whether reads and writes on the PTY master should block. The
+/// non-blocking mode lets the synchronous event loop poll the descriptor
+/// without stalling other work.
 pub fn set_nonblocking(fd: RawFd, nonblocking: bool) -> Result<(), PtyError> {
     let flags = fcntl(fd, FcntlArg::F_GETFL).map_err(PtyError::Nix)?;
     let mut oflags = OFlag::from_bits_truncate(flags);

@@ -11,7 +11,17 @@
 //!
 //! All functions are pure resolution — they never touch the filesystem.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+
+fn xdg_dir(variable: &str, fallback: &str) -> Option<PathBuf> {
+    let home = std::env::var_os("HOME")?;
+    let dir = std::env::var_os(variable)
+        .filter(|value| !value.is_empty())
+        .map(PathBuf::from)
+        .filter(|path| path.is_absolute())
+        .unwrap_or_else(|| Path::new(&home).join(fallback));
+    Some(dir)
+}
 
 /// Root cache directory for ekko (logs, resurrection manifests).
 ///
@@ -23,9 +33,8 @@ pub fn cache_root() -> PathBuf {
     {
         return PathBuf::from(dir);
     }
-    directories::BaseDirs::new()
-        .map(|dirs| dirs.cache_dir().join("ekko"))
-        .unwrap_or_else(|| PathBuf::from(".cache/ekko"))
+    xdg_dir("XDG_CACHE_HOME", ".cache")
+        .map_or_else(|| PathBuf::from(".cache/ekko"), |dir| dir.join("ekko"))
 }
 
 /// Daemon log directory: `<cache_root>/logs`.
@@ -35,9 +44,8 @@ pub fn log_dir() -> PathBuf {
 
 /// Config directory: `$XDG_CONFIG_HOME/ekko` (or `~/.config/ekko`).
 pub fn config_dir() -> PathBuf {
-    directories::BaseDirs::new()
-        .map(|dirs| dirs.config_dir().join("ekko"))
-        .unwrap_or_else(|| PathBuf::from(".config/ekko"))
+    xdg_dir("XDG_CONFIG_HOME", ".config")
+        .map_or_else(|| PathBuf::from(".config/ekko"), |dir| dir.join("ekko"))
 }
 
 /// Root runtime directory for unix sockets, before the `wire_v<N>` leaf
