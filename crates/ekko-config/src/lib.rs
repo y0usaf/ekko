@@ -198,10 +198,9 @@ impl Config {
 
     /// Animation cadence clamped to a sane range for terminal rendering.
     pub fn animation_interval_ms(&self) -> u16 {
-        self.ui.animation_interval_ms.clamp(
-            ANIMATION_INTERVAL_MS_MIN,
-            ANIMATION_INTERVAL_MS_MAX,
-        )
+        self.ui
+            .animation_interval_ms
+            .clamp(ANIMATION_INTERVAL_MS_MIN, ANIMATION_INTERVAL_MS_MAX)
     }
 
     /// Resolve the shell for new sessions: config, then `$SHELL`, then `/bin/sh`.
@@ -272,7 +271,10 @@ mod tests {
     fn missing_file_yields_defaults() {
         let config = Config::load_from(&PathBuf::from("/nonexistent/ekko-config.toml")).unwrap();
         assert_eq!(config.sidebar_width(), SIDEBAR_WIDTH_DEFAULT);
-        assert_eq!(config.animation_interval_ms(), ANIMATION_INTERVAL_MS_DEFAULT);
+        assert_eq!(
+            config.animation_interval_ms(),
+            ANIMATION_INTERVAL_MS_DEFAULT
+        );
         assert_eq!(config.general.scrollback_lines, SCROLLBACK_LINES_DEFAULT);
     }
 
