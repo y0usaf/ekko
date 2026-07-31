@@ -20,6 +20,9 @@ use serde::{Deserialize, Serialize};
 pub const SIDEBAR_WIDTH_DEFAULT: u16 = 36;
 pub const SIDEBAR_WIDTH_MIN: u16 = 8;
 pub const SIDEBAR_WIDTH_MAX: u16 = 120;
+pub const ANIMATION_INTERVAL_MS_DEFAULT: u16 = 80;
+pub const ANIMATION_INTERVAL_MS_MIN: u16 = 8;
+pub const ANIMATION_INTERVAL_MS_MAX: u16 = 1000;
 pub const SCROLLBACK_LINES_DEFAULT: usize = 10_000;
 pub const LUA_DRAW_BUDGET_DEFAULT: u32 = 200_000;
 pub const LUA_HANDLER_BUDGET_DEFAULT: u32 = 2_000_000;
@@ -86,6 +89,8 @@ impl Default for General {
 #[serde(default)]
 pub struct Ui {
     pub sidebar_width: u16,
+    /// Animation tick cadence for client-side surfaces, in milliseconds.
+    pub animation_interval_ms: u16,
     /// Pane separator style: `"none"` (default, edge-to-edge),
     /// `"compact"` (shared zellij-style boundary lines), or `"frame"`
     /// (a full box frame around every pane). Owned by the daemon — it
@@ -98,6 +103,7 @@ impl Default for Ui {
     fn default() -> Self {
         Self {
             sidebar_width: SIDEBAR_WIDTH_DEFAULT,
+            animation_interval_ms: ANIMATION_INTERVAL_MS_DEFAULT,
             pane_borders: PaneBorderStyle::None,
         }
     }
@@ -190,6 +196,14 @@ impl Config {
             .clamp(SIDEBAR_WIDTH_MIN, SIDEBAR_WIDTH_MAX)
     }
 
+    /// Animation cadence clamped to a sane range for terminal rendering.
+    pub fn animation_interval_ms(&self) -> u16 {
+        self.ui.animation_interval_ms.clamp(
+            ANIMATION_INTERVAL_MS_MIN,
+            ANIMATION_INTERVAL_MS_MAX,
+        )
+    }
+
     /// Resolve the shell for new sessions: config, then `$SHELL`, then `/bin/sh`.
     pub fn resolve_shell(&self) -> PathBuf {
         let configured = self.general.default_shell.trim();
@@ -258,6 +272,7 @@ mod tests {
     fn missing_file_yields_defaults() {
         let config = Config::load_from(&PathBuf::from("/nonexistent/ekko-config.toml")).unwrap();
         assert_eq!(config.sidebar_width(), SIDEBAR_WIDTH_DEFAULT);
+        assert_eq!(config.animation_interval_ms(), ANIMATION_INTERVAL_MS_DEFAULT);
         assert_eq!(config.general.scrollback_lines, SCROLLBACK_LINES_DEFAULT);
     }
 
@@ -271,6 +286,7 @@ mod tests {
 
             [ui]
             sidebar_width = 28
+            animation_interval_ms = 33
 
             [keybinds]
             detach = "ctrl+q"
@@ -280,6 +296,7 @@ mod tests {
         .unwrap();
         assert_eq!(config.general.default_shell, "/bin/zsh");
         assert_eq!(config.sidebar_width(), 28);
+        assert_eq!(config.animation_interval_ms(), 33);
         assert_eq!(
             config.bindings_for("detach", &["ctrl+d"]),
             vec!["ctrl+q".to_string()]
@@ -302,6 +319,14 @@ mod tests {
         assert_eq!(config.lua.draw_budget, 500_000);
         assert_eq!(config.lua.handler_budget, LUA_HANDLER_BUDGET_DEFAULT);
         assert_eq!(Config::default().lua.draw_budget, LUA_DRAW_BUDGET_DEFAULT);
+    }
+
+    #[test]
+    fn animation_interval_clamped() {
+        let config: Config = toml::from_str("[ui]\nanimation_interval_ms = 1\n").unwrap();
+        assert_eq!(config.animation_interval_ms(), ANIMATION_INTERVAL_MS_MIN);
+        let config: Config = toml::from_str("[ui]\nanimation_interval_ms = 5000\n").unwrap();
+        assert_eq!(config.animation_interval_ms(), ANIMATION_INTERVAL_MS_MAX);
     }
 
     #[test]

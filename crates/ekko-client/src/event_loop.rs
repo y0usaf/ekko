@@ -34,7 +34,6 @@ const RESIZE_DEBOUNCE: Duration = Duration::from_millis(50);
 /// Drag-off-edge autoscroll cadence and lines per tick.
 const EDGE_SCROLL_INTERVAL: Duration = Duration::from_millis(50);
 const EDGE_SCROLL_LINES: i32 = 1;
-const ANIMATION_INTERVAL: Duration = Duration::from_millis(80);
 const IDLE_INTERVAL: Duration = Duration::from_secs(1);
 pub(crate) const STATUS_NOTE_TTL: Duration = Duration::from_secs(4);
 /// Bound on `InvokeCommand` -> command -> `InvokeCommand` chains so a
@@ -65,6 +64,7 @@ pub(crate) fn run_event_loop(
     runtime: &AppRuntime,
     resume_mode: Option<String>,
     generation: u64,
+    animation_interval_ms: u16,
     raw_guard: &ekko_tui::RawModeGuard,
 ) -> Result<ClientOutcome> {
     let palette = runtime
@@ -81,6 +81,7 @@ pub(crate) fn run_event_loop(
         renderer: AnsiRenderer::default(),
         runtime,
         generation,
+        animation_interval: Duration::from_millis(u64::from(animation_interval_ms)),
         last_size: (0, 0),
         last_sent_grid: (0, 0),
         last_session_refresh: Instant::now() - SESSION_REFRESH_INTERVAL,
@@ -182,6 +183,7 @@ pub(crate) struct App<'a> {
     pub(crate) runtime: &'a AppRuntime,
     /// Connection generation; socket events from other generations are stale.
     pub(crate) generation: u64,
+    pub(crate) animation_interval: Duration,
     pub(crate) last_size: (u16, u16),
     /// The grid size last reported to the server: the terminal pane the
     /// layout leaves over, not the raw frame. Attach reports the raw frame
@@ -211,14 +213,15 @@ impl App<'_> {
             self.state.expire_note();
             self.apply_resize_if_changed()?;
 
+            // Reuse one host snapshot for tick predicates and rendering.
+            let snapshot = self.snapshot();
+            let animating = self.wants_animation(&snapshot);
             if self.state.dirty {
-                self.render()?;
+                self.render(snapshot)?;
                 self.state.dirty = false;
             }
-
-            let animating = self.wants_animation();
             let mut timeout = if animating {
-                ANIMATION_INTERVAL
+                self.animation_interval
             } else {
                 IDLE_INTERVAL
             };
@@ -315,7 +318,7 @@ impl App<'_> {
 
     /// Whether any registered surface wants the animation tick right now
     /// (or an extension subscribes to `Tick`).
-    fn wants_animation(&self) -> bool {
+    fn wants_animation(&self, snapshot: &ClientSnapshot) -> bool {
         if self.runtime.has_subscribers(EventKind::Tick) {
             return true;
         }
@@ -329,11 +332,10 @@ impl App<'_> {
         {
             return false;
         }
-        let snapshot = self.snapshot();
-        self.runtime.visible_surfaces(&snapshot).iter().any(|spec| {
+        self.runtime.visible_surfaces(snapshot).iter().any(|spec| {
             spec.wants_tick
                 .as_ref()
-                .is_some_and(|wants| wants(&snapshot))
+                .is_some_and(|wants| wants(snapshot))
         })
     }
 
@@ -424,7 +426,7 @@ impl App<'_> {
         }
     }
 
-    fn render(&mut self) -> Result<()> {
+    fn render(&mut self, snapshot: ClientSnapshot) -> Result<()> {
         let (cols, rows) = terminal_size();
         self.last_size = (cols, rows);
         self.surface.resize(
@@ -433,7 +435,6 @@ impl App<'_> {
             gc(self.palette.term_fg),
             gc(self.palette.term_bg),
         );
-        let snapshot = self.snapshot();
         let surfaces = self.runtime.visible_surfaces(&snapshot);
         let layout = resolve_layout(cols, rows, &surfaces);
         let cursor = scene::render_frame(
