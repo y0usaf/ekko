@@ -762,8 +762,7 @@ mod tests {
             input.push_str(&format!("line{i:03}\r\n"));
         }
         parser.process(input.as_bytes());
-        let screen = parser.screen().clone();
-        screen
+        parser.screen().clone()
     }
 
     #[test]

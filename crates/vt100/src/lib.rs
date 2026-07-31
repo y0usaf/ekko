@@ -33,10 +33,11 @@
 //! );
 //! ```
 
-#![warn(missing_docs)]
+// Vendored upstream code: retain its public API and documentation unchanged.
 #![warn(clippy::cargo)]
 #![warn(clippy::pedantic)]
 #![warn(clippy::nursery)]
+#![allow(clippy::cargo)]
 #![warn(clippy::as_conversions)]
 #![warn(clippy::get_unwrap)]
 #![allow(clippy::cognitive_complexity)]
@@ -46,6 +47,7 @@
 #![allow(clippy::too_many_arguments)]
 #![allow(clippy::too_many_lines)]
 #![allow(clippy::type_complexity)]
+#![allow(missing_docs, clippy::must_use_candidate, clippy::missing_panics_doc)]
 
 mod attrs;
 mod callbacks;
