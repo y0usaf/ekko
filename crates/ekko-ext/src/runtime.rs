@@ -9,7 +9,7 @@
 //! - **Gates and lifecycle events** (returns consumed, or rare one-shots)
 //!   keep thread-per-dispatch with `mpsc::recv_timeout`, bound the wait,
 //!   and CONTINUE past errors/timeouts. A timed-out thread is detached.
-//! Either way, one misbehaving extension never wedges the host.
+//!   Either way, one misbehaving extension never wedges the host.
 
 use std::collections::BTreeMap;
 use std::sync::mpsc::{self, SyncSender};
@@ -51,8 +51,8 @@ fn is_notification(kind: EventKind) -> bool {
 /// - **Interception gates** (return drives control flow) get a longer bound
 ///   since their result is consumed.
 /// - **One-shot lifecycle** events (may do real work) get the longest bound.
-/// Notifications have no wall-clock budget: their backpressure is the
-/// bounded mailbox, which drops rather than waits.
+///   Notifications have no wall-clock budget: their backpressure is the
+///   bounded mailbox, which drops rather than waits.
 fn handler_timeout(kind: EventKind) -> Duration {
     use EventKind::*;
     match kind {
