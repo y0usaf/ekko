@@ -194,6 +194,7 @@ pub fn run(options: ClientOptions) -> Result<()> {
             &runtime,
             resume_mode.take(),
             generation,
+            config.animation_interval_ms(),
             &_raw_guard,
         )? {
             ClientOutcome::Exited => return Ok(()),
