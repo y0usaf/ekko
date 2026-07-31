@@ -57,6 +57,7 @@ pub(crate) enum Event {
 /// reader; `resume_mode` re-enters the mode that was active when a session
 /// switch tore down the previous loop (a sticky leader map keeps its panel
 /// across the reattach).
+#[allow(clippy::too_many_arguments)] // Event loop wiring mirrors the independent runtime inputs.
 pub(crate) fn run_event_loop(
     send: Box<dyn Write + Send>,
     rx: &mpsc::Receiver<Event>,
@@ -585,7 +586,6 @@ impl App<'_> {
                     let count = matches.len();
                     self.state.search = Some(crate::state::SearchState {
                         pane,
-                        query,
                         matches,
                         current,
                     });
@@ -1051,8 +1051,12 @@ impl App<'_> {
             return;
         };
         let pane_rows = i64::from(pane.rect.rows);
-        let first = i64::from(pane.grid.history) - i64::from(pane.grid.scrollback);
-        let row = i64::from(hit_row) - first;
+        let Some(row) =
+            crate::state::SearchState::view_row(pane.grid.history, pane.grid.scrollback, hit_row)
+        else {
+            return;
+        };
+        let row = i64::from(row);
         // Positive delta moves back into history (match above the viewport);
         // negative moves toward the live screen (match below).
         let delta = if row < 0 {

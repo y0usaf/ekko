@@ -197,7 +197,6 @@ pub struct ClientState {
 
 pub struct SearchState {
     pub pane: u64,
-    pub query: String,
     pub matches: Vec<ekko_proto::SearchMatch>,
     /// Index into `matches` of the current (accented) hit.
     pub current: usize,
