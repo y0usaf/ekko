@@ -1,5 +1,4 @@
 use anyhow::Result;
-use clap::{Parser, Subcommand};
 
 const DEFAULT_SESSION: &str = "main";
 
@@ -7,66 +6,268 @@ const DEFAULT_SESSION: &str = "main";
 /// general errors so scripts can branch on it: `ekko send x hi || [ $? -eq 3 ]`).
 pub const EXIT_NOT_FOUND: u8 = 3;
 
-#[derive(Parser)]
-#[command(name = "ekko", version, about = "ekko — a terminal multiplexer")]
+struct CommandSpec {
+    name: &'static str,
+    about: &'static str,
+    usage: &'static str,
+    arguments: &'static str,
+    options: &'static str,
+}
+const COMMANDS: &[CommandSpec] = &[
+    CommandSpec {
+        name: "attach",
+        about: "Attach to a session, creating it if missing",
+        usage: "ekko attach [OPTIONS] [NAME]",
+        arguments: "  [NAME]",
+        options: "      --force  Kick any other attached clients, becoming the sole viewer",
+    },
+    CommandSpec {
+        name: "new",
+        about: "Create and attach a new session.",
+        usage: "ekko new [NAME]",
+        arguments: "  [NAME]",
+        options: "",
+    },
+    CommandSpec {
+        name: "activate",
+        about: "Ask one attached ekko client to request focus/attention from its host terminal (e.g. BEL → XDG activation urgency in foot).",
+        usage: "ekko activate",
+        arguments: "",
+        options: "",
+    },
+    CommandSpec {
+        name: "ls",
+        about: "List live and resurrectable sessions (tab-separated by default).",
+        usage: "ekko ls [OPTIONS]",
+        arguments: "",
+        options: r#"      --json  Emit one JSON object per line: {"name", "state", "cwd"}. Stable for scripts; the tab format is for humans"#,
+    },
+    CommandSpec {
+        name: "kill",
+        about: "Kill a session (exits 3 when the session does not exist).",
+        usage: "ekko kill [OPTIONS] <NAME>",
+        arguments: "  <NAME>",
+        options: "      --force  Escalate to an out-of-band SIGKILL of the daemon (recorded in its manifest) when it doesn't confirm a polite kill. Use when a session is wedged",
+    },
+    CommandSpec {
+        name: "send",
+        about: "Inject raw bytes into a session's primary pane, then exit — the scripting verb: `ekko send work \"make test\\n\"`.",
+        usage: "ekko send <NAME> <BYTES>",
+        arguments: "  <NAME>\n  <BYTES>  The bytes to inject. `\\n`, `\\r`, `\\t`, `\\0`, `\\\\`, and `\\xNN` escapes are decoded; everything else is sent verbatim",
+        options: "",
+    },
+    CommandSpec {
+        name: "dump",
+        about: "Print a session's scrollback + live screen as plain text to stdout: `ekko dump work | grep error`.",
+        usage: "ekko dump <NAME>",
+        arguments: "  <NAME>",
+        options: "",
+    },
+];
+
+enum Command {
+    Attach { name: Option<String>, force: bool },
+    New { name: Option<String> },
+    Activate,
+    Ls { json: bool },
+    Kill { name: String, force: bool },
+    Send { name: String, bytes: String },
+    Dump { name: String },
+}
 struct Cli {
-    /// Run the session daemon for a session (internal; clients spawn this).
-    #[arg(long = "server", hide = true, value_name = "SESSION")]
     server: Option<String>,
-
-    /// Stay in the foreground when running as a server (internal/debug).
-    #[arg(long, hide = true)]
     foreground: bool,
-
-    #[command(subcommand)]
     command: Option<Command>,
 }
 
-#[derive(Subcommand)]
-enum Command {
-    /// Attach to a session, creating it if missing.
-    Attach {
-        name: Option<String>,
-        /// Kick any other attached clients, becoming the sole viewer.
-        #[arg(long)]
-        force: bool,
-    },
-    /// Create and attach a new session.
-    New { name: Option<String> },
-    /// Ask one attached ekko client to request focus/attention from its host
-    /// terminal (e.g. BEL → XDG activation urgency in foot).
-    Activate,
-    /// List live and resurrectable sessions (tab-separated by default).
-    Ls {
-        /// Emit one JSON object per line: {"name", "state", "cwd"}.
-        /// Stable for scripts; the tab format is for humans.
-        #[arg(long)]
-        json: bool,
-    },
-    /// Kill a session (exits 3 when the session does not exist).
-    Kill {
-        name: String,
-        /// Escalate to an out-of-band SIGKILL of the daemon (recorded in its
-        /// manifest) when it doesn't confirm a polite kill. Use when a
-        /// session is wedged.
-        #[arg(long)]
-        force: bool,
-    },
-    /// Inject raw bytes into a session's primary pane, then exit — the
-    /// scripting verb: `ekko send work "make test\n"`.
-    Send {
-        name: String,
-        /// The bytes to inject. `\n`, `\r`, `\t`, `\0`, `\\`, and `\xNN`
-        /// escapes are decoded; everything else is sent verbatim.
-        bytes: String,
-    },
-    /// Print a session's scrollback + live screen as plain text to stdout:
-    /// `ekko dump work | grep error`.
-    Dump { name: String },
+fn help(spec: Option<&CommandSpec>) -> String {
+    if let Some(s) = spec {
+        let arguments = if s.arguments.is_empty() {
+            String::new()
+        } else {
+            format!("Arguments:\n{}\n\n", s.arguments)
+        };
+        let options = if s.options.is_empty() {
+            String::new()
+        } else {
+            format!("{}\n", s.options)
+        };
+        return format!(
+            "{}\n\nUsage: {}\n\n{}Options:\n{}  -h, --help   Print help\n",
+            s.about, s.usage, arguments, options
+        );
+    }
+    let mut out =
+        String::from("ekko — a terminal multiplexer\n\nUsage: ekko [COMMAND]\n\nCommands:\n");
+    for s in COMMANDS {
+        out.push_str(&format!("  {:<10}{}\n", s.name, s.about));
+    }
+    out.push_str("  help      Print this message or the help of the given subcommand(s)\n\nOptions:\n  -h, --help     Print help\n  -V, --version  Print version\n");
+    out
+}
+fn parse(args: &[String]) -> Result<Cli, String> {
+    if args.iter().any(|a| a == "--version" || a == "-V") {
+        println!("ekko {}", env!("CARGO_PKG_VERSION"));
+        std::process::exit(0);
+    }
+    if args.is_empty() {
+        return Ok(Cli {
+            server: None,
+            foreground: false,
+            command: None,
+        });
+    }
+    if args[0] == "--help" || args[0] == "-h" {
+        print!("{}", help(None));
+        std::process::exit(0);
+    }
+    let mut i = 0;
+    let mut server = None;
+    let mut foreground = false;
+    while i < args.len() && args[i].starts_with('-') {
+        match args[i].as_str() {
+            "--server" => {
+                i += 1;
+                server = Some(
+                    args.get(i)
+                        .ok_or("error: --server requires a value")?
+                        .clone(),
+                );
+            }
+            "--foreground" => foreground = true,
+            "--help" | "-h" => {
+                print!("{}", help(None));
+                std::process::exit(0);
+            }
+            x => return Err(format!("error: unknown option `{x}`")),
+        }
+        i += 1;
+    }
+    if i == args.len() {
+        return Ok(Cli {
+            server,
+            foreground,
+            command: None,
+        });
+    }
+    let name = &args[i];
+    let spec = COMMANDS
+        .iter()
+        .find(|s| s.name == name)
+        .ok_or_else(|| format!("error: unknown subcommand `{name}`"))?;
+    i += 1;
+    if args.get(i).is_some_and(|x| x == "--help" || x == "-h") {
+        print!("{}", help(Some(spec)));
+        std::process::exit(0);
+    }
+    let rest = &args[i..];
+    let flag = |f: &str| rest.iter().position(|x| x == f);
+    let positional: Vec<&String> = rest.iter().filter(|x| !x.starts_with('-')).collect();
+    let bad = |m: &str| Err(format!("error: {m}"));
+    let command = match name.as_str() {
+        "attach" => {
+            if rest.iter().any(|x| x != "--force" && x.starts_with('-')) {
+                return bad("unknown option");
+            }
+            if positional.len() > 1 {
+                return bad(&format!("unexpected argument '{}'", positional[1]));
+            }
+            Command::Attach {
+                name: positional.first().map(|x| (*x).clone()),
+                force: flag("--force").is_some(),
+            }
+        }
+        "new" => {
+            if rest.iter().any(|x| x.starts_with('-')) {
+                return bad("unknown option");
+            }
+            if positional.len() > 1 {
+                return bad(&format!("unexpected argument '{}'", positional[1]));
+            }
+            Command::New {
+                name: positional.first().map(|x| (*x).clone()),
+            }
+        }
+        "activate" => {
+            if !rest.is_empty() {
+                return bad("unexpected argument");
+            }
+            Command::Activate
+        }
+        "ls" => {
+            if let Some(extra) = rest.iter().find(|x| *x != "--json") {
+                return if extra.starts_with('-') {
+                    bad("unknown option")
+                } else {
+                    bad(&format!("unexpected argument '{}'", extra))
+                };
+            }
+            Command::Ls {
+                json: flag("--json").is_some(),
+            }
+        }
+        "kill" => {
+            if rest.iter().any(|x| x.starts_with('-') && *x != "--force") {
+                return bad("unknown option");
+            }
+            if positional.len() > 1 {
+                return bad(&format!("unexpected argument '{}'", positional[1]));
+            }
+            if positional.is_empty() {
+                return bad("the following required argument was not provided: NAME");
+            }
+            Command::Kill {
+                name: positional[0].clone(),
+                force: flag("--force").is_some(),
+            }
+        }
+        "send" => {
+            if rest.iter().any(|x| x.starts_with('-')) {
+                return bad("unknown option");
+            }
+            if positional.len() > 2 {
+                return bad(&format!("unexpected argument '{}'", positional[2]));
+            }
+            if positional.len() != 2 {
+                return bad("the following required arguments were not provided: NAME BYTES");
+            }
+            Command::Send {
+                name: positional[0].clone(),
+                bytes: positional[1].clone(),
+            }
+        }
+        "dump" => {
+            if rest.iter().any(|x| x.starts_with('-')) {
+                return bad("unknown option");
+            }
+            if positional.len() > 1 {
+                return bad(&format!("unexpected argument '{}'", positional[1]));
+            }
+            if positional.is_empty() {
+                return bad("the following required argument was not provided: NAME");
+            }
+            Command::Dump {
+                name: positional[0].clone(),
+            }
+        }
+        _ => unreachable!(),
+    };
+    Ok(Cli {
+        server,
+        foreground,
+        command: Some(command),
+    })
 }
 
 fn main() -> Result<()> {
-    let cli = Cli::parse();
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    let cli = match parse(&args) {
+        Ok(cli) => cli,
+        Err(message) => {
+            eprintln!("{message}");
+            std::process::exit(2);
+        }
+    };
 
     if let Some(session_name) = cli.server {
         return ekko_server::run(&session_name, !cli.foreground);
