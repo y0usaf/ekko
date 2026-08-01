@@ -12,8 +12,7 @@ use ekko_proto::{
     ClientToServer, ExitReason, GridPayload, GridUpdate, ServerToClient, WIRE_VERSION,
     WorkspaceUpdate, read_msg, write_msg,
 };
-use interprocess::local_socket::Stream as LocalSocketStream;
-use interprocess::local_socket::traits::Stream as _;
+use std::os::unix::net::UnixStream as LocalSocketStream;
 
 /// `cargo test` runs tests on separate threads within one process, but
 /// `EKKO_SOCKET_DIR`/`EKKO_CACHE_DIR` are process-global env vars. Serialize
@@ -114,14 +113,14 @@ struct TestClient {
 
 // The `SendHalf` type from `interprocess` doesn't need naming beyond `Write`,
 // but giving it an alias keeps `TestClient`'s field type readable.
-type LocalSocketStreamWriteHalf =
-    <LocalSocketStream as interprocess::local_socket::traits::Stream>::SendHalf;
+type LocalSocketStreamWriteHalf = LocalSocketStream;
 
 impl TestClient {
     fn connect(session_name: &str) -> Self {
         let path = wait_for_socket(session_name);
         let stream = ekko_proto::ipc_connect(&path).expect("connect to daemon socket");
-        let (mut recv_half, send_half) = stream.split();
+        let mut recv_half = stream.try_clone().expect("clone test socket");
+        let send_half = stream;
         let (tx, rx) = mpsc::channel();
         thread::spawn(move || {
             loop {

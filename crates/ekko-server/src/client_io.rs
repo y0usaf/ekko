@@ -13,9 +13,7 @@ use ekko_proto::{
     ClientToServer, GridPayload, GridRow, GridUpdate, PaneGrid, ServerToClient, WorkspaceUpdate,
     read_msg, write_msg,
 };
-use interprocess::local_socket::Stream as LocalSocketStream;
-use interprocess::local_socket::prelude::*;
-use interprocess::local_socket::traits::SendHalf as _;
+use std::os::unix::net::UnixStream as LocalSocketStream;
 use std::sync::mpsc::{Receiver, Sender, SyncSender};
 
 use crate::hub::HubInstruction;
@@ -43,8 +41,9 @@ pub fn spawn(
     stream: LocalSocketStream,
     hub_tx: Sender<HubInstruction>,
 ) -> ClientHandle {
-    let (recv_half, send_half) = stream.split();
-    let _ = send_half.set_timeout(Some(WRITE_TIMEOUT));
+    let recv_half = stream.try_clone().expect("clone client socket");
+    let send_half = stream;
+    let _ = send_half.set_write_timeout(Some(WRITE_TIMEOUT));
 
     let (tx, rx) = std::sync::mpsc::sync_channel::<ServerToClient>(CLIENT_QUEUE_DEPTH);
 

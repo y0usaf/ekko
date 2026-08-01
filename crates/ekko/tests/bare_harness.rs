@@ -12,11 +12,10 @@ use std::time::{Duration, Instant};
 use ekko_proto::{
     ClientToServer, ExitReason, GridPayload, ServerToClient, WIRE_VERSION, read_msg, write_msg,
 };
-use interprocess::local_socket::Stream as LocalSocketStream;
-use interprocess::local_socket::traits::Stream as _;
+use std::os::unix::net::UnixStream as LocalSocketStream;
 
 static ENV_LOCK: Mutex<()> = Mutex::new(());
-type SendHalf = <LocalSocketStream as interprocess::local_socket::traits::Stream>::SendHalf;
+type SendHalf = LocalSocketStream;
 
 struct Env {
     _lock: std::sync::MutexGuard<'static, ()>,
@@ -80,7 +79,8 @@ impl Client {
             thread::sleep(Duration::from_millis(10));
         }
         let stream = ekko_proto::ipc_connect(&path).unwrap();
-        let (mut recv, send) = stream.split();
+        let mut recv = stream.try_clone().expect("clone test socket");
+        let send = stream;
         let (tx, rx) = mpsc::channel();
         thread::spawn(move || {
             while let Ok(Some(msg)) = read_msg::<_, ServerToClient>(&mut recv) {

@@ -27,7 +27,6 @@ use ekko_ext::SessionState;
 use ekko_proto::{
     AttachRejectReason, ClientToServer, ExitReason, ServerToClient, WIRE_VERSION, socket_path,
 };
-use interprocess::local_socket::traits::{RecvHalf as _, Stream as StreamTrait};
 
 pub use ctl::{CtlError, dump, is_no_such_session, send};
 
@@ -219,7 +218,8 @@ pub fn activate() -> Result<()> {
 
 fn request_activate(session_name: &str) -> Result<bool> {
     let stream = ekko_proto::ipc_connect(&socket_path(session_name))?;
-    let (recv_half, send_half) = stream.split();
+    let recv_half = stream.try_clone()?;
+    let send_half = stream;
     let mut recv: Box<dyn Read + Send> = Box::new(recv_half);
     let mut send: Box<dyn std::io::Write + Send> = Box::new(send_half);
     ekko_proto::write_msg(&mut send, &ClientToServer::Activate)
@@ -271,7 +271,8 @@ fn connect_and_attach(
             return Err(e).with_context(|| format!("connecting to session '{session_name}'"));
         }
     };
-    let (recv_half, send_half) = stream.split();
+    let recv_half = stream.try_clone()?;
+    let send_half = stream;
     let mut recv: Box<dyn Read + Send> = Box::new(recv_half);
     let mut send: Box<dyn std::io::Write + Send> = Box::new(send_half);
 
@@ -339,11 +340,12 @@ pub fn kill_session(name: &str, force: bool) -> Result<(), CtlError> {
     if path_was_present {
         match ekko_proto::ipc_connect(&path) {
             Ok(stream) => {
-                let (recv, mut send) = stream.split();
+                let recv = stream.try_clone().map_err(anyhow::Error::from)?;
+                let mut send = stream;
                 // Bound the wait: without a timeout a wedged daemon hangs
                 // this command forever, the user interrupts, and the kill
                 // silently never happened.
-                recv.set_timeout(Some(KILL_REPLY_TIMEOUT))
+                recv.set_read_timeout(Some(KILL_REPLY_TIMEOUT))
                     .context("arming kill-confirmation timeout")
                     .map_err(CtlError::Other)?;
                 ekko_proto::write_msg(&mut send, &ClientToServer::KillSession(name.to_string()))

@@ -8,7 +8,7 @@ use std::time::Duration;
 
 use anyhow::{Context, Result};
 use ekko_proto::{ClientToServer, ServerToClient, socket_path};
-use interprocess::local_socket::traits::{RecvHalf as _, Stream as StreamTrait};
+use std::os::unix::net::UnixStream;
 
 /// How long a control verb waits for the daemon's reply before concluding
 /// it is wedged (same rationale as `kill`'s confirmation budget).
@@ -28,7 +28,7 @@ pub enum CtlError {
 }
 
 /// Connect to the named session's socket or report `NoSuchSession`.
-fn connect(name: &str) -> Result<interprocess::local_socket::Stream, CtlError> {
+fn connect(name: &str) -> Result<UnixStream, CtlError> {
     let path = socket_path(name);
     if !path.exists() {
         return Err(CtlError::NoSuchSession(name.to_string()));
@@ -42,7 +42,7 @@ fn connect(name: &str) -> Result<interprocess::local_socket::Stream, CtlError> {
 /// pane. Fire-and-forget: the daemon applies the write silently.
 pub fn send(name: &str, bytes: &[u8]) -> Result<(), CtlError> {
     let stream = connect(name)?;
-    let (_recv, mut send_half) = stream.split();
+    let mut send_half = stream;
     ekko_proto::write_msg(
         &mut send_half,
         &ClientToServer::Inject {
@@ -58,8 +58,12 @@ pub fn send(name: &str, bytes: &[u8]) -> Result<(), CtlError> {
 /// the verb composes: `ekko dump work | grep error`.
 pub fn dump(name: &str) -> Result<String, CtlError> {
     let stream = connect(name)?;
-    let (recv, mut send_half) = stream.split();
-    recv.set_timeout(Some(CTL_REPLY_TIMEOUT))
+    let recv = stream
+        .try_clone()
+        .context("clone control socket")
+        .map_err(CtlError::Other)?;
+    let mut send_half = stream;
+    recv.set_read_timeout(Some(CTL_REPLY_TIMEOUT))
         .context("arming dump reply timeout")
         .map_err(CtlError::Other)?;
     ekko_proto::write_msg(&mut send_half, &ClientToServer::DumpSession)
