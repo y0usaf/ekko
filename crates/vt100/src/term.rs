@@ -86,9 +86,9 @@ impl BufWrite for MoveTo {
             buf.extend_from_slice(b"\x1b[H");
         } else {
             buf.extend_from_slice(b"\x1b[");
-            extend_itoa(buf, self.row + 1);
+            extend_itoa(buf, i64::from(self.row + 1));
             buf.push(b';');
-            extend_itoa(buf, self.col + 1);
+            extend_itoa(buf, i64::from(self.col + 1));
             buf.push(b'H');
         }
     }
@@ -178,7 +178,7 @@ impl BufWrite for Attrs {
                 } else {
                     buf.push(b';');
                 }
-                extend_itoa(buf, $i);
+                extend_itoa(buf, i64::from($i));
             }};
         }
 
@@ -295,7 +295,7 @@ impl BufWrite for MoveRight {
             1 => buf.extend_from_slice(b"\x1b[C"),
             n => {
                 buf.extend_from_slice(b"\x1b[");
-                extend_itoa(buf, n);
+                extend_itoa(buf, i64::from(n));
                 buf.push(b'C');
             }
         }
@@ -327,7 +327,7 @@ impl BufWrite for EraseChar {
             1 => buf.extend_from_slice(b"\x1b[X"),
             n => {
                 buf.extend_from_slice(b"\x1b[");
-                extend_itoa(buf, n);
+                extend_itoa(buf, i64::from(n));
                 buf.push(b'X');
             }
         }
@@ -537,7 +537,18 @@ impl BufWrite for MouseProtocolEncoding {
     }
 }
 
-fn extend_itoa<I: itoa::Integer>(buf: &mut Vec<u8>, i: I) {
-    let mut itoa_buf = itoa::Buffer::new();
-    buf.extend_from_slice(itoa_buf.format(i).as_bytes());
+fn extend_itoa(buf: &mut Vec<u8>, mut i: i64) {
+    let mut digits = [0u8; 20];
+    let mut len = 0;
+    loop {
+        digits[len] = b'0' + u8::try_from(i % 10).expect("remainder is less than 10");
+        len += 1;
+        i /= 10;
+        if i == 0 {
+            break;
+        }
+    }
+    for digit in digits[..len].iter().rev() {
+        buf.push(*digit);
+    }
 }
