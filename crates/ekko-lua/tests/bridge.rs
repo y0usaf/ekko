@@ -801,7 +801,9 @@ fn every_event_payload_marshals_to_lua() {
     // shared file (one line per event). Notification kinds run on workers
     // whose returns are discarded by contract, so a file side channel — not
     // the dispatch return — observes every kind uniformly.
-    let echo_file = tempfile::NamedTempFile::new().expect("echo file");
+    let echo_dir = ekko_tmp::tempdir().expect("echo directory");
+    let echo_file = echo_dir.path().join("echo");
+    std::fs::File::create(&echo_file).expect("echo file");
     let names: String = EventKind::ALL
         .iter()
         .map(|kind| format!("\"{}\", ", kind.name()))
@@ -831,7 +833,7 @@ fn every_event_payload_marshals_to_lua() {
         return ext
         "#
     .replace("EVENT_NAMES", &names)
-    .replace("ECHO_FILE", &echo_file.path().display().to_string());
+    .replace("ECHO_FILE", &echo_file.display().to_string());
     let runtime = runtime(&source);
 
     let cases: Vec<(EventKind, EventPayload, &str)> = vec![
@@ -994,7 +996,7 @@ fn every_event_payload_marshals_to_lua() {
     }
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
     let echoes = loop {
-        let content = std::fs::read_to_string(echo_file.path()).unwrap_or_default();
+        let content = std::fs::read_to_string(&echo_file).unwrap_or_default();
         if content.lines().count() == cases.len() {
             break content;
         }

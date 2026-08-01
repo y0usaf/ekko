@@ -23,20 +23,20 @@ static ENV_LOCK: Mutex<()> = Mutex::new(());
 /// test's daemon + client interaction.
 struct TestEnv {
     _guard: std::sync::MutexGuard<'static, ()>,
-    _socket_dir: tempfile::TempDir,
-    _cache_dir: tempfile::TempDir,
-    _config_home: tempfile::TempDir,
-    work_dir: tempfile::TempDir,
+    _socket_dir: ekko_tmp::TempDir,
+    _cache_dir: ekko_tmp::TempDir,
+    _config_home: ekko_tmp::TempDir,
+    work_dir: ekko_tmp::TempDir,
     session_name: String,
 }
 
 impl TestEnv {
     fn new(session_name: &str) -> Self {
         let guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-        let socket_dir = tempfile::tempdir().expect("tempdir for EKKO_SOCKET_DIR");
-        let cache_dir = tempfile::tempdir().expect("tempdir for EKKO_CACHE_DIR");
-        let work_dir = tempfile::tempdir().expect("tempdir for shell cwd");
-        let config_home = tempfile::tempdir().expect("tempdir for XDG_CONFIG_HOME");
+        let socket_dir = ekko_tmp::tempdir().expect("tempdir for EKKO_SOCKET_DIR");
+        let cache_dir = ekko_tmp::tempdir().expect("tempdir for EKKO_CACHE_DIR");
+        let work_dir = ekko_tmp::tempdir().expect("tempdir for shell cwd");
+        let config_home = ekko_tmp::tempdir().expect("tempdir for XDG_CONFIG_HOME");
         // SAFETY: serialized by `ENV_LOCK`, held until this `TestEnv` drops.
         unsafe {
             std::env::set_var("EKKO_SOCKET_DIR", socket_dir.path());
