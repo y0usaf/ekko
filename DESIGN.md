@@ -82,6 +82,8 @@ phi (`phi-ext`/`phi-builtins`) and takhti (core-as-mechanism, dogfooded
   in the session cwd; inheriting a foreground process cwd is deferred because
   it requires platform-specific process inspection.
 
+- **2026-07-13 — Dependency replacement boundary:** A dependency is replaced only when our replacement is smaller than the API surface we used from it, or when std already provides the exact API. Fewer crates alone does not justify more of our code: that loses to the prime directive of writing less code. This clearly removed interprocess because `std::os::unix::net` is the same API and ekko is Unix-only; tempfile because it was test-only and six crates bought one `mkdtemp`; nix and close_fds because libc was already a dependency and the fd-close path must be async-signal-safe, with unconditional fallback on any `close_range` failure so seccomp EPERM cannot leak every PTY master and the session socket into a child; daemonize because a documented double fork is about 50 lines; and itoa because it lived inside vendored vt100, which we already own. The rule stops at signal-hook: the daemon registers two independent Signals instances for SIGINT/SIGTERM (its signal thread and one reaper thread per PTY), exactly the fan-out provided by signal-hook-registry; libc::sigaction would silently replace the first registration, while a correct self-pipe, fan-out, and SA_RESTART implementation is 150–300 lines of unsafe global state, so three crates are not worth it. thiserror was removed only barely—the hand-written impls cost 59 lines for two crates—and is the marginal case calibrating the rule. mlua stays because Lua scripting is the product: `vendored` statically compiles Lua 5.4 from C source, costing 16 build-time crates but no runtime library dependencies; `ldd` shows only libc, libm, and libgcc_s. Safe `Lua::new()` calls `disable_c_modules()`, so user scripts cannot dlopen native modules and the interpreter cannot reintroduce a runtime dependency. serde/bincode/toml stay because hand-rolling the wire format or TOML parser is more code than it deletes and `config.toml` must keep working. unicode-width stays because correctness depends on a generated Unicode table, not code.
+
 The extension boundary for [[canon:functional-core]] is the public trait
 surface in `ekko-ext`; `ekko-client/src/actions.rs::apply_ui_action` is the
 single host write path. The daemon state required by
@@ -116,6 +118,7 @@ they need no attach or TTY and act on the session's primary pane.
 | `vt100` | Vendored parser plus scrollback accessors | vendored machinery |
 | `ekko-tui` | Raw mode, color probing, cell widths, spinner math | core (machinery) |
 | `ekko-pty` | PTY spawn, I/O, and reaping | core (machinery) |
+| `ekko-tmp` | Zero-dependency temp-directory helper used only by tests | **machinery** |
 | `ekko-paths` | XDG/env path resolution for disk and socket roots | core (policy boundary) |
 | `ekko-config` | Config schema, TOML/Lua cascade, binding strings, shared border vocabulary | core (policy) |
 | `ekko-resurrection` | Manifest I/O used by resurrection and `ekko ls` | core (machinery) |
@@ -143,6 +146,14 @@ built by the same `RuntimeBuilder`; each dispatches only its event subset.
 - **Floating panes, tabs, stacks, pane rename/move/zoom, layout files,
   synchronized input, and exact pane-topology restoration after daemon death:**
   these are follow-ups to the deliberately smaller tiled-pane vertical slice.
+- **Dependency alternatives:** signal-hook stays for independent signal fan-out
+  (reconsider only if the daemon has one safe registration design); serde_json
+  stays rather than hand-rolling JSON (reconsider only if its use becomes a
+  smaller API surface); toml stays so `config.toml` continues to work
+  (reconsider only with a smaller complete parser); unicode-width stays for its
+  generated Unicode table (reconsider only with an equally correct generated
+  replacement); vendoring vte was rejected because it is not smaller code
+  (reconsider only if we own or need to change the parser).
 
 ## Roadmap
 
