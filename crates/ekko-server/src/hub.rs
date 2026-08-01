@@ -10,7 +10,7 @@ use std::time::{Duration, Instant};
 use ekko_config::{Config, PaneLayout};
 use ekko_proto::{AttachRejectReason, ClientToServer, ExitReason, ServerNotice, ServerToClient};
 use ekko_pty::{PtyCommand, WinSize};
-use interprocess::local_socket::Stream as LocalSocketStream;
+use std::os::unix::net::UnixStream as LocalSocketStream;
 use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender};
 
 use ekko_event::{EventKind, EventPayload, EventReturn, SessionExitReason};

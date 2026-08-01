@@ -21,7 +21,6 @@ use std::thread;
 
 use anyhow::Context;
 use daemonize::{Daemonize, Stdio};
-use interprocess::local_socket::Listener;
 use signal_hook::consts::{SIGINT, SIGTERM};
 use signal_hook::iterator::Signals;
 use std::sync::mpsc::Sender;
@@ -132,7 +131,10 @@ pub fn list_sessions() -> anyhow::Result<Vec<ekko_proto::SessionSummary>> {
     ekko_resurrection::list_sessions()
 }
 
-fn spawn_listener_thread(listener: Listener, hub_tx: Sender<HubInstruction>) -> anyhow::Result<()> {
+fn spawn_listener_thread(
+    listener: ekko_proto::IpcListener,
+    hub_tx: Sender<HubInstruction>,
+) -> anyhow::Result<()> {
     thread::Builder::new()
         .name("listener".to_string())
         .spawn(move || {

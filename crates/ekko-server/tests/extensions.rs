@@ -26,8 +26,7 @@ use ekko_proto::{
     ClientToServer, ExitReason, GridPayload, GridUpdate, ServerToClient, WIRE_VERSION, read_msg,
     write_msg,
 };
-use interprocess::local_socket::Stream as LocalSocketStream;
-use interprocess::local_socket::traits::Stream as _;
+use std::os::unix::net::UnixStream as LocalSocketStream;
 
 static ENV_LOCK: Mutex<()> = Mutex::new(());
 
@@ -110,7 +109,7 @@ fn wait_for_socket(session_name: &str) -> PathBuf {
     path
 }
 
-type SendHalf = <LocalSocketStream as interprocess::local_socket::traits::Stream>::SendHalf;
+type SendHalf = LocalSocketStream;
 
 struct TestClient {
     send: SendHalf,
@@ -121,7 +120,8 @@ impl TestClient {
     fn connect(session_name: &str) -> Self {
         let path = wait_for_socket(session_name);
         let stream = ekko_proto::ipc_connect(&path).expect("connect to daemon socket");
-        let (mut recv_half, send_half) = stream.split();
+        let mut recv_half = stream.try_clone().expect("clone test socket");
+        let send_half = stream;
         let (tx, rx) = mpsc::channel();
         thread::spawn(move || {
             loop {

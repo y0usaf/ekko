@@ -13,7 +13,6 @@ anyhow = "1.0"
 bincode = "1.3"
 close_fds = "0.3"
 daemonize = { version = "0.5", default-features = false }
-interprocess = { version = "2.2", default-features = false }
 libc = "0.2"
 log = "0.4"
 nix = { version = "0.29", default-features = false, features = ["term", "process", "signal", "fs"] }

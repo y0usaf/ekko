@@ -7,11 +7,8 @@
 //! never collide on the same path.
 
 use std::io;
+use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::{Path, PathBuf};
-
-use interprocess::local_socket::{
-    GenericFilePath, Listener, ListenerOptions, Stream as LocalSocketStream, prelude::*,
-};
 
 /// Wire protocol version. Bump whenever [`crate::msg`] changes in a way that
 /// breaks compatibility between client and server binaries.
@@ -156,9 +153,8 @@ pub fn ensure_socket_dir() -> io::Result<PathBuf> {
 }
 
 /// Connect to an existing session socket.
-pub fn ipc_connect(path: &Path) -> io::Result<LocalSocketStream> {
-    let fs_name = path.to_fs_name::<GenericFilePath>()?;
-    LocalSocketStream::connect(fs_name)
+pub fn ipc_connect(path: &Path) -> io::Result<UnixStream> {
+    UnixStream::connect(path)
 }
 
 /// Bind a new session socket, creating the socket directory as needed and
@@ -168,13 +164,36 @@ pub fn ipc_connect(path: &Path) -> io::Result<LocalSocketStream> {
 /// either have their access time updated periodically or have the sticky bit
 /// set, or they may be cleaned up by the OS. Not all platforms allow setting
 /// the sticky bit on a socket file, so failure to do so is ignored.
-pub fn ipc_bind(path: &Path) -> io::Result<Listener> {
+/// A bound filesystem-path Unix listener that removes its socket name on drop.
+/// This preserves the previous listener's reclaim-on-drop behavior.
+pub struct IpcListener {
+    listener: UnixListener,
+    path: PathBuf,
+}
+
+impl Iterator for IpcListener {
+    type Item = io::Result<UnixStream>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        Some(self.listener.accept().map(|(stream, _)| stream))
+    }
+}
+
+impl Drop for IpcListener {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.path);
+    }
+}
+
+pub fn ipc_bind(path: &Path) -> io::Result<IpcListener> {
     ensure_socket_dir()?;
     drop(std::fs::remove_file(path));
-    let fs_name = path.to_fs_name::<GenericFilePath>()?;
-    let listener = ListenerOptions::new().name(fs_name).create_sync()?;
+    let listener = UnixListener::bind(path)?;
     drop(set_permissions(path, 0o1700));
-    Ok(listener)
+    Ok(IpcListener {
+        listener,
+        path: path.to_path_buf(),
+    })
 }
 
 #[cfg(test)]
