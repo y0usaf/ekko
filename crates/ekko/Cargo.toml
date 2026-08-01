@@ -22,7 +22,6 @@ lua = ["ekko-client/lua"]
 
 [dependencies]
 anyhow.workspace = true
-clap.workspace = true
 log.workspace = true
 ekko-client.workspace = true
 ekko-config.workspace = true
