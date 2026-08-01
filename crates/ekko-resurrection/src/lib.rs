@@ -225,8 +225,8 @@ mod tests {
 
     fn with_temp_dirs<F: FnOnce()>(f: F) {
         let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-        let socket_dir = tempfile::tempdir().unwrap();
-        let cache_dir = tempfile::tempdir().unwrap();
+        let socket_dir = ekko_tmp::tempdir().unwrap();
+        let cache_dir = ekko_tmp::tempdir().unwrap();
         // SAFETY: serialized by `ENV_LOCK` above, so no other thread in this
         // process observes a torn or concurrently-mutated environment.
         unsafe {

@@ -19,19 +19,19 @@ type SendHalf = LocalSocketStream;
 
 struct Env {
     _lock: std::sync::MutexGuard<'static, ()>,
-    _socket: tempfile::TempDir,
-    _cache: tempfile::TempDir,
-    _config: tempfile::TempDir,
-    cwd: tempfile::TempDir,
+    _socket: ekko_tmp::TempDir,
+    _cache: ekko_tmp::TempDir,
+    _config: ekko_tmp::TempDir,
+    cwd: ekko_tmp::TempDir,
 }
 
 impl Env {
     fn new() -> Self {
         let lock = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-        let socket = tempfile::tempdir().unwrap();
-        let cache = tempfile::tempdir().unwrap();
-        let config = tempfile::tempdir().unwrap();
-        let cwd = tempfile::tempdir().unwrap();
+        let socket = ekko_tmp::tempdir().unwrap();
+        let cache = ekko_tmp::tempdir().unwrap();
+        let config = ekko_tmp::tempdir().unwrap();
+        let cwd = ekko_tmp::tempdir().unwrap();
         // The lock makes process-global configuration safe for cargo's test
         // threads, and the temporary config prevents host configuration from
         // changing the canvas geometry.

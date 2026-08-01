@@ -32,18 +32,18 @@ static ENV_LOCK: Mutex<()> = Mutex::new(());
 
 struct TestEnv {
     _guard: std::sync::MutexGuard<'static, ()>,
-    _socket_dir: tempfile::TempDir,
-    cache_dir: tempfile::TempDir,
-    work_dir: tempfile::TempDir,
+    _socket_dir: ekko_tmp::TempDir,
+    cache_dir: ekko_tmp::TempDir,
+    work_dir: ekko_tmp::TempDir,
     session_name: String,
 }
 
 impl TestEnv {
     fn new(session_name: &str) -> Self {
         let guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-        let socket_dir = tempfile::tempdir().expect("tempdir for EKKO_SOCKET_DIR");
-        let cache_dir = tempfile::tempdir().expect("tempdir for EKKO_CACHE_DIR");
-        let work_dir = tempfile::tempdir().expect("tempdir for shell cwd");
+        let socket_dir = ekko_tmp::tempdir().expect("tempdir for EKKO_SOCKET_DIR");
+        let cache_dir = ekko_tmp::tempdir().expect("tempdir for EKKO_CACHE_DIR");
+        let work_dir = ekko_tmp::tempdir().expect("tempdir for shell cwd");
         // SAFETY: serialized by `ENV_LOCK`, held until this `TestEnv` drops.
         unsafe {
             std::env::set_var("EKKO_SOCKET_DIR", socket_dir.path());
@@ -408,7 +408,7 @@ fn pty_spawn_override_reaches_the_shell() {
 #[test]
 fn lua_spawn_hook_example_overrides_a_real_spawn() {
     let env = TestEnv::new("t-lua-hook");
-    let ext_dir = tempfile::tempdir().expect("tempdir for extensions");
+    let ext_dir = ekko_tmp::tempdir().expect("tempdir for extensions");
     std::fs::copy(
         concat!(env!("CARGO_MANIFEST_DIR"), "/../../examples/spawn-hook.lua"),
         ext_dir.path().join("spawn-hook.lua"),

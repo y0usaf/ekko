@@ -30,7 +30,7 @@ vt100.workspace = true
 [dev-dependencies]
 ekko-builtins.workspace = true
 ekko-lua.workspace = true
-tempfile.workspace = true
+ekko-tmp.workspace = true
 
 [lints]
 workspace = true

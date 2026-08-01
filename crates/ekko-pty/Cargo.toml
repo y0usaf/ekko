@@ -14,7 +14,7 @@ signal-hook.workspace = true
 thiserror.workspace = true
 
 [dev-dependencies]
-tempfile.workspace = true
+ekko-tmp.workspace = true
 
 [lints]
 workspace = true

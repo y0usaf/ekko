@@ -101,9 +101,9 @@ dependencies = [
  "ekko-config",
  "ekko-proto",
  "ekko-server",
+ "ekko-tmp",
  "log",
  "serde_json",
- "tempfile",
 ]
 
 [[package]]
@@ -199,9 +199,9 @@ dependencies = [
  "ekko-config",
  "ekko-ext",
  "ekko-proto",
+ "ekko-tmp",
  "log",
  "mlua",
- "tempfile",
 ]
 
 [[package]]
@@ -229,11 +229,11 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "close_fds",
+ "ekko-tmp",
  "libc",
  "log",
  "nix",
  "signal-hook",
- "tempfile",
  "thiserror",
 ]
 
@@ -244,9 +244,9 @@ dependencies = [
  "anyhow",
  "ekko-paths",
  "ekko-proto",
+ "ekko-tmp",
  "serde",
  "serde_json",
- "tempfile",
 ]
 
 [[package]]
@@ -264,13 +264,17 @@ dependencies = [
  "ekko-proto",
  "ekko-pty",
  "ekko-resurrection",
+ "ekko-tmp",
  "log",
  "serde",
  "serde_json",
  "signal-hook",
- "tempfile",
  "vt100",
 ]
+
+[[package]]
+name = "ekko-tmp"
+version = "0.1.0"
 
 [[package]]
 name = "ekko-tui"
@@ -315,27 +319,10 @@ dependencies = [
 ]
 
 [[package]]
-name = "fastrand"
-version = "2.5.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "da7c62ceae207dd37ea5b845da6a0696c799f85e97da1ab5b7910be3c1c80223"
-
-[[package]]
 name = "find-msvc-tools"
 version = "0.1.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5baebc0774151f905a1a2cc41989300b1e6fbb29aff0ceffa1064fdd3088d582"
-
-[[package]]
-name = "getrandom"
-version = "0.4.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "300e883d756b2e4ec94e02791f39b04b522276138852cfc41d9fb7e904106099"
-dependencies = [
- "cfg-if",
- "libc",
- "r-efi",
-]
 
 [[package]]
 name = "hashbrown"
@@ -464,12 +451,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "once_cell"
-version = "1.21.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9f7c3e4beb33f85d45ae3e3a1792185706c8e16d043238c593331cc7cd313b50"
-
-[[package]]
 name = "ordered-float"
 version = "2.10.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -524,12 +505,6 @@ checksum = "1fbf4db142a473a8d80c26bbf18454ed458bf8d26c8219c331daecfdbd079001"
 dependencies = [
  "proc-macro2",
 ]
-
-[[package]]
-name = "r-efi"
-version = "6.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f8dcc9c7d52a811697d2151c701e0d08956f92b0e24136cf4cf27b57a6a0d9bf"
 
 [[package]]
 name = "redox_syscall"
@@ -674,19 +649,6 @@ dependencies = [
  "proc-macro2",
  "quote",
  "unicode-ident",
-]
-
-[[package]]
-name = "tempfile"
-version = "3.27.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "32497e9a4c7b38532efcdebeef879707aa9f794296a4f0244f6f69e9bc8574bd"
-dependencies = [
- "fastrand",
- "getrandom",
- "once_cell",
- "rustix",
- "windows-sys",
 ]
 
 [[package]]

@@ -1199,7 +1199,7 @@ mod tests {
     struct LiveHub {
         hub: Hub,
         rx: Receiver<HubInstruction>,
-        _cwd: tempfile::TempDir,
+        _cwd: ekko_tmp::TempDir,
     }
 
     impl LiveHub {
@@ -1208,7 +1208,7 @@ mod tests {
             let mut config = Config::default();
             config.general.default_shell = "/bin/sh".to_string();
             let mut hub = Hub::new("test".to_string(), config, hub_tx, AppRuntime::empty());
-            let cwd = tempfile::tempdir().unwrap();
+            let cwd = ekko_tmp::tempdir().unwrap();
             let pane = hub
                 .spawn_terminal(cwd.path(), std::path::Path::new("/bin/sh"), cols, rows)
                 .unwrap();
