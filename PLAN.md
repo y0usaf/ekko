@@ -6,8 +6,8 @@ Two concrete end states:
 1. **Registry parity** — every `ExtensionHost` method is reachable from a
    `.lua` script, in both processes. A user can disable any builtin and
    replace it wholesale with a script.
-2. **Config is Lua** — `~/.config/ekko/init.lua` supersedes `config.toml`
-   as the settings source (shell, scrollback, sidebar width, keybind
+2. **Config is Lua** — `~/.config/ekko/init.lua` is the only config file
+   (shell, scrollback, sidebar width, keybind
    overrides, disabled extensions).
 
 The irreducible non-Lua core (explicit non-goals, by construction):
@@ -108,9 +108,9 @@ and `nix flake check` green after each (doctrine 7).
       `Keybind` round-trips fine), then runs `normalize()` (now `pub`);
       `load_config_cascade()` (+ `load_config_cascade_in(dir)`, the test
       seam) is called by both processes' `run()` behind `#[cfg(feature =
-      "lua")]`. Broken `init.lua` is a hard error (no TOML fall-through);
-      broken TOML still degrades to defaults (now with a warning) as
-      before. Unknown top-level keys warn; unknown *nested* keys are
+      "lua")]`. Broken `init.lua` is a hard error; stale `config.toml`
+      is a migration error and is never parsed. Unknown top-level keys warn;
+      unknown *nested* keys are
       silently ignored by serde — accepted. `ekko.config` is a serialized
       copy set on the collector's ekko table (`LuaExtension::set_config`;
       `load_extensions` grew a `&Config` param — all call sites updated).
@@ -415,7 +415,7 @@ the returned table.
 - Precedence, applied identically at both load sites
   (`crates/ekko-client/src/lib.rs` `run()` and
   `crates/ekko-server/src/lib.rs:44`): `init.lua` if present → else
-  `config.toml` → else defaults. A broken `init.lua` is a **hard error
+  defaults; a stale `config.toml` is a hard migration error. A broken `init.lua` is a **hard error
   with a clear message**, not a silent fall-through to TOML — silently
   ignoring the user's config is worse than refusing to start. Factor the
   cascade into one helper (behind `#[cfg(feature = "lua")]`, e.g.
@@ -434,10 +434,8 @@ the returned table.
 
 ### C3. Docs & conformance
 
-- DESIGN.md crate map: `ekko-config` row becomes "config schema +
-  TOML/`init.lua` loading (eval in `ekko-lua`)"; note the divergence in
-  the doctrine-conformance table if the "dumb TOML store" phrasing was
-  load-bearing anywhere.
+- DESIGN.md crate map: `ekko-config` owns the config schema and Lua
+  cascade policy; evaluation remains in `ekko-lua`.
 - README: `init.lua` reference section with the full schema.
 
 ### C-acceptance
@@ -481,7 +479,7 @@ fine as constants; an unused knob is just surface area.
 |---|---|
 | Mode `on_key` dialect diverging from overlay `handle_key` dialect | Deliberately mirrored (`"exit"`/`"close"` string + array-head form). If a third dialect ever appears, extract a shared outcome parser in `convert.rs`. |
 | Buggy server script degrades all sessions' daemon | Accepted: budgets + dispatch timeouts + log-and-continue already bound it; B4 pins it with tests. |
-| `init.lua` and daemon lifetime skew (daemon started under old config) | Same skew TOML has today; no regression. Documented in B5. |
+| `init.lua` and daemon lifetime skew (daemon started under old config) | Same skew as before; no regression. Documented in B5. |
 | mlua `serialize` feature pulling serde through the bridge | Small, vendored Lua already dominates; acceptable. |
 | Grouper scripts dropping sessions | Prevented structurally (name-rehydration + trailing ungrouped group, A3). |
 
@@ -491,7 +489,7 @@ fine as constants; an unused knob is just surface area.
 |---|---|---|
 | A | Full client registry parity (`register_mode`/`register_spinner`/`register_session_grouper`, scrollbar op, Scaled/hide_below) | `examples/scroll-mode.lua` replaces the builtin; bridge tests |
 | B | Scripts run in the daemon (`host = "server"`/`"both"`) | `examples/spawn-hook.lua` overrides a real PTY spawn in the seam test |
-| C | `init.lua` supersedes `config.toml`; `ekko.config` readable from scripts | disable-and-replace a builtin entirely from Lua, no TOML present |
+| C | `init.lua` is the only config file; `ekko.config` readable from scripts | disable-and-replace a builtin entirely from Lua |
 | D | Lua budgets configurable | budget raise observable in a bridge test |
 
 After C, the answer to "what can't Lua configure?" is exactly the
@@ -770,6 +768,7 @@ features own disjoint consumers; do not invent concurrency inside the MVP.
 - [x] Replaced interprocess, tempfile, thiserror, nix, close_fds, daemonize,
       and itoa across commits `63fa937`, `7e406ea`, `b8e01ad`, `11d93bf`,
       `cb3b0da`, `8fe71d4`, and `066fc0b`.
+- [x] Removed the `toml` dependency and legacy `config.toml` cascade; Cargo.lock package count delta recorded after refresh.
 - [x] Added the zero-dependency `ekko-tmp` test helper and direct libc/std
       implementations; fixed the fd leak when `close_range` fails for any
       reason, not only ENOSYS.

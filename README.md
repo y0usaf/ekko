@@ -56,7 +56,7 @@ bare harness: attach, raw key passthrough, fullscreen grid, nothing else.
 | `ekko-lua` | Lua scripting bridge: `~/.config/ekko/extensions/*.lua` become extensions, with instruction budgets and buffered draw ops |
 | `ekko-grid` | Cell surface, damage tracking, diffed ANSI renderer (from phi-grid) |
 | `ekko-tui` | Raw mode, terminal caps, cell-width/spinner primitives (from phi-tui / pi-harness) |
-| `ekko-config` | Config schema (`keybinds`, `extensions.disabled`, …); parses `config.toml` — `init.lua` evaluation lives in `ekko-lua` |
+| `ekko-config` | Config schema (`keybinds`, `extensions.disabled`, …) and config cascade policy — `init.lua` evaluation lives in `ekko-lua` |
 
 `ref/` holds local checkouts of zellij, phi, and pi-harness used as design
 references; it is not part of the build.
@@ -118,8 +118,8 @@ action can take a list of chords). Leader entries rebind as
 
 ## Configuration
 
-`~/.config/ekko/init.lua`, when present, supersedes `config.toml` as the
-settings source. It evaluates — under an instruction budget, in a throwaway
+`~/.config/ekko/init.lua` is the only config file. It evaluates — under an
+instruction budget, in a throwaway
 Lua state — to a table congruent with the config schema:
 
 ```lua
@@ -145,8 +145,8 @@ the returned table (config declares data — it cannot register callbacks).
 Unknown keys warn and are ignored, since config files outlive binaries, but
 a *broken* `init.lua` is a hard error: refusing to start beats silently
 running on defaults, so there is no fall-through to a coexisting
-`config.toml`. Without `init.lua`, `config.toml` applies (same schema,
-TOML spelling); without either, defaults. The client and the per-session
+Without `init.lua`, defaults apply. A stale `config.toml` is rejected with
+an error directing you to migrate to `init.lua`. The client and the per-session
 daemon load the same cascade, and scripts read the resolved result as a
 read-only `ekko.config` table.
 
