@@ -2,7 +2,7 @@
 //! (`zellij-server/src/os_input_output_unix.rs`).
 
 use std::io;
-use std::os::fd::{AsRawFd, OwnedFd, RawFd};
+use std::os::fd::{AsRawFd, FromRawFd, OwnedFd, RawFd};
 use std::os::unix::process::CommandExt;
 use std::path::PathBuf;
 use std::process::Command;
@@ -10,10 +10,7 @@ use std::sync::atomic::{AtomicU32, Ordering};
 use std::thread;
 use std::time::Duration;
 
-use nix::pty::{OpenptyResult, Winsize, openpty};
-use nix::sys::signal::{Signal, kill as nix_kill};
-use nix::sys::termios::Termios;
-use nix::unistd::Pid;
+pub type Pid = libc::pid_t;
 
 use crate::reaper::reap_child;
 
@@ -28,10 +25,9 @@ static NEXT_TERMINAL_ID: AtomicU32 = AtomicU32::new(0);
 /// Errors that can occur while spawning or controlling a PTY.
 #[derive(Debug)]
 pub enum PtyError {
-    OpenPty(nix::Error),
+    OpenPty(io::Error),
     Spawn(io::Error),
     Resize(io::Error),
-    Nix(nix::Error),
     Io(io::Error),
 }
 
@@ -41,7 +37,6 @@ impl std::fmt::Display for PtyError {
             Self::OpenPty(error) => write!(f, "failed to open pty: {error}"),
             Self::Spawn(error) => write!(f, "failed to spawn child process: {error}"),
             Self::Resize(error) => write!(f, "failed to resize pty: {error}"),
-            Self::Nix(error) => write!(f, "nix error: {error}"),
             Self::Io(error) => write!(f, "io error: {error}"),
         }
     }
@@ -50,15 +45,9 @@ impl std::fmt::Display for PtyError {
 impl std::error::Error for PtyError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
-            Self::OpenPty(error) | Self::Nix(error) => Some(error),
+            Self::OpenPty(error) => Some(error),
             Self::Spawn(error) | Self::Resize(error) | Self::Io(error) => Some(error),
         }
-    }
-}
-
-impl From<nix::Error> for PtyError {
-    fn from(error: nix::Error) -> Self {
-        Self::Nix(error)
     }
 }
 
@@ -145,17 +134,43 @@ pub fn spawn_pty(
 ) -> Result<PtyHandle, PtyError> {
     let terminal_id = NEXT_TERMINAL_ID.fetch_add(1, Ordering::Relaxed);
 
-    let winsize = Winsize {
+    let winsize = libc::winsize {
         ws_row: size.rows,
         ws_col: size.cols,
         ws_xpixel: 0,
         ws_ypixel: 0,
     };
-
-    let OpenptyResult { master, slave } =
-        openpty(Some(&winsize), None::<&Termios>).map_err(PtyError::OpenPty)?;
+    let mut master_raw = -1;
+    let mut slave_raw = -1;
+    // SAFETY: all pointers are valid and openpty initializes both outputs.
+    let result = unsafe {
+        libc::openpty(
+            &mut master_raw,
+            &mut slave_raw,
+            std::ptr::null_mut(),
+            std::ptr::null(),
+            &winsize,
+        )
+    };
+    if result != 0 {
+        return Err(PtyError::OpenPty(io::Error::last_os_error()));
+    }
+    // SAFETY: openpty returned ownership of these newly opened descriptors.
+    let master = unsafe { OwnedFd::from_raw_fd(master_raw) };
+    let slave = unsafe { OwnedFd::from_raw_fd(slave_raw) };
 
     let slave_raw: RawFd = slave.as_raw_fd();
+    let fd_limit = unsafe {
+        let mut limits = libc::rlimit {
+            rlim_cur: 0,
+            rlim_max: 0,
+        };
+        if libc::getrlimit(libc::RLIMIT_NOFILE, &mut limits) == 0 {
+            limits.rlim_cur.min(65_536) as RawFd
+        } else {
+            65_536
+        }
+    };
 
     let mut command = Command::new(&cmd.program);
     command.args(&cmd.args);
@@ -166,7 +181,7 @@ pub fn spawn_pty(
 
     // SAFETY: `pre_exec` runs in the forked child, after `fork` but before
     // `exec`, so only async-signal-safe operations are allowed here.
-    // `login_tty` and `close_open_fds` both qualify.
+    // `login_tty` and the raw fd operations below qualify.
     unsafe {
         command.pre_exec(move || {
             if libc::login_tty(slave_raw) != 0 {
@@ -175,13 +190,20 @@ pub fn spawn_pty(
             // Close everything except stdin/stdout/stderr (which
             // `login_tty` just dup'd onto the slave) so the child doesn't
             // inherit unrelated fds from the server process.
-            close_fds::close_open_fds(3, &[]);
+            // This closure allocates no memory and takes no locks: login_tty,
+            // syscall, close, and the integer loop are async-signal-safe.
+            let result = libc::syscall(libc::SYS_close_range, 3, u32::MAX as libc::c_ulong, 0);
+            if result == -1 && *libc::__errno_location() == libc::ENOSYS {
+                for fd in 3..fd_limit {
+                    libc::close(fd);
+                }
+            }
             Ok(())
         });
     }
 
     let child = command.spawn().map_err(PtyError::Spawn)?;
-    let child_pid = Pid::from_raw(child.id() as i32);
+    let child_pid = child.id() as libc::pid_t;
 
     // The child now owns its own copy of the slave side (dup'd onto fds
     // 0/1/2 by login_tty); the parent's copy is no longer needed.
@@ -201,7 +223,7 @@ pub fn spawn_pty(
 
 /// Resize a live PTY via `TIOCSWINSZ`.
 pub fn resize(fd: RawFd, cols: u16, rows: u16) -> Result<(), PtyError> {
-    let winsize = Winsize {
+    let winsize = libc::winsize {
         ws_row: rows,
         ws_col: cols,
         ws_xpixel: 0,
@@ -220,19 +242,19 @@ pub fn resize(fd: RawFd, cols: u16, rows: u16) -> Result<(), PtyError> {
 
 /// Politely ask a process to exit (`SIGTERM`).
 pub fn kill(pid: Pid) -> Result<(), PtyError> {
-    nix_kill(pid, Some(Signal::SIGTERM)).map_err(PtyError::from)
+    signal(pid, libc::SIGTERM)
 }
 
 /// Forcibly kill a process (`SIGKILL`).
 pub fn force_kill(pid: Pid) -> Result<(), PtyError> {
-    nix_kill(pid, Some(Signal::SIGKILL)).map_err(PtyError::from)
+    signal(pid, libc::SIGKILL)
 }
 
 /// Terminal-hangup semantics (`SIGHUP`), matching zellij's pane teardown: a
 /// job-control shell forwards the HUP to its jobs, so the whole foreground
 /// tree dies rather than just the shell.
 pub fn hangup(pid: Pid) -> Result<(), PtyError> {
-    nix_kill(pid, Some(Signal::SIGHUP)).map_err(PtyError::from)
+    signal(pid, libc::SIGHUP)
 }
 
 /// Guarantee a pane child is dead: `SIGHUP`, wait up to `grace` for it to
@@ -257,11 +279,21 @@ pub fn terminate(pid: Pid, grace: Duration, settle: Duration) {
 /// Poll until `pid` is gone (`ESRCH`) or the budget elapses. A zombie still
 /// reads as alive here, but its reaper thread collects it within one poll
 /// interval, so the loop absorbs that race instead of mis-escalating.
+fn signal(pid: Pid, signal: libc::c_int) -> Result<(), PtyError> {
+    if unsafe { libc::kill(pid, signal) } == -1 {
+        Err(PtyError::Io(io::Error::last_os_error()))
+    } else {
+        Ok(())
+    }
+}
+
 fn wait_gone(pid: Pid, budget: Duration) -> bool {
     const POLL: Duration = Duration::from_millis(10);
     let deadline = std::time::Instant::now() + budget;
     loop {
-        if let Err(nix::errno::Errno::ESRCH) = nix_kill(pid, None) {
+        if unsafe { libc::kill(pid, 0) } == -1
+            && io::Error::last_os_error().raw_os_error() == Some(libc::ESRCH)
+        {
             return true;
         }
         if std::time::Instant::now() >= deadline {

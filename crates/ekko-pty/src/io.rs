@@ -3,9 +3,7 @@
 //! (`zellij-server/src/os_input_output_unix.rs`).
 
 use std::io;
-use std::os::fd::{BorrowedFd, RawFd};
-
-use nix::fcntl::{FcntlArg, OFlag, fcntl};
+use std::os::fd::RawFd;
 
 use crate::PtyError;
 
@@ -18,17 +16,22 @@ use crate::PtyError;
 /// re-queue any unwritten remainder. If `fd` is blocking, this simply writes
 /// the whole buffer.
 pub fn try_write_to_fd(fd: RawFd, buf: &[u8]) -> Result<usize, PtyError> {
-    // SAFETY: `fd` is borrowed for the duration of this call only; the
-    // caller retains ownership of the underlying file descriptor.
-    let borrowed = unsafe { BorrowedFd::borrow_raw(fd) };
     let mut written = 0;
     while written < buf.len() {
-        match nix::unistd::write(borrowed, &buf[written..]) {
-            Ok(0) => break, // fd returned 0 on a non-empty buf; treat like EAGAIN
-            Ok(n) => written += n,
-            Err(nix::errno::Errno::EINTR) => continue,
-            Err(nix::errno::Errno::EAGAIN) => break,
-            Err(e) => return Err(PtyError::Nix(e)),
+        // SAFETY: fd and slice are valid for this call.
+        let ret = unsafe { libc::write(fd, buf[written..].as_ptr().cast(), buf.len() - written) };
+        if ret == 0 {
+            break;
+        }
+        if ret > 0 {
+            written += ret as usize;
+            continue;
+        }
+        let error = io::Error::last_os_error();
+        match error.raw_os_error() {
+            Some(libc::EINTR) => continue,
+            Some(libc::EAGAIN) => break,
+            _ => return Err(PtyError::Io(error)),
         }
     }
     Ok(written)
@@ -58,9 +61,18 @@ pub fn read(fd: RawFd, buf: &mut [u8]) -> io::Result<usize> {
 /// non-blocking mode lets the synchronous event loop poll the descriptor
 /// without stalling other work.
 pub fn set_nonblocking(fd: RawFd, nonblocking: bool) -> Result<(), PtyError> {
-    let flags = fcntl(fd, FcntlArg::F_GETFL).map_err(PtyError::Nix)?;
-    let mut oflags = OFlag::from_bits_truncate(flags);
-    oflags.set(OFlag::O_NONBLOCK, nonblocking);
-    fcntl(fd, FcntlArg::F_SETFL(oflags)).map_err(PtyError::Nix)?;
+    // SAFETY: fcntl operates on the caller-owned descriptor.
+    let flags = unsafe { libc::fcntl(fd, libc::F_GETFL) };
+    if flags == -1 {
+        return Err(PtyError::Io(io::Error::last_os_error()));
+    }
+    let new_flags = if nonblocking {
+        flags | libc::O_NONBLOCK
+    } else {
+        flags & !libc::O_NONBLOCK
+    };
+    if unsafe { libc::fcntl(fd, libc::F_SETFL, new_flags) } == -1 {
+        return Err(PtyError::Io(io::Error::last_os_error()));
+    }
     Ok(())
 }

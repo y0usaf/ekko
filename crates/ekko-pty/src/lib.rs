@@ -13,16 +13,35 @@ pub use spawn::{
     terminate,
 };
 
-pub use nix::unistd::Pid;
+pub use spawn::Pid;
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use nix::sys::termios;
     use std::io::Read as _;
-    use std::os::fd::AsRawFd;
+    use std::os::fd::{AsRawFd, FromRawFd};
     use std::sync::mpsc;
     use std::time::Duration;
+
+    fn raw_openpty() -> (std::os::fd::OwnedFd, std::os::fd::OwnedFd) {
+        let (mut master, mut slave) = (-1, -1);
+        assert_eq!(
+            unsafe {
+                libc::openpty(
+                    &mut master,
+                    &mut slave,
+                    std::ptr::null_mut(),
+                    std::ptr::null(),
+                    std::ptr::null(),
+                )
+            },
+            0
+        );
+        (
+            unsafe { std::os::fd::OwnedFd::from_raw_fd(master) },
+            unsafe { std::os::fd::OwnedFd::from_raw_fd(slave) },
+        )
+    }
 
     /// Spawn `/bin/sh -c 'printf hi'`, read its output from the master until
     /// EOF, and confirm the reaper thread fires `on_exit` with exit code 0
@@ -55,8 +74,11 @@ mod tests {
 
         // No zombie: signal 0 should now fail with ESRCH since the child has
         // been fully waited on.
-        let err = nix::sys::signal::kill(pid, None).expect_err("child should be fully reaped");
-        assert_eq!(err, nix::errno::Errno::ESRCH);
+        assert_eq!(unsafe { libc::kill(pid, 0) }, -1);
+        assert_eq!(
+            std::io::Error::last_os_error().raw_os_error(),
+            Some(libc::ESRCH)
+        );
     }
 
     /// Ported from zellij's `try_write_to_fd_returns_partial_on_full_buffer`
@@ -65,17 +87,22 @@ mod tests {
     /// when a non-blocking master fd's buffer fills up.
     #[test]
     fn try_write_to_fd_partial_write_on_full_buffer() {
-        let pty = nix::pty::openpty(None::<&nix::pty::Winsize>, None::<&termios::Termios>)
-            .expect("openpty failed");
-        let master_fd = pty.master.as_raw_fd();
+        let (master, slave) = raw_openpty();
+        let master_fd = master.as_raw_fd();
 
-        let mut attrs = termios::tcgetattr(&pty.slave).expect("tcgetattr failed");
-        termios::cfmakeraw(&mut attrs);
-        termios::tcsetattr(&pty.slave, termios::SetArg::TCSANOW, &attrs).expect("tcsetattr failed");
+        let mut attrs = unsafe { std::mem::zeroed::<libc::termios>() };
+        assert_eq!(unsafe { libc::tcgetattr(slave.as_raw_fd(), &mut attrs) }, 0);
+        unsafe {
+            libc::cfmakeraw(&mut attrs);
+        }
+        assert_eq!(
+            unsafe { libc::tcsetattr(slave.as_raw_fd(), libc::TCSANOW, &attrs) },
+            0
+        );
 
         set_nonblocking(master_fd, true).expect("set_nonblocking failed");
 
-        let mut slave_file = std::fs::File::from(pty.slave);
+        let mut slave_file = std::fs::File::from(slave);
 
         // Fill most of the buffer, leaving some space.
         let chunk = vec![0x42u8; 1024];
@@ -108,7 +135,7 @@ mod tests {
             "expected partial write, got {written}/{size}",
         );
 
-        let _ = pty.master; // keep the master fd alive until here
+        let _ = master; // keep the master fd alive until here
     }
 
     /// Ported from zellij's `try_write_to_fd_returns_zero_on_stuck_pty`:
@@ -116,13 +143,18 @@ mod tests {
     /// rather than an error.
     #[test]
     fn try_write_to_fd_returns_zero_on_stuck_pty() {
-        let pty = nix::pty::openpty(None::<&nix::pty::Winsize>, None::<&termios::Termios>)
-            .expect("openpty failed");
-        let master_fd = pty.master.as_raw_fd();
+        let (master, slave) = raw_openpty();
+        let master_fd = master.as_raw_fd();
 
-        let mut attrs = termios::tcgetattr(&pty.slave).expect("tcgetattr failed");
-        termios::cfmakeraw(&mut attrs);
-        termios::tcsetattr(&pty.slave, termios::SetArg::TCSANOW, &attrs).expect("tcsetattr failed");
+        let mut attrs = unsafe { std::mem::zeroed::<libc::termios>() };
+        assert_eq!(unsafe { libc::tcgetattr(slave.as_raw_fd(), &mut attrs) }, 0);
+        unsafe {
+            libc::cfmakeraw(&mut attrs);
+        }
+        assert_eq!(
+            unsafe { libc::tcsetattr(slave.as_raw_fd(), libc::TCSANOW, &attrs) },
+            0
+        );
 
         set_nonblocking(master_fd, true).expect("set_nonblocking failed");
 
@@ -139,7 +171,7 @@ mod tests {
             .expect("try_write_to_fd should not error on EAGAIN");
         assert_eq!(written, 0, "expected zero bytes written on full buffer");
 
-        let _ = pty.slave; // keep the slave side alive until here
+        let _ = (master, slave); // keep the slave side alive until here
     }
 
     /// A shell that ignores SIGHUP must still be dead after [`terminate`]:
@@ -182,8 +214,11 @@ mod tests {
         let started = std::time::Instant::now();
         terminate(pid, Duration::from_millis(300), Duration::from_millis(500));
 
-        let err = nix::sys::signal::kill(pid, None).expect_err("child must be dead");
-        assert_eq!(err, nix::errno::Errno::ESRCH);
+        assert_eq!(unsafe { libc::kill(pid, 0) }, -1);
+        assert_eq!(
+            std::io::Error::last_os_error().raw_os_error(),
+            Some(libc::ESRCH)
+        );
         // Trapping HUP means the grace budget must fully elapse before the
         // SIGKILL escalation finishes the job.
         assert!(
@@ -222,8 +257,11 @@ mod tests {
         let started = std::time::Instant::now();
         terminate(pid, Duration::from_millis(500), Duration::from_millis(250));
 
-        let err = nix::sys::signal::kill(pid, None).expect_err("child must be dead");
-        assert_eq!(err, nix::errno::Errno::ESRCH);
+        assert_eq!(unsafe { libc::kill(pid, 0) }, -1);
+        assert_eq!(
+            std::io::Error::last_os_error().raw_os_error(),
+            Some(libc::ESRCH)
+        );
         assert!(
             started.elapsed() < Duration::from_millis(500),
             "a HUP-compliant shell must die inside the grace budget"
@@ -234,10 +272,8 @@ mod tests {
 
     #[test]
     fn resize_does_not_error_on_live_pty() {
-        let pty = nix::pty::openpty(None::<&nix::pty::Winsize>, None::<&termios::Termios>)
-            .expect("openpty failed");
-        let master_fd = pty.master.as_raw_fd();
-        resize(master_fd, 100, 40).expect("resize should not fail on a live pty");
-        let _ = (pty.master, pty.slave);
+        let (master, slave) = raw_openpty();
+        resize(master.as_raw_fd(), 100, 40).expect("resize should not fail on a live pty");
+        let _ = (master, slave);
     }
 }
