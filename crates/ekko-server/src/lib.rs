@@ -20,11 +20,11 @@ mod vt_compat;
 use std::thread;
 
 use anyhow::Context;
-use crossbeam_channel::Sender;
 use daemonize::{Daemonize, Stdio};
 use interprocess::local_socket::Listener;
 use signal_hook::consts::{SIGINT, SIGTERM};
 use signal_hook::iterator::Signals;
+use std::sync::mpsc::Sender;
 
 use hub::{Hub, HubInstruction};
 
@@ -103,7 +103,7 @@ pub fn run_with_runtime(
     // never leave a connectable-looking ghost socket behind.
     let _socket_guard = SocketGuard(socket_path.clone(), pid_path);
 
-    let (hub_tx, hub_rx) = crossbeam_channel::unbounded::<HubInstruction>();
+    let (hub_tx, hub_rx) = std::sync::mpsc::channel::<HubInstruction>();
 
     install_panic_hook(hub_tx.clone());
     spawn_listener_thread(listener, hub_tx.clone())?;

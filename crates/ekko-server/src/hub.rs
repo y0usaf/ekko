@@ -7,11 +7,11 @@ use std::path::PathBuf;
 use std::thread;
 use std::time::{Duration, Instant};
 
-use crossbeam_channel::{Receiver, RecvTimeoutError, Sender};
 use ekko_config::{Config, PaneLayout};
 use ekko_proto::{AttachRejectReason, ClientToServer, ExitReason, ServerNotice, ServerToClient};
 use ekko_pty::{PtyCommand, WinSize};
 use interprocess::local_socket::Stream as LocalSocketStream;
+use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender};
 
 use ekko_event::{EventKind, EventPayload, EventReturn, SessionExitReason};
 use ekko_ext::AppRuntime;
@@ -1204,7 +1204,7 @@ mod tests {
 
     impl LiveHub {
         fn new(cols: u16, rows: u16, clients: &[ClientId]) -> Self {
-            let (hub_tx, rx) = crossbeam_channel::unbounded();
+            let (hub_tx, rx) = std::sync::mpsc::channel();
             let mut config = Config::default();
             config.general.default_shell = "/bin/sh".to_string();
             let mut hub = Hub::new("test".to_string(), config, hub_tx, AppRuntime::empty());
@@ -1439,8 +1439,8 @@ mod tests {
             .unwrap();
         assert_eq!(live.hub.focus[&20], initial);
 
-        let (left_tx, left_rx) = crossbeam_channel::bounded(16);
-        let (right_tx, right_rx) = crossbeam_channel::bounded(16);
+        let (left_tx, left_rx) = std::sync::mpsc::sync_channel(16);
+        let (right_tx, right_rx) = std::sync::mpsc::sync_channel(16);
         live.hub.clients.insert(20, ClientHandle { tx: left_tx });
         live.hub.clients.insert(10, ClientHandle { tx: right_tx });
         let child_key = live.hub.panes[&child].key();
@@ -1517,7 +1517,7 @@ mod tests {
     fn wire_requests_split_focus_and_close_through_the_hub() {
         let mut live = LiveHub::new(80, 24, &[10]);
         let initial = live.hub.focus[&10];
-        let (tx, rx) = crossbeam_channel::bounded(64);
+        let (tx, rx) = std::sync::mpsc::sync_channel(64);
         live.hub.clients.insert(10, ClientHandle { tx });
 
         live.hub.on_client_msg(
@@ -1588,7 +1588,7 @@ mod tests {
             .split_focused(10, SplitAxis::Horizontal)
             .unwrap()
             .unwrap();
-        let (tx, rx) = crossbeam_channel::bounded(64);
+        let (tx, rx) = std::sync::mpsc::sync_channel(64);
         live.hub.clients.insert(10, ClientHandle { tx });
         rx.try_iter().for_each(drop);
 
@@ -1619,7 +1619,7 @@ mod tests {
             .split_focused(10, SplitAxis::Horizontal)
             .unwrap()
             .unwrap();
-        let (tx, rx) = crossbeam_channel::bounded(64);
+        let (tx, rx) = std::sync::mpsc::sync_channel(64);
         live.hub.clients.insert(10, ClientHandle { tx });
         rx.try_iter().for_each(drop);
 
