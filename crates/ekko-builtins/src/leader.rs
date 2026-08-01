@@ -476,8 +476,19 @@ mod tests {
 
     #[test]
     fn config_overrides_leader_and_entry_keys() {
-        let config: Config =
-            toml::from_str("[keybinds]\nleader = \"alt+g\"\n\"leader.help\" = \"h\"\n").unwrap();
+        let config = Config {
+            keybinds: std::collections::BTreeMap::from([
+                (
+                    String::from("leader"),
+                    ekko_config::Keybind::Single(String::from("alt+g")),
+                ),
+                (
+                    String::from("leader.help"),
+                    ekko_config::Keybind::Single(String::from("h")),
+                ),
+            ]),
+            ..Default::default()
+        };
         let rt = RuntimeBuilder::new()
             .register_extension(LeaderExtension::new(&config))
             .build()

@@ -399,7 +399,13 @@ mod tests {
 
     #[test]
     fn config_overrides_replace_defaults() {
-        let config: Config = toml::from_str("[keybinds]\ndetach = \"ctrl+d\"\n").unwrap();
+        let config = Config {
+            keybinds: std::collections::BTreeMap::from([(
+                String::from("detach"),
+                ekko_config::Keybind::Single(String::from("ctrl+d")),
+            )]),
+            ..Default::default()
+        };
         let rt = RuntimeBuilder::new()
             .register_extension(KeybindingsExtension::new(&config))
             .build()
@@ -410,7 +416,13 @@ mod tests {
 
     #[test]
     fn config_can_bind_arrows_with_all_encodings() {
-        let config: Config = toml::from_str("[keybinds]\nsession_next = \"down\"\n").unwrap();
+        let config = Config {
+            keybinds: std::collections::BTreeMap::from([(
+                String::from("session_next"),
+                ekko_config::Keybind::Single(String::from("down")),
+            )]),
+            ..Default::default()
+        };
         let rt = RuntimeBuilder::new()
             .register_extension(KeybindingsExtension::new(&config))
             .build()

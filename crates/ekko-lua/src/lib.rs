@@ -47,7 +47,7 @@
 //! halves need to exchange goes through events like every other extension.
 //!
 //! The bridge is also the config evaluator: [`load_config_cascade`] reads
-//! `~/.config/ekko/init.lua` — superseding `config.toml` — into an
+//! `~/.config/ekko/init.lua` — into an
 //! [`ekko_config::Config`], and every script sees the resolved config as a
 //! read-only `ekko.config` table.
 

@@ -137,7 +137,7 @@ fn build_runtime(
 /// navigation) and left an orphaned stdin reader that ate the next
 /// keystroke.
 pub fn run(options: ClientOptions) -> Result<()> {
-    // The cascade (`init.lua` supersedes `config.toml` supersedes defaults)
+    // The config cascade (`init.lua` or defaults)
     // lives in ekko-config; the lua feature just injects the evaluator.
     // A broken `init.lua` refuses to start rather than silently running on
     // defaults. Loaded before raw mode, so the error prints normally.

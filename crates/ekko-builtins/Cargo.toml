@@ -13,9 +13,6 @@ ekko-ext = { workspace = true }
 ekko-resurrection = { workspace = true }
 ekko-tui = { workspace = true }
 
-[dev-dependencies]
-toml = { workspace = true }
-
 [lints]
 workspace = true
 
