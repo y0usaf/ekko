@@ -192,8 +192,10 @@ pub fn spawn_pty(
             // inherit unrelated fds from the server process.
             // This closure allocates no memory and takes no locks: login_tty,
             // syscall, close, and the integer loop are async-signal-safe.
+            // Fall back on every close_range failure: seccomp and invalid or
+            // unsupported arguments must not leak the server's open fds.
             let result = libc::syscall(libc::SYS_close_range, 3, u32::MAX as libc::c_ulong, 0);
-            if result == -1 && *libc::__errno_location() == libc::ENOSYS {
+            if result == -1 {
                 for fd in 3..fd_limit {
                     libc::close(fd);
                 }
