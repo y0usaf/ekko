@@ -10,7 +10,6 @@ bincode.workspace = true
 ekko-paths.workspace = true
 libc.workspace = true
 serde.workspace = true
-thiserror.workspace = true
 
 [lints]
 workspace = true

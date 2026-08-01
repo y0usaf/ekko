@@ -17,14 +17,36 @@ const CTL_REPLY_TIMEOUT: Duration = Duration::from_secs(5);
 /// Errors a control verb can report. `NoSuchSession` maps to a dedicated
 /// process exit code (`EXIT_NOT_FOUND`) so scripts can distinguish "the
 /// session isn't there" from "the daemon is broken".
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug)]
 pub enum CtlError {
     /// No live socket (or live daemon) answers for the session name.
-    #[error("no such session: '{0}'")]
     NoSuchSession(String),
     /// The daemon is there but failed or refused the request.
-    #[error(transparent)]
-    Other(#[from] anyhow::Error),
+    Other(anyhow::Error),
+}
+
+impl std::fmt::Display for CtlError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::NoSuchSession(name) => write!(f, "no such session: '{name}'"),
+            Self::Other(error) => std::fmt::Display::fmt(error, f),
+        }
+    }
+}
+
+impl std::error::Error for CtlError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::NoSuchSession(_) => None,
+            Self::Other(error) => error.source(),
+        }
+    }
+}
+
+impl From<anyhow::Error> for CtlError {
+    fn from(error: anyhow::Error) -> Self {
+        Self::Other(error)
+    }
 }
 
 /// Connect to the named session's socket or report `NoSuchSession`.

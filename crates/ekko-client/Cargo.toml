@@ -27,7 +27,6 @@ ekko-resurrection.workspace = true
 ekko-tui.workspace = true
 serde_json.workspace = true
 signal-hook.workspace = true
-thiserror.workspace = true
 unicode-width.workspace = true
 
 [dev-dependencies]
