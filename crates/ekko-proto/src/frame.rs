@@ -8,27 +8,63 @@ use std::io::{self, Read, Write};
 
 use serde::Serialize;
 use serde::de::DeserializeOwned;
-use thiserror::Error;
 
 /// Maximum allowed frame payload size (16 MiB), guarding against a corrupt or
 /// malicious length prefix causing an unbounded allocation.
 pub const MAX_FRAME_SIZE: u32 = 16 * 1024 * 1024;
 
 /// Errors that can occur while writing or reading a framed message.
-#[derive(Debug, Error)]
+#[derive(Debug)]
 pub enum FrameError {
-    #[error("io error: {0}")]
-    Io(#[from] io::Error),
-    #[error("frame of {size} bytes exceeds the maximum of {max} bytes")]
-    FrameTooLarge { size: u32, max: u32 },
-    #[error("bincode encode/decode error: {0}")]
-    Bincode(#[from] bincode::Error),
+    Io(io::Error),
+    FrameTooLarge {
+        size: u32,
+        max: u32,
+    },
+    Bincode(bincode::Error),
     /// The connection was closed in the middle of a frame (after the length
     /// prefix or a partial payload had already been read). Distinguishable
     /// from a clean EOF, which is reported by returning `Ok(None)` from
     /// [`read_msg`].
-    #[error("connection closed mid-frame (truncated)")]
     Truncated,
+}
+
+impl std::fmt::Display for FrameError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Io(e) => write!(f, "io error: {e}"),
+            Self::FrameTooLarge { size, max } => {
+                write!(
+                    f,
+                    "frame of {size} bytes exceeds the maximum of {max} bytes"
+                )
+            }
+            Self::Bincode(e) => write!(f, "bincode encode/decode error: {e}"),
+            Self::Truncated => write!(f, "connection closed mid-frame (truncated)"),
+        }
+    }
+}
+
+impl std::error::Error for FrameError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Io(e) => Some(e),
+            Self::Bincode(e) => Some(e.as_ref()),
+            Self::FrameTooLarge { .. } | Self::Truncated => None,
+        }
+    }
+}
+
+impl From<io::Error> for FrameError {
+    fn from(e: io::Error) -> Self {
+        Self::Io(e)
+    }
+}
+
+impl From<bincode::Error> for FrameError {
+    fn from(e: bincode::Error) -> Self {
+        Self::Bincode(e)
+    }
 }
 
 /// Write `msg` to `writer` as a single length-prefixed frame.

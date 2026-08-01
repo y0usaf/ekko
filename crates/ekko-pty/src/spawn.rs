@@ -26,18 +26,46 @@ const DROP_ENV_VARS: &[&str] = &["EKKO_SESSION_NAME", "STY", "TMUX", "TMUX_PANE"
 static NEXT_TERMINAL_ID: AtomicU32 = AtomicU32::new(0);
 
 /// Errors that can occur while spawning or controlling a PTY.
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug)]
 pub enum PtyError {
-    #[error("failed to open pty: {0}")]
-    OpenPty(#[source] nix::Error),
-    #[error("failed to spawn child process: {0}")]
-    Spawn(#[source] io::Error),
-    #[error("failed to resize pty: {0}")]
-    Resize(#[source] io::Error),
-    #[error("nix error: {0}")]
-    Nix(#[from] nix::Error),
-    #[error("io error: {0}")]
-    Io(#[from] io::Error),
+    OpenPty(nix::Error),
+    Spawn(io::Error),
+    Resize(io::Error),
+    Nix(nix::Error),
+    Io(io::Error),
+}
+
+impl std::fmt::Display for PtyError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::OpenPty(error) => write!(f, "failed to open pty: {error}"),
+            Self::Spawn(error) => write!(f, "failed to spawn child process: {error}"),
+            Self::Resize(error) => write!(f, "failed to resize pty: {error}"),
+            Self::Nix(error) => write!(f, "nix error: {error}"),
+            Self::Io(error) => write!(f, "io error: {error}"),
+        }
+    }
+}
+
+impl std::error::Error for PtyError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::OpenPty(error) | Self::Nix(error) => Some(error),
+            Self::Spawn(error) | Self::Resize(error) | Self::Io(error) => Some(error),
+        }
+    }
+}
+
+impl From<nix::Error> for PtyError {
+    fn from(error: nix::Error) -> Self {
+        Self::Nix(error)
+    }
+}
+
+impl From<io::Error> for PtyError {
+    fn from(error: io::Error) -> Self {
+        Self::Io(error)
+    }
 }
 
 /// Requested initial size of a PTY, in character cells.
