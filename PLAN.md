@@ -764,3 +764,22 @@ features own disjoint consumers; do not invent concurrency inside the MVP.
       `ui.pane_borders`. `cargo fmt --check`, `cargo test --workspace` (33
       suites), `cargo test -p ekko-server --no-default-features` (62 unit +
       18 daemon + 7 extension), `nix build`, `nix flake check` all pass.
+
+## WS-DEP — dependency reduction
+
+- [x] Replaced interprocess, tempfile, thiserror, nix, close_fds, daemonize,
+      and itoa across commits `63fa937`, `7e406ea`, `b8e01ad`, `11d93bf`,
+      `cb3b0da`, `8fe71d4`, and `066fc0b`.
+- [x] Added the zero-dependency `ekko-tmp` test helper and direct libc/std
+      implementations; fixed the fd leak when `close_range` fails for any
+      reason, not only ENOSYS.
+- [x] Verified with `cd /home/y0usaf/dev/ekko && nix build 2>&1 | tail -30`
+      (exit 0) and `cd /home/y0usaf/dev/ekko && nix flake check 2>&1 | tail -60`
+      (exit 0; all checks passed).
+
+The final normal external-crate set is 47 crates with default features and 30
+with `--no-default-features`, down from the 55/39 baseline. The exact
+measurement commands were `nix develop -c cargo tree -e normal -p ekko
+--target x86_64-unknown-linux-gnu` and the same command with
+`--no-default-features`; the shipped binary was also checked with `ldd
+result/bin/ekko` and `nm result/bin/ekko 2>/dev/null | grep -c 'luaL_newstate'`.
