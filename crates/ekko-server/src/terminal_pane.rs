@@ -12,9 +12,9 @@ use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
 use anyhow::Context;
-use crossbeam_channel::Sender;
 use ekko_proto::{CursorState, GridRow, TermModes};
 use ekko_pty::{Pid, PtyHandle};
+use std::sync::mpsc::{Sender, SyncSender};
 
 use crate::grid;
 use crate::hub::HubInstruction;
@@ -60,7 +60,7 @@ pub(crate) fn pane_key_from_pty_thread_name(name: &str) -> Option<PaneKey> {
 
 struct PtyIo {
     master_fd: Option<OwnedFd>,
-    writer_tx: Sender<PtyWriterInstruction>,
+    writer_tx: SyncSender<PtyWriterInstruction>,
     backlog: PtyBacklog,
     retired: Arc<AtomicBool>,
     reader_thread: Option<JoinHandle<()>>,
@@ -90,7 +90,7 @@ impl PtyIo {
             .spawn(move || pty_io::run(fd, &reader_tx, &reader_backlog, &reader_retired, pane))
             .context("spawning pane PTY reader")?;
 
-        let (writer_tx, writer_rx) = crossbeam_channel::bounded(pty_writer::MAILBOX_CAPACITY);
+        let (writer_tx, writer_rx) = std::sync::mpsc::sync_channel(pty_writer::MAILBOX_CAPACITY);
         let writer_retired = Arc::clone(&retired);
         let writer_thread = match std::thread::Builder::new()
             .name(pty_thread_name("writer", pane))
@@ -727,10 +727,9 @@ mod tests {
             generation: PaneGeneration(1),
         };
         let (master, _peer) = std::os::unix::net::UnixStream::pair().unwrap();
-        let (hub_tx, _hub_rx) = crossbeam_channel::unbounded();
+        let (hub_tx, _hub_rx) = std::sync::mpsc::channel();
         let mut io = PtyIo::start(OwnedFd::from(master), key, hub_tx).unwrap();
 
-        assert_eq!(io.writer_tx.capacity(), Some(pty_writer::MAILBOX_CAPACITY));
         io.retire();
     }
 
@@ -741,7 +740,7 @@ mod tests {
             generation: PaneGeneration(1),
         };
         let (master, mut peer) = std::os::unix::net::UnixStream::pair().unwrap();
-        let (hub_tx, _hub_rx) = crossbeam_channel::unbounded();
+        let (hub_tx, _hub_rx) = std::sync::mpsc::channel();
         let mut io = PtyIo::start(OwnedFd::from(master), key, hub_tx).unwrap();
         let writer = io.writer_tx.clone();
 

@@ -9,7 +9,6 @@
 use std::thread;
 use std::time::Duration;
 
-use crossbeam_channel::{Receiver, Sender};
 use ekko_proto::{
     ClientToServer, GridPayload, GridRow, GridUpdate, PaneGrid, ServerToClient, WorkspaceUpdate,
     read_msg, write_msg,
@@ -17,6 +16,7 @@ use ekko_proto::{
 use interprocess::local_socket::Stream as LocalSocketStream;
 use interprocess::local_socket::prelude::*;
 use interprocess::local_socket::traits::SendHalf as _;
+use std::sync::mpsc::{Receiver, Sender, SyncSender};
 
 use crate::hub::HubInstruction;
 
@@ -34,7 +34,7 @@ const WRITE_TIMEOUT: Duration = Duration::from_secs(5);
 /// outgoing message queue. The reader/writer threads run independently and
 /// report back to the hub via `HubInstruction`.
 pub struct ClientHandle {
-    pub tx: Sender<ServerToClient>,
+    pub tx: SyncSender<ServerToClient>,
 }
 
 /// Spawn the reader and writer threads for a freshly accepted connection.
@@ -46,7 +46,7 @@ pub fn spawn(
     let (recv_half, send_half) = stream.split();
     let _ = send_half.set_timeout(Some(WRITE_TIMEOUT));
 
-    let (tx, rx) = crossbeam_channel::bounded::<ServerToClient>(CLIENT_QUEUE_DEPTH);
+    let (tx, rx) = std::sync::mpsc::sync_channel::<ServerToClient>(CLIENT_QUEUE_DEPTH);
 
     let writer_hub_tx = hub_tx.clone();
     if let Err(e) = thread::Builder::new()

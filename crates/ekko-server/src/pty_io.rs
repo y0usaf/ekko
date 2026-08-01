@@ -7,7 +7,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::time::Duration;
 
-use crossbeam_channel::Sender;
+use std::sync::mpsc::Sender;
 
 use crate::hub::HubInstruction;
 use crate::terminal_pane::PaneKey;

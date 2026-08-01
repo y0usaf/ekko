@@ -9,7 +9,7 @@ use std::os::fd::RawFd;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
-use crossbeam_channel::{Receiver, RecvTimeoutError};
+use std::sync::mpsc::{Receiver, RecvTimeoutError};
 
 /// Maximum bytes buffered for one pane's PTY.
 pub(crate) const MAX_PENDING_BYTES: usize = 4 * 1024 * 1024;
