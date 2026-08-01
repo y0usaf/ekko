@@ -10,8 +10,7 @@ use std::process::Child;
 use std::thread;
 use std::time::Duration;
 
-use nix::sys::signal::{Signal, kill};
-use nix::unistd::Pid;
+use libc::pid_t;
 use signal_hook::consts::{SIGINT, SIGTERM};
 use signal_hook::iterator::Signals;
 
@@ -25,7 +24,7 @@ const SIGTERM_ATTEMPTS: u32 = 3;
 /// (`None` if it was killed by a signal). Always reaps the child before
 /// returning.
 pub(crate) fn reap_child(mut child: Child) -> Option<i32> {
-    let pid = Pid::from_raw(child.id() as i32);
+    let pid = child.id() as pid_t;
 
     let mut signals = match Signals::new([SIGINT, SIGTERM]) {
         Ok(signals) => signals,
@@ -60,7 +59,7 @@ pub(crate) fn reap_child(mut child: Child) -> Option<i32> {
         } else if attempts_left > 0 {
             attempts_left -= 1;
             // Ask nicely first.
-            let _ = kill(pid, Some(Signal::SIGTERM));
+            let _ = unsafe { libc::kill(pid, libc::SIGTERM) };
         } else {
             // When I say whoa, I mean WHOA! Send SIGKILL and block until the
             // kernel confirms the exit so we never leave a zombie behind.
