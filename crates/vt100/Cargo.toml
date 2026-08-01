@@ -14,7 +14,6 @@ license = "MIT"
 readme = "../../README.md"
 
 [dependencies]
-itoa = "1.0.15"
 unicode-width = "0.2.1"
 vte = "0.15.0"
 
