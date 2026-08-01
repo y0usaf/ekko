@@ -75,9 +75,8 @@ pub fn init(session_name: &str) -> anyhow::Result<PathBuf> {
     Ok(path)
 }
 
-/// Open a fresh handle on the same log file, suitable for handing to
-/// `daemonize::Stdio::from` so the daemonized process's stdout/stderr land
-/// in the same file as the structured log output.
+/// Open a fresh handle on the same log file for daemon stdout/stderr
+/// redirection; the daemon duplicates this descriptor onto both streams.
 pub fn open_redirect_file(session_name: &str) -> anyhow::Result<File> {
     let path = open_new(session_name)?;
     Ok(OpenOptions::new().create(true).append(true).open(path)?)

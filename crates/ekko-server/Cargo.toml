@@ -11,7 +11,7 @@ lua = ["dep:ekko-lua"]
 
 [dependencies]
 anyhow.workspace = true
-daemonize.workspace = true
+libc.workspace = true
 log = { workspace = true, features = ["std"] }
 ekko-builtins = { workspace = true, optional = true }
 ekko-config.workspace = true
