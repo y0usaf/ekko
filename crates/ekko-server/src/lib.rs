@@ -17,10 +17,10 @@ mod terminal_pane;
 mod topology;
 mod vt_compat;
 
+use std::os::fd::AsRawFd;
 use std::thread;
 
 use anyhow::Context;
-use daemonize::{Daemonize, Stdio};
 use signal_hook::consts::{SIGINT, SIGTERM};
 use signal_hook::iterator::Signals;
 use std::sync::mpsc::Sender;
@@ -49,7 +49,7 @@ fn build_runtime(config: &ekko_config::Config) -> anyhow::Result<ekko_ext::AppRu
 ///
 /// When `daemonize` is true, this forks into the background (stdout/stderr
 /// redirected to `~/.cache/ekko/logs/<session_name>.log`) and only the child
-/// process's call returns; the parent exits from inside `daemonize::start`.
+/// process's call returns; the parent exits from inside daemonization.
 pub fn run(session_name: &str, daemonize: bool) -> anyhow::Result<()> {
     // The cascade (`init.lua` supersedes `config.toml` supersedes defaults)
     // lives in ekko-config; the lua feature just injects the evaluator.
@@ -74,15 +74,9 @@ pub fn run_with_runtime(
     logging::init(session_name).context("initializing logging")?;
 
     if daemonize {
-        let stdout =
+        let log_file =
             logging::open_redirect_file(session_name).context("opening log file for stdout")?;
-        let stderr =
-            logging::open_redirect_file(session_name).context("opening log file for stderr")?;
-        Daemonize::new()
-            .stdout(Stdio::from(stdout))
-            .stderr(Stdio::from(stderr))
-            .start()
-            .context("daemonizing")?;
+        daemonize_process(log_file).context("daemonizing")?;
     }
 
     let socket_path = ekko_proto::socket_path(session_name);
@@ -129,6 +123,66 @@ impl Drop for SocketGuard {
 /// resurrectable ones (a manifest exists but the daemon has exited).
 pub fn list_sessions() -> anyhow::Result<Vec<ekko_proto::SessionSummary>> {
     ekko_resurrection::list_sessions()
+}
+
+/// Reproduce daemonize 0.5's daemon process setup: fork, wait-and-exit in
+/// the original parent, then setsid and fork again so the surviving process
+/// cannot reacquire a controlling terminal.
+fn daemonize_process(log_file: std::fs::File) -> anyhow::Result<()> {
+    // SAFETY: fork is called before this process creates any threads.
+    let first_pid = unsafe { libc::fork() };
+    if first_pid < 0 {
+        return Err(std::io::Error::last_os_error().into());
+    }
+    if first_pid > 0 {
+        let mut status = 0;
+        // SAFETY: first_pid is the child returned by fork and status is valid.
+        let result = unsafe { libc::waitpid(first_pid, &mut status, 0) };
+        if result < 0 {
+            return Err(std::io::Error::last_os_error().into());
+        }
+        std::process::exit(status);
+    }
+
+    // SAFETY: this is the single-threaded child of the first fork.
+    if unsafe { libc::setsid() } < 0 {
+        return Err(std::io::Error::last_os_error().into());
+    }
+    // daemonize defaults to / and umask 027.
+    std::env::set_current_dir("/")?;
+    // SAFETY: umask has no memory-safety preconditions.
+    unsafe { libc::umask(0o027) };
+
+    // The first child exits after the second fork; daemonize uses the normal
+    // process exit path here, so match it rather than using _exit.
+    // SAFETY: fork remains before any threads are spawned.
+    let second_pid = unsafe { libc::fork() };
+    if second_pid < 0 {
+        return Err(std::io::Error::last_os_error().into());
+    }
+    if second_pid > 0 {
+        std::process::exit(0);
+    }
+
+    let log_fd = log_file.as_raw_fd();
+    // SAFETY: descriptors are valid and dup2/open/close are async-signal-safe.
+    let null_fd = unsafe { libc::open(c"/dev/null".as_ptr(), libc::O_RDWR) };
+    if null_fd < 0 {
+        return Err(std::io::Error::last_os_error().into());
+    }
+    for (target, source) in [
+        (libc::STDIN_FILENO, null_fd),
+        (libc::STDOUT_FILENO, log_fd),
+        (libc::STDERR_FILENO, log_fd),
+    ] {
+        if unsafe { libc::dup2(source, target) } < 0 {
+            let error = std::io::Error::last_os_error();
+            unsafe { libc::close(null_fd) };
+            return Err(error.into());
+        }
+    }
+    unsafe { libc::close(null_fd) };
+    Ok(())
 }
 
 fn spawn_listener_thread(
