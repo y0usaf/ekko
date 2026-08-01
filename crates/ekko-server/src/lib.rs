@@ -51,7 +51,7 @@ fn build_runtime(config: &ekko_config::Config) -> anyhow::Result<ekko_ext::AppRu
 /// redirected to `~/.cache/ekko/logs/<session_name>.log`) and only the child
 /// process's call returns; the parent exits from inside daemonization.
 pub fn run(session_name: &str, daemonize: bool) -> anyhow::Result<()> {
-    // The cascade (`init.lua` supersedes `config.toml` supersedes defaults)
+    // The config cascade (`init.lua` or defaults)
     // lives in ekko-config; the lua feature just injects the evaluator.
     // A broken `init.lua` refuses to start rather than silently running
     // on defaults.

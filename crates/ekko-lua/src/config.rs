@@ -1,10 +1,10 @@
 //! `init.lua` config loading: the Lua settings source — the *evaluator*
 //! half of the config cascade. The *precedence policy* (init.lua supersedes
-//! config.toml supersedes defaults) lives in `ekko-config::Config::load_cascade`;
+//! init.lua supersedes defaults) lives in `ekko-config::Config::load_cascade`;
 //! this crate only implements [`ekko_config::LuaConfigEvaluator`] so the
 //! config crate stays a dumb, dependency-free store.
 //!
-//! `~/.config/ekko/init.lua`, when present, supersedes `config.toml`. It
+//! `~/.config/ekko/init.lua`, when present, is the only config file. It
 //! evaluates — in a throwaway Lua state, under the hard-coded bootstrap
 //! budget (config can raise the `[lua]` budgets scripts run under, but not
 //! the budget it is itself read under) — to a table congruent with
@@ -36,7 +36,7 @@ impl LuaConfigEvaluator for InitLuaEvaluator {
 }
 
 /// Load config per the cascade both processes share: `init.lua` if present,
-/// else `config.toml`, else defaults. Thin wrapper over
+/// else defaults. Thin wrapper over
 /// [`ekko_config::Config::load_cascade`] with this crate's evaluator
 /// injected; kept for the existing call sites.
 pub fn load_config_cascade() -> Result<ekko_config::Config> {
@@ -54,9 +54,7 @@ pub fn load_config(path: &Path) -> Result<ekko_config::Config> {
     let source =
         std::fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
     let origin = path.display().to_string();
-    config_from_source(&origin, &source).with_context(|| {
-        format!("loading config '{origin}' (config.toml is ignored while it exists)")
-    })
+    config_from_source(&origin, &source).with_context(|| format!("loading config '{origin}'"))
 }
 
 fn config_from_source(origin: &str, source: &str) -> Result<ekko_config::Config> {

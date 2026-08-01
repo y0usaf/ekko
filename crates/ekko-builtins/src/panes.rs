@@ -288,10 +288,19 @@ mod tests {
 
     #[test]
     fn config_overrides_pane_leader_keys() {
-        let config: Config = toml::from_str(
-            "[keybinds]\n\"leader.split_right\" = \"v\"\n\"leader.pane_close\" = \"q\"\n",
-        )
-        .unwrap();
+        let config = Config {
+            keybinds: std::collections::BTreeMap::from([
+                (
+                    String::from("leader.split_right"),
+                    ekko_config::Keybind::Single(String::from("v")),
+                ),
+                (
+                    String::from("leader.pane_close"),
+                    ekko_config::Keybind::Single(String::from("q")),
+                ),
+            ]),
+            ..Default::default()
+        };
         let rt = RuntimeBuilder::new()
             .register_extension(PanesExtension::new(&config))
             .build()

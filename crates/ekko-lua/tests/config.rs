@@ -1,5 +1,5 @@
 //! `init.lua` as the settings source: round-trip into `ekko_config::Config`,
-//! precedence over a coexisting `config.toml`, the instruction budget on
+//! handling of a coexisting legacy config file, the instruction budget on
 //! evaluation, hard errors for broken files, and the read-only `ekko.config`
 //! table scripts see.
 
@@ -60,7 +60,7 @@ fn init_lua_round_trips_every_section() {
 
 #[test]
 fn missing_sections_default_and_nonsense_is_normalized() {
-    // Same normalize() pass the TOML path runs: 0 scrollback / 0 budget
+    // Same normalize() pass as config loading: 0 scrollback / 0 budget
     // (which would abort every callback on its first instruction) → default.
     let config = load_source(
         "normalize",
@@ -103,7 +103,7 @@ fn broken_init_lua_is_a_hard_error() {
 }
 
 #[test]
-fn cascade_prefers_init_lua_over_config_toml() {
+fn init_lua_wins_and_legacy_config_is_ignored() {
     let dir = temp_dir("cascade");
     std::fs::write(dir.join("config.toml"), "[ui]\nsidebar_width = 50\n").unwrap();
     std::fs::write(
@@ -114,13 +114,10 @@ fn cascade_prefers_init_lua_over_config_toml() {
     let config = ekko_lua::load_config_cascade_in(&dir).unwrap();
     assert_eq!(config.sidebar_width(), 28);
 
-    // Without init.lua the TOML applies; a broken TOML is a hard error;
-    // with neither, defaults.
+    // A stale TOML file is an actionable migration error, not a fallback.
     std::fs::remove_file(dir.join("init.lua")).unwrap();
-    let config = ekko_lua::load_config_cascade_in(&dir).unwrap();
-    assert_eq!(config.sidebar_width(), 50);
-    std::fs::write(dir.join("config.toml"), "[ui\n").unwrap();
-    assert!(ekko_lua::load_config_cascade_in(&dir).is_err());
+    let err = ekko_lua::load_config_cascade_in(&dir).unwrap_err();
+    assert!(format!("{err:#}").contains("migrate to init.lua"));
     std::fs::remove_file(dir.join("config.toml")).unwrap();
     let config = ekko_lua::load_config_cascade_in(&dir).unwrap();
     assert_eq!(config.sidebar_width(), ekko_config::SIDEBAR_WIDTH_DEFAULT);
@@ -128,9 +125,8 @@ fn cascade_prefers_init_lua_over_config_toml() {
 }
 
 #[test]
-fn broken_init_lua_does_not_fall_through_to_toml() {
-    // Silently ignoring the user's config is worse than refusing to start:
-    // a broken init.lua must error even though a valid config.toml coexists.
+fn broken_init_lua_is_hard_error_with_legacy_config() {
+    // A broken init.lua must error even though a stale config.toml coexists.
     let dir = temp_dir("no-fallthrough");
     std::fs::write(dir.join("config.toml"), "[ui]\nsidebar_width = 50\n").unwrap();
     std::fs::write(dir.join("init.lua"), "return {").unwrap();
@@ -138,7 +134,7 @@ fn broken_init_lua_does_not_fall_through_to_toml() {
     std::fs::remove_dir_all(&dir).unwrap();
 }
 
-/// The C-acceptance end-to-end: with no TOML anywhere, `init.lua` disables
+/// The C-acceptance end-to-end: with no legacy config file, `init.lua` disables
 /// the scroll-mode builtin and `examples/scroll-mode.lua` re-registers the
 /// "scroll" mode under the script's own manifest. Duplicate names are hard
 /// build errors, so the build succeeding with the full builtin set proves

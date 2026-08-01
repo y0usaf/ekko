@@ -1,21 +1,17 @@
 //! ekko configuration: the settings schema shared by client and server.
 //!
 //! Loaded once at process start; a missing file yields `Config::default()`.
-//! This crate parses only TOML (`config.toml`) — the `init.lua` settings
-//! source that supersedes it lives in `ekko-lua`, which deserializes the
+//! The `init.lua` settings source lives in `ekko-lua`, which deserializes the
 //! returned table into the same [`Config`], so this crate stays a dumb
 //! store (its one dependency beyond serde is `ekko-proto`, for the
 //! `PaneBorderStyle` vocabulary the wire shares). Keybind values stay as
 //! raw strings here — chord parsing lives in the client's input layer,
 //! which owns the key vocabulary.
 
-use std::collections::BTreeMap;
-use std::fs;
-use std::path::{Path, PathBuf};
-
-use anyhow::Context;
 use ekko_proto::PaneBorderStyle;
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
+use std::path::{Path, PathBuf};
 
 pub const SIDEBAR_WIDTH_DEFAULT: u16 = 36;
 pub const SIDEBAR_WIDTH_MIN: u16 = 8;
@@ -149,25 +145,8 @@ impl Keybind {
 }
 
 impl Config {
-    pub fn load_default() -> anyhow::Result<Self> {
-        Self::load_from(&default_config_path())
-    }
-
-    pub fn load_from(path: &PathBuf) -> anyhow::Result<Self> {
-        if !path.exists() {
-            return Ok(Self::default());
-        }
-        let content =
-            fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
-        let mut config: Self =
-            toml::from_str(&content).with_context(|| format!("parsing {}", path.display()))?;
-        config.normalize();
-        Ok(config)
-    }
-
     /// The config cascade, owned here so every process resolves config the
-    /// same way: `init.lua` in `dir` supersedes `config.toml`, which
-    /// supersedes defaults.
+    /// same way: `init.lua` in `dir` supersedes defaults.
     ///
     /// Lua evaluation is injected via [`LuaConfigEvaluator`] (implemented by
     /// `ekko-lua`) so this crate stays a dumb, dependency-free store while
@@ -175,12 +154,11 @@ impl Config {
     /// - `init.lua` present → evaluate it. A broken one is a **hard error**,
     ///   never a silent fall-through: refusing to start beats ignoring the
     ///   user's config.
-    /// - else `config.toml` → parse. A broken one is a **hard error**;
-    ///   refusing to start beats ignoring the user's config.
+    /// - else a stale `config.toml` is a hard error directing migration;
     /// - neither → defaults.
     ///
-    /// With `lua = None` (a build without the bridge), the `init.lua` arm is
-    /// skipped entirely and TOML/defaults apply.
+    /// With `lua = None` (a build without the bridge), defaults apply unless
+    /// a stale `config.toml` is present.
     pub fn load_cascade_in(
         dir: &Path,
         lua: Option<&dyn LuaConfigEvaluator>,
@@ -191,7 +169,14 @@ impl Config {
         {
             return evaluator.eval_init_lua(&init);
         }
-        Self::load_from(&dir.join("config.toml"))
+        let toml = dir.join("config.toml");
+        if toml.exists() {
+            anyhow::bail!(
+                "unsupported config file {}; migrate to init.lua",
+                toml.display()
+            );
+        }
+        Ok(Self::default())
     }
 
     /// [`Self::load_cascade_in`] against the platform config directory —
@@ -238,8 +223,8 @@ impl Config {
         defaults.iter().map(|s| s.to_string()).collect()
     }
 
-    /// Repair nonsense values after deserializing (from TOML here, or from
-    /// an `init.lua` table in `ekko-lua`).
+    /// Repair nonsense values after deserializing an `init.lua` table in
+    /// `ekko-lua`.
     pub fn normalize(&mut self) {
         if self.general.scrollback_lines == 0 {
             self.general.scrollback_lines = SCROLLBACK_LINES_DEFAULT;
@@ -270,17 +255,13 @@ pub fn config_dir() -> PathBuf {
     ekko_paths::config_dir()
 }
 
-pub fn default_config_path() -> PathBuf {
-    config_dir().join("config.toml")
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn missing_file_yields_defaults() {
-        let config = Config::load_from(&PathBuf::from("/nonexistent/ekko-config.toml")).unwrap();
+    fn defaults_have_expected_values() {
+        let config = Config::default();
         assert_eq!(config.sidebar_width(), SIDEBAR_WIDTH_DEFAULT);
         assert_eq!(
             config.animation_interval_ms(),
@@ -290,23 +271,26 @@ mod tests {
     }
 
     #[test]
-    fn parses_full_config() {
-        let config: Config = toml::from_str(
-            r#"
-            [general]
-            default_shell = "/bin/zsh"
-            scrollback_lines = 500
-
-            [ui]
-            sidebar_width = 28
-            animation_interval_ms = 33
-
-            [keybinds]
-            detach = "ctrl+q"
-            session_next = ["ctrl+j", "ctrl+down"]
-            "#,
-        )
-        .unwrap();
+    fn config_values_work() {
+        let config = Config {
+            general: General {
+                default_shell: "/bin/zsh".into(),
+                scrollback_lines: 500,
+            },
+            ui: Ui {
+                sidebar_width: 28,
+                animation_interval_ms: 33,
+                ..Default::default()
+            },
+            keybinds: BTreeMap::from([
+                ("detach".into(), Keybind::Single("ctrl+q".into())),
+                (
+                    "session_next".into(),
+                    Keybind::Multiple(vec!["ctrl+j".into(), "ctrl+down".into()]),
+                ),
+            ]),
+            ..Default::default()
+        };
         assert_eq!(config.general.default_shell, "/bin/zsh");
         assert_eq!(config.sidebar_width(), 28);
         assert_eq!(config.animation_interval_ms(), 33);
@@ -326,8 +310,13 @@ mod tests {
 
     #[test]
     fn lua_budgets_parse_and_zero_is_normalized() {
-        let mut config: Config =
-            toml::from_str("[lua]\ndraw_budget = 500000\nhandler_budget = 0\n").unwrap();
+        let mut config = Config {
+            lua: LuaLimits {
+                draw_budget: 500_000,
+                handler_budget: 0,
+            },
+            ..Default::default()
+        };
         config.normalize();
         assert_eq!(config.lua.draw_budget, 500_000);
         assert_eq!(config.lua.handler_budget, LUA_HANDLER_BUDGET_DEFAULT);
@@ -336,17 +325,41 @@ mod tests {
 
     #[test]
     fn animation_interval_clamped() {
-        let config: Config = toml::from_str("[ui]\nanimation_interval_ms = 1\n").unwrap();
+        let config = Config {
+            ui: Ui {
+                animation_interval_ms: 1,
+                ..Default::default()
+            },
+            ..Default::default()
+        };
         assert_eq!(config.animation_interval_ms(), ANIMATION_INTERVAL_MS_MIN);
-        let config: Config = toml::from_str("[ui]\nanimation_interval_ms = 5000\n").unwrap();
+        let config = Config {
+            ui: Ui {
+                animation_interval_ms: 5000,
+                ..Default::default()
+            },
+            ..Default::default()
+        };
         assert_eq!(config.animation_interval_ms(), ANIMATION_INTERVAL_MS_MAX);
     }
 
     #[test]
     fn sidebar_width_clamped() {
-        let config: Config = toml::from_str("[ui]\nsidebar_width = 2\n").unwrap();
+        let config = Config {
+            ui: Ui {
+                sidebar_width: 2,
+                ..Default::default()
+            },
+            ..Default::default()
+        };
         assert_eq!(config.sidebar_width(), SIDEBAR_WIDTH_MIN);
-        let config: Config = toml::from_str("[ui]\nsidebar_width = 500\n").unwrap();
+        let config = Config {
+            ui: Ui {
+                sidebar_width: 500,
+                ..Default::default()
+            },
+            ..Default::default()
+        };
         assert_eq!(config.sidebar_width(), SIDEBAR_WIDTH_MAX);
     }
 }
