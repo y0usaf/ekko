@@ -86,6 +86,8 @@ phi (`phi-ext`/`phi-builtins`) and takhti (core-as-mechanism, dogfooded
 
 - **2026-08-01 — TOML configuration removal:** `config.toml` support and the `toml` dependency are removed because `init.lua` superseded TOML; the replacement is nothing, not more code, consistent with the 2026-07-13 dependency replacement boundary. Reversing this requires a demonstrated need for TOML plus a smaller complete implementation than the dependency and its integration.
 
+- **2026-08-03 — ASCII border glyphs:** Pane separator glyphs can be replaced by an optional three-character table (`ui.border_glyphs = { horizontal, vertical, junction }`) that collapses the box-drawing table to one glyph per line direction plus one junction glyph for every corner/tee/cross. The setting is client-local rendering only — the daemon still owns separator-cell reservation and announces the border *style* over the wire, but the glyph table never touches the wire or a client snapshot, so no `WIRE_VERSION` change and no extension-API change.
+
 The extension boundary for [[canon:functional-core]] is the public trait
 surface in `ekko-ext`; `ekko-client/src/actions.rs::apply_ui_action` is the
 single host write path. The daemon state required by
