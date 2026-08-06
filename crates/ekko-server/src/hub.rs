@@ -18,7 +18,7 @@ use ekko_ext::AppRuntime;
 
 use crate::client_io::{self, ClientHandle, ClientId};
 use crate::terminal_pane::{PaneGeneration, PaneId, PaneKey, TerminalPane};
-use crate::topology::{Direction, PaneTopology, Rect, SplitAxis, SplitRatio};
+use crate::topology::{Direction, PaneTopology, Rect, SplitAxis, SplitRatio, neighbor_in};
 
 /// How often the `Heartbeat` lifecycle event fires (the resurrection
 /// builtin uses it to refresh the manifest's `last_active_secs`).
@@ -882,9 +882,10 @@ impl Hub {
         let Some(canvas) = self.canvas() else {
             return false;
         };
-        let Some(next) = self.topology().and_then(|topology| {
-            topology.neighbor(current, direction, canvas, self.config.ui.pane_borders)
-        }) else {
+        let Ok(geometry) = self.resolved_geometry(canvas) else {
+            return false;
+        };
+        let Some(next) = neighbor_in(&geometry, current, direction) else {
             return false;
         };
         self.focus_pane(client, next)

@@ -3,9 +3,7 @@
 ## Pane layout
 
 The daemon's `[ui].pane_layout` is `manual` by default, retaining the BSP
-split geometry. `equal` recursively halves pane counts proportionally, cutting
-the longer pixel axis (terminal cell height is approximately twice its width),
-while accounting for border separator cells and minimum pane dimensions.
+split geometry. `equal` resolves composite pane counts to the divisor-pair grid whose cells are closest to square in pixels, counting cell height twice; prime counts of five or more use one near-half proportional cut whose halves are themselves grids. Greedy per-level halving was replaced because it could flip the cut axis during recursion and produce T-junctions.
 
 ekko is a terminal multiplexer built extension-first: a small core of
 mechanism exposing a public extension API, with **all** stock behavior
