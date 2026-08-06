@@ -297,13 +297,7 @@ impl PaneTopology {
         style: PaneBorderStyle,
     ) -> Option<PaneId> {
         let resolved = self.resolve(canvas, style).ok()?;
-        let source = resolved.iter().find(|(id, _)| *id == pane)?.1;
-        resolved
-            .into_iter()
-            .filter(|(id, _)| *id != pane)
-            .filter_map(|(id, rect)| neighbor_rank(source, rect, direction).map(|rank| (rank, id)))
-            .min_by_key(|(rank, id)| (*rank, id.0))
-            .map(|(_, id)| id)
+        neighbor_in(&resolved, pane, direction)
     }
 
     #[cfg(test)]
@@ -421,11 +415,61 @@ fn resolve_equal_nodes(
     gap: u16,
     out: &mut Vec<(PaneId, Rect)>,
 ) -> Result<(), TopologyError> {
-    if ids.len() == 1 {
+    let n = ids.len();
+    if n == 1 {
         out.push((ids[0], rect));
         return Ok(());
     }
-    let a = ids.len().div_ceil(2);
+    let prime_large = n >= 5 && (2..n).all(|d| !n.is_multiple_of(d));
+    if !prime_large {
+        let mut pairs: Vec<(usize, usize)> = (1..=n)
+            .filter(|c| n.is_multiple_of(*c))
+            .map(|c| (c, n / c))
+            .collect();
+        pairs.sort_by(|&(c1, r1), &(c2, r2)| {
+            let w1 = u32::from(rect.cols) * r1 as u32;
+            let h1 = CELL_ASPECT * u32::from(rect.rows) * c1 as u32;
+            let w2 = u32::from(rect.cols) * r2 as u32;
+            let h2 = CELL_ASPECT * u32::from(rect.rows) * c2 as u32;
+            let (max1, min1) = (w1.max(h1), w1.min(h1));
+            let (max2, min2) = (w2.max(h2), w2.min(h2));
+            (max1 * min2).cmp(&(max2 * min1)).then_with(|| c1.cmp(&c2))
+        });
+        for (c, r) in pairs {
+            let wc = match rect.cols.checked_sub(gap * (c - 1) as u16) {
+                Some(value) => value,
+                None => continue,
+            };
+            let wr = match rect.rows.checked_sub(gap * (r - 1) as u16) {
+                Some(value) => value,
+                None => continue,
+            };
+            if wc / (c as u16) < MIN_PANE_COLS || wr / (r as u16) < MIN_PANE_ROWS {
+                continue;
+            }
+            for i in 0..c {
+                for j in 0..r {
+                    let x0 = u32::from(wc) * i as u32 / c as u32;
+                    let x1 = u32::from(wc) * (i + 1) as u32 / c as u32;
+                    let y0 = u32::from(wr) * j as u32 / r as u32;
+                    let y1 = u32::from(wr) * (j + 1) as u32 / r as u32;
+                    out.push((
+                        ids[i * r + j],
+                        Rect {
+                            x: rect.x + x0 as u16 + gap * i as u16,
+                            y: rect.y + y0 as u16 + gap * j as u16,
+                            cols: (x1 - x0) as u16,
+                            rows: (y1 - y0) as u16,
+                        },
+                    ));
+                }
+            }
+            return Ok(());
+        }
+        // No divisor pair fits this canvas; fall through to the recursive
+        // halving path below, which handles arbitrary n and small canvases.
+    }
+    let a = n.div_ceil(2);
     let extent = if u32::from(rect.cols) > u32::from(rect.rows) * CELL_ASPECT {
         rect.cols
     } else {
@@ -434,7 +478,7 @@ fn resolve_equal_nodes(
     let working = extent
         .checked_sub(gap)
         .ok_or(TopologyError::ChildTooSmall)?;
-    let first_extent = ((u32::from(working) * a as u32) / ids.len() as u32) as u16;
+    let first_extent = ((u32::from(working) * a as u32) / n as u32) as u16;
     let second_extent = working - first_extent;
     let horizontal = extent == rect.cols;
     if (horizontal && (first_extent < MIN_PANE_COLS || second_extent < MIN_PANE_COLS))
@@ -530,6 +574,20 @@ fn resolve_node(
 }
 
 /// `(overlap penalty, primary gap, perpendicular center distance)`.
+pub(crate) fn neighbor_in(
+    resolved: &[(PaneId, Rect)],
+    pane: PaneId,
+    direction: Direction,
+) -> Option<PaneId> {
+    let source = resolved.iter().find(|(id, _)| *id == pane)?.1;
+    resolved
+        .iter()
+        .filter(|(id, _)| *id != pane)
+        .filter_map(|(id, rect)| neighbor_rank(source, *rect, direction).map(|rank| (rank, *id)))
+        .min_by_key(|(rank, id)| (*rank, id.0))
+        .map(|(_, id)| id)
+}
+
 fn neighbor_rank(source: Rect, candidate: Rect, direction: Direction) -> Option<(u8, u32, u32)> {
     match direction {
         Direction::Left if candidate.right() <= u32::from(source.x) => Some((
@@ -693,24 +751,9 @@ mod tests {
         let geometry = topology
             .resolve_equal(canvas(80, 24), PaneBorderStyle::None)
             .unwrap();
-        assert_eq!(
-            topology.neighbor(
-                id(1),
-                Direction::Right,
-                canvas(80, 24),
-                PaneBorderStyle::None
-            ),
-            Some(id(2))
-        );
-        assert_eq!(
-            topology.neighbor(
-                id(2),
-                Direction::Left,
-                canvas(80, 24),
-                PaneBorderStyle::None
-            ),
-            Some(id(1))
-        );
+        assert_eq!(neighbor_in(&geometry, id(1), Direction::Right), Some(id(3)));
+        assert_eq!(neighbor_in(&geometry, id(1), Direction::Down), Some(id(2)));
+        assert_eq!(neighbor_in(&geometry, id(2), Direction::Left), None);
         assert_eq!(geometry.len(), 4);
     }
 
