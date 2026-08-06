@@ -5,6 +5,7 @@
 //! overlay draw their layers last. This module is pure mechanism — it
 //! holds no opinion about which surfaces or pane layouts exist.
 
+use ekko_config::BorderGlyphs;
 use ekko_ext::{AppRuntime, ClientSnapshot, Rect, ResolvedLayout};
 use ekko_grid::cell_surface::CellSurface;
 use ekko_grid::layout::CellRect;
@@ -21,6 +22,7 @@ pub fn render_frame(
     runtime: &AppRuntime,
     state: &mut ClientState,
     snapshot: &ClientSnapshot,
+    border_glyphs: Option<&BorderGlyphs>,
 ) -> Option<(i32, i32)> {
     for region in &layout.regions {
         let Some(spec) = runtime.surface(&region.name) else {
@@ -127,6 +129,7 @@ pub fn render_frame(
             &panes,
             state.workspace.border_style,
             state.workspace.focused,
+            border_glyphs,
         ) {
             surface.set_cell(
                 terminal.col + cell.col,

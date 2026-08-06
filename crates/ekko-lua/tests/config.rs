@@ -58,6 +58,25 @@ fn init_lua_round_trips_every_section() {
     assert_eq!(config.lua.handler_budget, 4_000_000);
 }
 
+/// `ui.border_glyphs` — an optional three-char table — deserializes from
+/// one-character Lua strings (proving the `char`-vs-`String` question) and
+/// defaults to `None` when absent.
+#[test]
+fn init_lua_deserializes_border_glyphs() {
+    let config = load_source(
+        "glyphs",
+        r#"return { ui = { border_glyphs = { horizontal = "-", vertical = "|", junction = "+" } } }"#,
+    )
+    .unwrap();
+    let glyphs = config.ui.border_glyphs.expect("border_glyphs set");
+    assert_eq!(glyphs.horizontal, '-');
+    assert_eq!(glyphs.vertical, '|');
+    assert_eq!(glyphs.junction, '+');
+
+    let default = load_source("glyphs-default", "return {}").unwrap();
+    assert!(default.ui.border_glyphs.is_none());
+}
+
 #[test]
 fn missing_sections_default_and_nonsense_is_normalized() {
     // Same normalize() pass as config loading: 0 scrollback / 0 budget

@@ -159,7 +159,10 @@ junction glyphs), or `"frame"` (a full box frame around every pane). The
 daemon owns the canvas, so it reserves the separator cells in the layout
 and tells clients the style over the wire — set it in the config the
 server reads; the boundary touching the focused pane is tinted with the
-theme's accent color.
+theme's accent color. `ui.border_glyphs` optionally replaces the
+box-drawing glyphs with three ASCII/custom characters for the client-side
+separator rendering: `{ horizontal = "-", vertical = "|", junction = "+" }`
+(omitted → box-drawing glyphs).
 
 Disabling a builtin under `extensions.disabled` and re-registering its name
 from a script is the supported way to replace any stock feature wholesale —

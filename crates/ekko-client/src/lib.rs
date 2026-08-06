@@ -194,6 +194,7 @@ pub fn run(options: ClientOptions) -> Result<()> {
             resume_mode.take(),
             generation,
             config.animation_interval_ms(),
+            config.ui.border_glyphs.clone(),
             &_raw_guard,
         )? {
             ClientOutcome::Exited => return Ok(()),

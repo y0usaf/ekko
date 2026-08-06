@@ -12,6 +12,7 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use anyhow::Result;
+use ekko_config::BorderGlyphs;
 use ekko_ext::{
     AppRuntime, ClientSnapshot, EventKind, EventPayload, EventReturn, KeyIntercept, ModeOutcome,
     NoteKind, OverlayOutcome, ResolvedLayout, ThemePalette, fallback_group, resolve_layout,
@@ -66,6 +67,7 @@ pub(crate) fn run_event_loop(
     resume_mode: Option<String>,
     generation: u64,
     animation_interval_ms: u16,
+    border_glyphs: Option<BorderGlyphs>,
     raw_guard: &ekko_tui::RawModeGuard,
 ) -> Result<ClientOutcome> {
     let palette = runtime
@@ -78,6 +80,7 @@ pub(crate) fn run_event_loop(
         state: ClientState::new(session_name.clone()),
         paste: PasteAccumulator::default(),
         palette,
+        border_glyphs,
         surface: CellSurface::new(1, 1, gc(palette.term_fg), gc(palette.term_bg)),
         renderer: AnsiRenderer::default(),
         runtime,
@@ -179,6 +182,9 @@ pub(crate) struct App<'a> {
     pub(crate) state: ClientState,
     pub(crate) paste: PasteAccumulator,
     pub(crate) palette: ThemePalette,
+    /// Optional user-supplied separator glyphs (client-local, no wire
+    /// involvement); `None` keeps the box-drawing table.
+    pub(crate) border_glyphs: Option<BorderGlyphs>,
     pub(crate) surface: CellSurface,
     pub(crate) renderer: AnsiRenderer,
     pub(crate) runtime: &'a AppRuntime,
@@ -444,6 +450,7 @@ impl App<'_> {
             self.runtime,
             &mut self.state,
             &snapshot,
+            self.border_glyphs.as_ref(),
         );
         let hardware_cursor = cursor.map(|(col, row)| ekko_grid::ansi::HardwareCursor { col, row });
         self.render_buf.clear();

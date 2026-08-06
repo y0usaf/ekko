@@ -103,6 +103,20 @@ pub struct Ui {
     pub pane_borders: PaneBorderStyle,
     /// Pane sizing policy; manual preserves the canonical BSP behavior.
     pub pane_layout: PaneLayout,
+    /// Optional ASCII (or custom) glyphs for pane separators. `None` keeps
+    /// the box-drawing glyphs. Client-side only — the daemon reserves the
+    /// separator cells but never sees these glyphs.
+    pub border_glyphs: Option<BorderGlyphs>,
+}
+
+/// One glyph per separator shape, replacing the box-drawing table when
+/// `Ui::border_glyphs` is set. Each field is a single character from a
+/// one-character Lua string.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BorderGlyphs {
+    pub horizontal: char,
+    pub vertical: char,
+    pub junction: char,
 }
 
 impl Default for Ui {
@@ -112,6 +126,7 @@ impl Default for Ui {
             animation_interval_ms: ANIMATION_INTERVAL_MS_DEFAULT,
             pane_borders: PaneBorderStyle::None,
             pane_layout: PaneLayout::Manual,
+            border_glyphs: None,
         }
     }
 }
@@ -268,6 +283,7 @@ mod tests {
             ANIMATION_INTERVAL_MS_DEFAULT
         );
         assert_eq!(config.general.scrollback_lines, SCROLLBACK_LINES_DEFAULT);
+        assert!(Ui::default().border_glyphs.is_none());
     }
 
     #[test]
