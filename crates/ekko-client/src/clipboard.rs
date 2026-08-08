@@ -1,12 +1,14 @@
 //! OSC 52 clipboard writes to the host terminal. The escape carries
 //! base64-encoded data; a tiny local encoder keeps the dependency tree flat.
+//! Terminated with ST (`ESC \`), byte-for-byte like Zellij (`ref/zellij`
+//! `zellij-server/src/tab/clipboard.rs`): some terminals accept ST but not BEL.
 
 /// Build an OSC 52 sequence setting the system clipboard to `data`.
 pub fn osc52_set_clipboard(data: &[u8]) -> Vec<u8> {
     let mut out = Vec::with_capacity(data.len() * 4 / 3 + 16);
     out.extend_from_slice(b"\x1b]52;c;");
     out.extend_from_slice(base64_encode(data).as_bytes());
-    out.extend_from_slice(b"\x07");
+    out.extend_from_slice(b"\x1b\\");
     out
 }
 
@@ -16,7 +18,7 @@ pub fn osc52_set_clipboard_base64(encoded: &[u8]) -> Vec<u8> {
     let mut out = Vec::with_capacity(encoded.len() + 16);
     out.extend_from_slice(b"\x1b]52;c;");
     out.extend_from_slice(encoded);
-    out.extend_from_slice(b"\x07");
+    out.extend_from_slice(b"\x1b\\");
     out
 }
 
@@ -63,10 +65,10 @@ mod tests {
 
     #[test]
     fn osc52_wraps_encoded_payload() {
-        assert_eq!(osc52_set_clipboard(b"hi"), b"\x1b]52;c;aGk=\x07".to_vec());
+        assert_eq!(osc52_set_clipboard(b"hi"), b"\x1b]52;c;aGk=\x1b\\".to_vec());
         assert_eq!(
             osc52_set_clipboard_base64(b"aGk="),
-            b"\x1b]52;c;aGk=\x07".to_vec()
+            b"\x1b]52;c;aGk=\x1b\\".to_vec()
         );
     }
 }
