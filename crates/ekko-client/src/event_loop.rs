@@ -1023,9 +1023,7 @@ impl App<'_> {
                         .map(|pane| pane.grid.selected_text(range))
                         .unwrap_or_default();
                     if !text.is_empty() {
-                        let mut stdout = std::io::stdout();
-                        let _ = stdout.write_all(&clipboard::osc52_set_clipboard(text.as_bytes()));
-                        let _ = stdout.flush();
+                        clipboard::selection_to_clipboard(&text);
                         self.state.set_note(
                             format!("copied {} chars", text.chars().count()),
                             NoteKind::Ok,
