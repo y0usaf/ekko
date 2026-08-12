@@ -21,8 +21,8 @@ use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
-use anyhow::{Context, Result, bail};
 use ekko_config::Config;
+use ekko_err::{Context, Result, bail};
 use ekko_ext::SessionState;
 use ekko_proto::{
     AttachRejectReason, ClientToServer, ExitReason, ServerToClient, WIRE_VERSION, socket_path,
@@ -313,13 +313,13 @@ fn wire_terminal_colors(colors: &ekko_tui::TerminalColors) -> ekko_proto::Termin
     }
 }
 
-fn attach_rejected_error(reason: AttachRejectReason) -> anyhow::Error {
+fn attach_rejected_error(reason: AttachRejectReason) -> ekko_err::Error {
     match reason {
         AttachRejectReason::WrongWireVersion => {
-            anyhow::anyhow!("wire protocol version mismatch; rebuild ekko and try again")
+            ekko_err::err!("wire protocol version mismatch; rebuild ekko and try again")
         }
         AttachRejectReason::SpawnFailed(message) => {
-            anyhow::anyhow!("session daemon failed to start: {message}")
+            ekko_err::err!("session daemon failed to start: {message}")
         }
     }
 }
@@ -341,7 +341,7 @@ pub fn kill_session(name: &str, force: bool) -> Result<(), CtlError> {
     if path_was_present {
         match ekko_proto::ipc_connect(&path) {
             Ok(stream) => {
-                let recv = stream.try_clone().map_err(anyhow::Error::from)?;
+                let recv = stream.try_clone().map_err(ekko_err::Error::from)?;
                 let mut send = stream;
                 // Bound the wait: without a timeout a wedged daemon hangs
                 // this command forever, the user interrupts, and the kill
@@ -458,7 +458,7 @@ fn daemon_pid(name: &str) -> Option<u32> {
 /// the daemon's own cleanup would have done.
 fn force_kill_daemon(name: &str, path: &Path) -> Result<()> {
     let pid = daemon_pid(name).ok_or_else(|| {
-        anyhow::anyhow!("no daemon PID file for session '{name}'; cannot --force safely")
+        ekko_err::err!("no daemon PID file for session '{name}'; cannot --force safely")
     })?;
     match verify_daemon_pid(name, pid) {
         Ok(true) => {

@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 use std::collections::btree_map::Entry;
 
-use anyhow::{Result, bail};
+use ekko_err::{Result, bail};
 use ekko_event::EventHandlerRegistration;
 
 use crate::traits::ExtensionHost;

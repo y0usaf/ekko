@@ -11,7 +11,7 @@
 use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
 
-use anyhow::Result;
+use ekko_err::Result;
 use ekko_ext::{
     ClientSnapshot, CommandInvocation, CommandOutput, CommandSpec, DockEdge, DrawContext,
     EventHandlerRegistration, EventKind, EventPayload, Extension, ExtensionHost, ExtensionManifest,

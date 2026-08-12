@@ -3,12 +3,6 @@
 version = 3
 
 [[package]]
-name = "anyhow"
-version = "1.0.104"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "330a5ed07fa54e4702c9d6c4174f74427fc0ef6e214bbd677ae50a5099946470"
-
-[[package]]
 name = "arrayvec"
 version = "0.7.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -71,9 +65,9 @@ checksum = "9e5e8f6c15a24b9a3ee5efec809ccd006d3b30e8b3bb63c39af737c7f87daa1d"
 name = "ekko"
 version = "0.1.0"
 dependencies = [
- "anyhow",
  "ekko-client",
  "ekko-config",
+ "ekko-err",
  "ekko-proto",
  "ekko-server",
  "ekko-tmp",
@@ -85,8 +79,8 @@ dependencies = [
 name = "ekko-builtins"
 version = "0.1.0"
 dependencies = [
- "anyhow",
  "ekko-config",
+ "ekko-err",
  "ekko-event",
  "ekko-ext",
  "ekko-resurrection",
@@ -98,9 +92,9 @@ dependencies = [
 name = "ekko-client"
 version = "0.1.0"
 dependencies = [
- "anyhow",
  "ekko-builtins",
  "ekko-config",
+ "ekko-err",
  "ekko-event",
  "ekko-ext",
  "ekko-grid",
@@ -121,17 +115,21 @@ dependencies = [
 name = "ekko-config"
 version = "0.1.0"
 dependencies = [
- "anyhow",
+ "ekko-err",
  "ekko-paths",
  "ekko-proto",
  "serde",
 ]
 
 [[package]]
+name = "ekko-err"
+version = "0.1.0"
+
+[[package]]
 name = "ekko-event"
 version = "0.1.0"
 dependencies = [
- "anyhow",
+ "ekko-err",
  "serde",
 ]
 
@@ -139,7 +137,7 @@ dependencies = [
 name = "ekko-ext"
 version = "0.1.0"
 dependencies = [
- "anyhow",
+ "ekko-err",
  "ekko-event",
  "log",
  "serde",
@@ -158,7 +156,7 @@ dependencies = [
 name = "ekko-keycast"
 version = "0.1.0"
 dependencies = [
- "anyhow",
+ "ekko-err",
  "ekko-ext",
 ]
 
@@ -166,9 +164,9 @@ dependencies = [
 name = "ekko-lua"
 version = "0.1.0"
 dependencies = [
- "anyhow",
  "ekko-builtins",
  "ekko-config",
+ "ekko-err",
  "ekko-ext",
  "ekko-proto",
  "ekko-tmp",
@@ -187,8 +185,8 @@ dependencies = [
 name = "ekko-proto"
 version = "0.1.0"
 dependencies = [
- "anyhow",
  "bincode",
+ "ekko-err",
  "ekko-paths",
  "libc",
  "serde",
@@ -198,7 +196,7 @@ dependencies = [
 name = "ekko-pty"
 version = "0.1.0"
 dependencies = [
- "anyhow",
+ "ekko-err",
  "ekko-tmp",
  "libc",
  "log",
@@ -209,7 +207,7 @@ dependencies = [
 name = "ekko-resurrection"
 version = "0.1.0"
 dependencies = [
- "anyhow",
+ "ekko-err",
  "ekko-paths",
  "ekko-proto",
  "ekko-tmp",
@@ -221,9 +219,9 @@ dependencies = [
 name = "ekko-server"
 version = "0.1.0"
 dependencies = [
- "anyhow",
  "ekko-builtins",
  "ekko-config",
+ "ekko-err",
  "ekko-event",
  "ekko-ext",
  "ekko-lua",

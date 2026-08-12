@@ -7,7 +7,7 @@
 
 use std::time::Duration;
 
-use anyhow::Result;
+use ekko_err::Result;
 use ekko_ext::{EventKind, EventPayload, NoteKind, UiAction};
 use ekko_proto::ClientToServer;
 

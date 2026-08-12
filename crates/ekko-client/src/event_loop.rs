@@ -11,8 +11,8 @@ use std::sync::mpsc::{self, RecvTimeoutError, TryRecvError};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use anyhow::Result;
 use ekko_config::BorderGlyphs;
+use ekko_err::Result;
 use ekko_ext::{
     AppRuntime, ClientSnapshot, EventKind, EventPayload, EventReturn, KeyIntercept, ModeOutcome,
     NoteKind, OverlayOutcome, ResolvedLayout, ThemePalette, fallback_group, resolve_layout,

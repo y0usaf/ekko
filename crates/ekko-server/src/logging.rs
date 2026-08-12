@@ -63,7 +63,7 @@ impl Log for FileLogger {
 /// Safe to call more than once per process (e.g. from repeated in-process
 /// test runs); a logger can only be installed once, so later calls just
 /// leave the first one in place.
-pub fn init(session_name: &str) -> anyhow::Result<PathBuf> {
+pub fn init(session_name: &str) -> ekko_err::Result<PathBuf> {
     let path = open_new(session_name)?;
     let file = OpenOptions::new().create(true).append(true).open(&path)?;
     let logger = Box::new(FileLogger {
@@ -77,12 +77,12 @@ pub fn init(session_name: &str) -> anyhow::Result<PathBuf> {
 
 /// Open a fresh handle on the same log file for daemon stdout/stderr
 /// redirection; the daemon duplicates this descriptor onto both streams.
-pub fn open_redirect_file(session_name: &str) -> anyhow::Result<File> {
+pub fn open_redirect_file(session_name: &str) -> ekko_err::Result<File> {
     let path = open_new(session_name)?;
     Ok(OpenOptions::new().create(true).append(true).open(path)?)
 }
 
-fn open_new(session_name: &str) -> anyhow::Result<PathBuf> {
+fn open_new(session_name: &str) -> ekko_err::Result<PathBuf> {
     let dir = log_dir();
     fs::create_dir_all(&dir)?;
     Ok(log_path(session_name))

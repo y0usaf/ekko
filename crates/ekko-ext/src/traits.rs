@@ -1,4 +1,4 @@
-use anyhow::Result;
+use ekko_err::Result;
 use ekko_event::EventHandlerRegistration;
 
 use crate::{

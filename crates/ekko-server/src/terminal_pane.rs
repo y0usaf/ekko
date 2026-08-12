@@ -11,7 +11,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
-use anyhow::Context;
+use ekko_err::Context;
 use ekko_proto::{CursorState, GridRow, TermModes};
 use ekko_pty::{Pid, PtyHandle};
 use std::sync::mpsc::{Sender, SyncSender};
@@ -72,7 +72,7 @@ impl PtyIo {
         master_fd: OwnedFd,
         pane: PaneKey,
         hub_tx: Sender<HubInstruction>,
-    ) -> anyhow::Result<Self> {
+    ) -> ekko_err::Result<Self> {
         // Both workers must periodically observe retirement. Non-blocking I/O
         // makes their join deterministic even if the child stops reading or
         // writing before the pane is removed.
@@ -307,7 +307,7 @@ impl TerminalPane {
         scrollback: usize,
         host_colors: Option<ekko_proto::TerminalColors>,
         hub_tx: Sender<HubInstruction>,
-    ) -> anyhow::Result<Self> {
+    ) -> ekko_err::Result<Self> {
         let child_pid = handle.child_pid;
         let io = match PtyIo::start(handle.master_fd, key, hub_tx) {
             Ok(io) => io,

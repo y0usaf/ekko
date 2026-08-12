@@ -5,7 +5,7 @@ edition.workspace = true
 license.workspace = true
 
 [dependencies]
-anyhow.workspace = true
+ekko-err.workspace = true
 log.workspace = true
 mlua = { version = "0.10", features = ["lua54", "vendored", "send", "serialize"] }
 ekko-config.workspace = true

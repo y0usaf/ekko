@@ -4,7 +4,7 @@
 
 use std::sync::Arc;
 
-use anyhow::Result;
+use ekko_err::Result;
 use ekko_ext::{
     ClientSnapshot, CommandInvocation, CommandOutput, CommandSpec, DrawContext, Extension,
     ExtensionHost, ExtensionManifest, ModeOutcome, ModeSpec, ModeState, NoteKind, OVERLAY_HELP,

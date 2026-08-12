@@ -11,8 +11,8 @@
 
 use std::sync::Arc;
 
-use anyhow::Result;
 use ekko_config::Config;
+use ekko_err::Result;
 use ekko_ext::{
     ClientSnapshot, Extension, ExtensionHost, ExtensionManifest, KeybindingHandler, KeybindingSpec,
     NoteKind, OVERLAY_HELP, UiAction, resolve_chords,

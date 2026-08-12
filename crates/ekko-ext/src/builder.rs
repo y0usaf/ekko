@@ -1,4 +1,4 @@
-use anyhow::{Context, Result};
+use ekko_err::{Context, Result};
 
 use crate::host::RegistryHost;
 use crate::runtime::AppRuntime;

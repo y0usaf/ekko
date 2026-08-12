@@ -4,7 +4,7 @@
 use std::path::Path;
 use std::time::{Duration, Instant};
 
-use anyhow::{Context, Result, bail};
+use ekko_err::{Context, Result, bail};
 
 const POLL_INTERVAL: Duration = Duration::from_millis(50);
 const SPAWN_TIMEOUT: Duration = Duration::from_secs(5);

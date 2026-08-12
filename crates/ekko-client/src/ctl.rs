@@ -6,7 +6,7 @@
 
 use std::time::Duration;
 
-use anyhow::{Context, Result};
+use ekko_err::{Context, Result};
 use ekko_proto::{ClientToServer, ServerToClient, socket_path};
 use std::os::unix::net::UnixStream;
 
@@ -22,7 +22,7 @@ pub enum CtlError {
     /// No live socket (or live daemon) answers for the session name.
     NoSuchSession(String),
     /// The daemon is there but failed or refused the request.
-    Other(anyhow::Error),
+    Other(ekko_err::Error),
 }
 
 impl std::fmt::Display for CtlError {
@@ -38,13 +38,13 @@ impl std::error::Error for CtlError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
             Self::NoSuchSession(_) => None,
-            Self::Other(error) => error.source(),
+            Self::Other(_) => None, // ekko_err::Error is a flat message; no chain
         }
     }
 }
 
-impl From<anyhow::Error> for CtlError {
-    fn from(error: anyhow::Error) -> Self {
+impl From<ekko_err::Error> for CtlError {
+    fn from(error: ekko_err::Error) -> Self {
         Self::Other(error)
     }
 }
@@ -99,12 +99,12 @@ pub fn dump(name: &str) -> Result<String, CtlError> {
             // timeout fires.
             Ok(Some(_)) => continue,
             Ok(None) => {
-                return Err(CtlError::Other(anyhow::anyhow!(
+                return Err(CtlError::Other(ekko_err::err!(
                     "daemon closed the connection before answering the dump"
                 )));
             }
             Err(e) => {
-                return Err(CtlError::Other(anyhow::anyhow!(
+                return Err(CtlError::Other(ekko_err::err!(
                     "waiting for the dump reply failed: {e}"
                 )));
             }

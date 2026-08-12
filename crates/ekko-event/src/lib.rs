@@ -392,7 +392,7 @@ pub enum PaneDirection {
 
 /// A handler function invoked when a lifecycle event is dispatched.
 pub type EventHandler =
-    Arc<dyn Fn(LifecycleEvent) -> anyhow::Result<Option<EventReturn>> + Send + Sync>;
+    Arc<dyn Fn(LifecycleEvent) -> ekko_err::Result<Option<EventReturn>> + Send + Sync>;
 
 pub struct EventHandlerRegistration {
     pub event: EventKind,
