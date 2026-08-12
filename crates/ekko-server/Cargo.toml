@@ -10,7 +10,7 @@ builtins = ["dep:ekko-builtins"]
 lua = ["dep:ekko-lua"]
 
 [dependencies]
-anyhow.workspace = true
+ekko-err.workspace = true
 libc.workspace = true
 log = { workspace = true, features = ["std"] }
 ekko-builtins = { workspace = true, optional = true }

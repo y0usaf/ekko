@@ -426,7 +426,7 @@ impl AppRuntime {
         &self,
         name: &str,
         payload: &str,
-    ) -> anyhow::Result<Option<Vec<UiAction>>> {
+    ) -> ekko_err::Result<Option<Vec<UiAction>>> {
         let Some(spec) = self.action_interpreters.get(name) else {
             return Ok(None);
         };
@@ -441,7 +441,7 @@ mod tests {
     use std::sync::Arc;
     use std::sync::atomic::{AtomicUsize, Ordering};
 
-    type RegisterFn = Box<dyn Fn(&mut dyn ExtensionHost) -> anyhow::Result<()> + Send + Sync>;
+    type RegisterFn = Box<dyn Fn(&mut dyn ExtensionHost) -> ekko_err::Result<()> + Send + Sync>;
 
     struct TestExt {
         register: RegisterFn,
@@ -449,7 +449,7 @@ mod tests {
 
     impl TestExt {
         fn new(
-            register: impl Fn(&mut dyn ExtensionHost) -> anyhow::Result<()> + Send + Sync + 'static,
+            register: impl Fn(&mut dyn ExtensionHost) -> ekko_err::Result<()> + Send + Sync + 'static,
         ) -> Self {
             Self {
                 register: Box::new(register),
@@ -467,7 +467,7 @@ mod tests {
             }
         }
 
-        fn register(&self, host: &mut dyn ExtensionHost) -> anyhow::Result<()> {
+        fn register(&self, host: &mut dyn ExtensionHost) -> ekko_err::Result<()> {
             (self.register)(host)
         }
     }
@@ -475,7 +475,10 @@ mod tests {
     fn subscription(
         kind: EventKind,
         label: &str,
-        handler: impl Fn(LifecycleEvent) -> anyhow::Result<Option<EventReturn>> + Send + Sync + 'static,
+        handler: impl Fn(LifecycleEvent) -> ekko_err::Result<Option<EventReturn>>
+        + Send
+        + Sync
+        + 'static,
     ) -> EventHandlerRegistration {
         EventHandlerRegistration {
             event: kind,
@@ -548,7 +551,7 @@ mod tests {
         let runtime = RuntimeBuilder::new()
             .register_extension(TestExt::new(|host| {
                 host.subscribe(subscription(EventKind::BeforeSessionDetach, "boom", |_| {
-                    anyhow::bail!("boom")
+                    ekko_err::bail!("boom")
                 }))?;
                 host.subscribe(subscription(EventKind::BeforeSessionDetach, "ok", |_| {
                     Ok(Some(EventReturn::Cancel {

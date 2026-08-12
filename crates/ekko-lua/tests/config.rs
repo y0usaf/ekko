@@ -17,7 +17,7 @@ fn temp_dir(tag: &str) -> PathBuf {
     dir
 }
 
-fn load_source(tag: &str, source: &str) -> anyhow::Result<ekko_config::Config> {
+fn load_source(tag: &str, source: &str) -> ekko_err::Result<ekko_config::Config> {
     let dir = temp_dir(tag);
     std::fs::write(dir.join("init.lua"), source).unwrap();
     let result = ekko_lua::load_config(&dir.join("init.lua"));

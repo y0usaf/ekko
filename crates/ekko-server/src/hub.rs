@@ -799,7 +799,7 @@ impl Hub {
         &mut self,
         client: ClientId,
         axis: SplitAxis,
-    ) -> anyhow::Result<Option<PaneId>> {
+    ) -> ekko_err::Result<Option<PaneId>> {
         if !self.attached.contains_key(&client) {
             return Ok(None);
         }
@@ -1086,7 +1086,7 @@ impl Hub {
         shell: &std::path::Path,
         cols: u16,
         rows: u16,
-    ) -> anyhow::Result<TerminalPane> {
+    ) -> ekko_err::Result<TerminalPane> {
         let mut shell = shell.to_path_buf();
         let mut cwd = cwd.to_path_buf();
         // Stamp the pane with its own session so shells can tell they're

@@ -60,7 +60,7 @@ pub use config::{InitLuaEvaluator, load_config, load_config_cascade, load_config
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 
-use anyhow::{Context, Result, anyhow};
+use ekko_err::{Context, Result, err as anyhow};
 use ekko_ext::{
     CommandOutput, CommandSpec, EventHandlerRegistration, Extension, ExtensionHost,
     ExtensionManifest, KeybindingSpec, ModeOutcome, ModeSpec, ModeState, OverlayOutcome,
@@ -1027,7 +1027,7 @@ impl LuaExtension {
                 with_budget(&lua, handler_budget, |lua| {
                     let f: Function = lua.registry_value(&handler)?;
                     let value = f.call::<Value>(payload.to_string())?;
-                    actions_from_value(&value).map_err(mlua::Error::external)
+                    actions_from_value(&value).map_err(|e| mlua::Error::RuntimeError(e.to_string()))
                 })
                 .map_err(|e| anyhow!("{e:#}"))
             }),

@@ -5,7 +5,7 @@
 
 use std::sync::Arc;
 
-use anyhow::Result;
+use ekko_err::Result;
 use ekko_ext::{
     ClientSnapshot, DrawContext, Extension, ExtensionHost, ExtensionManifest, OVERLAY_HELP,
     OverlayOutcome, OverlayPayload, OverlaySpec, OverlayState, Rect, RegistryView,

@@ -21,7 +21,7 @@ keycast = ["ekko-client/keycast"]
 lua = ["ekko-client/lua"]
 
 [dependencies]
-anyhow.workspace = true
+ekko-err.workspace = true
 log.workspace = true
 ekko-client.workspace = true
 ekko-config.workspace = true

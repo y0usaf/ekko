@@ -5,7 +5,7 @@ edition.workspace = true
 license.workspace = true
 
 [dependencies]
-anyhow.workspace = true
+ekko-err.workspace = true
 libc.workspace = true
 log.workspace = true
 signal-hook.workspace = true

@@ -46,23 +46,27 @@ impl fmt::Display for Error {
     }
 }
 
-impl StdError for Error {}
-
 impl fmt::Debug for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{:?}", self.msg)
+        f.debug_tuple("Error").field(&self.msg).finish()
     }
 }
 
-/// Convert any `std::error::Error` into [`Error`], for `?` on foreign
-/// results (io, etc.).
-///
-/// Deliberately not a blanket `impl<E: StdError>` — that would overlap core's
-/// `impl<T> From<T> for T` once [`Error`] implements `StdError`. Instead we
-/// list the concrete foreign error types ekko lifts with `?`; the compiler
-/// flags any new one.
-impl From<std::io::Error> for Error {
-    fn from(e: std::io::Error) -> Self {
+// Convert any [`std::error::Error`] into [`Error`], for a bare `?` on a
+// foreign operation (io, mlua, serde_json, ...). This blanket is what makes
+// `?` on arbitrary std errors work without an explosive per-type enum.
+//
+// To keep the blanket coherent, [`Error`] deliberately does NOT implement
+// `std::error::Error`: if it did, this `impl<E> From<E> for Error` would
+// overlap `core`'s reflexive `impl<T> From<T> for T`. anyhow makes the same
+// choice at the public `Error` level. Nothing in ekko needs `Error` itself to
+// be a `std::error::Error`; the one place that looked like it (passing an
+// error into `mlua::Error::external`) converts via the message string instead.
+impl<E> From<E> for Error
+where
+    E: StdError + Send + Sync + 'static,
+{
+    fn from(e: E) -> Self {
         Self { msg: e.to_string() }
     }
 }
@@ -73,7 +77,9 @@ pub type Result<T, E = Error> = std::result::Result<T, E>;
 /// Trait exposing `.context` / `.with_context` on `Result` and `Option`,
 /// matching `anyhow::Context`.
 pub trait Context<T> {
-    fn context<C>(self, context: C) -> Result<T> where C: fmt::Display;
+    fn context<C>(self, context: C) -> Result<T>
+    where
+        C: fmt::Display;
     fn with_context<C, F>(self, f: F) -> Result<T>
     where
         C: fmt::Display,
@@ -82,10 +88,13 @@ pub trait Context<T> {
 
 impl<T, E> Context<T> for std::result::Result<T, E>
 where
-    E: StdError + Send + Sync + 'static,
+    E: Into<Error>,
 {
-    fn context<C>(self, context: C) -> Result<T> where C: fmt::Display {
-        self.map_err(|e| Error::msg(format!("{context}: {}", e)))
+    fn context<C>(self, context: C) -> Result<T>
+    where
+        C: fmt::Display,
+    {
+        self.map_err(|e| Error::msg(format!("{context}: {}", e.into())))
     }
     fn with_context<C, F>(self, f: F) -> Result<T>
     where
@@ -97,7 +106,10 @@ where
 }
 
 impl<T> Context<T> for Option<T> {
-    fn context<C>(self, context: C) -> Result<T> where C: fmt::Display {
+    fn context<C>(self, context: C) -> Result<T>
+    where
+        C: fmt::Display,
+    {
         self.ok_or_else(|| Error::msg(context.to_string()))
     }
     fn with_context<C, F>(self, f: F) -> Result<T>
@@ -131,7 +143,7 @@ mod tests {
     use std::io;
 
     fn maybe() -> Result<i32> {
-        Err(io::Error::new(io::ErrorKind::Other, "io failure").into())
+        Err(io::Error::other("io failure").into())
     }
 
     #[test]
@@ -143,7 +155,7 @@ mod tests {
 
     #[test]
     fn option_context_unwraps_inner() {
-        let r: Result<i32> = None.with_context(|| format!("no value"));
+        let r: Result<i32> = None.with_context(|| "no value".to_string());
         assert_eq!(r.unwrap_err().to_string(), "no value");
         let r: Result<i32> = Some(7).context("some");
         assert_eq!(r.unwrap(), 7);

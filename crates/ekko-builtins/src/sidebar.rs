@@ -4,7 +4,7 @@
 
 use std::sync::{Arc, Mutex};
 
-use anyhow::Result;
+use ekko_err::Result;
 use ekko_ext::{
     ClientSnapshot, Color, DockEdge, DrawContext, Extension, ExtensionHost, ExtensionManifest,
     MouseKind, Rect, ScrollbarModel, ScrollbarStyle, SurfaceMouseEvent, SurfaceSize, SurfaceSpec,

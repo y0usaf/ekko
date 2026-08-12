@@ -1,4 +1,4 @@
-use anyhow::Result;
+use ekko_err::Result;
 
 const DEFAULT_SESSION: &str = "main";
 

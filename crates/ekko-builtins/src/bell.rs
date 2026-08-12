@@ -7,7 +7,7 @@
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use anyhow::Result;
+use ekko_err::Result;
 use ekko_ext::{
     EventHandlerRegistration, EventKind, EventReturn, Extension, ExtensionHost, ExtensionManifest,
     NoticeLevel,

@@ -177,7 +177,7 @@ impl Config {
     pub fn load_cascade_in(
         dir: &Path,
         lua: Option<&dyn LuaConfigEvaluator>,
-    ) -> anyhow::Result<Self> {
+    ) -> ekko_err::Result<Self> {
         let init = dir.join("init.lua");
         if init.exists()
             && let Some(evaluator) = lua
@@ -186,7 +186,7 @@ impl Config {
         }
         let toml = dir.join("config.toml");
         if toml.exists() {
-            anyhow::bail!(
+            ekko_err::bail!(
                 "unsupported config file {}; migrate to init.lua",
                 toml.display()
             );
@@ -196,7 +196,7 @@ impl Config {
 
     /// [`Self::load_cascade_in`] against the platform config directory —
     /// the single entry point both processes (client and daemon) call.
-    pub fn load_cascade(lua: Option<&dyn LuaConfigEvaluator>) -> anyhow::Result<Self> {
+    pub fn load_cascade(lua: Option<&dyn LuaConfigEvaluator>) -> ekko_err::Result<Self> {
         Self::load_cascade_in(&config_dir(), lua)
     }
 
@@ -261,7 +261,7 @@ impl Config {
 pub trait LuaConfigEvaluator {
     /// Evaluate `init.lua` at `path` into a normalized [`Config`]. A broken
     /// script must be an error, not a fall-through.
-    fn eval_init_lua(&self, path: &Path) -> anyhow::Result<Config>;
+    fn eval_init_lua(&self, path: &Path) -> ekko_err::Result<Config>;
 }
 
 /// Config directory, resolved by the workspace's single resolver

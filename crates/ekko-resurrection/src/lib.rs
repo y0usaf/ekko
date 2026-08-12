@@ -64,7 +64,7 @@ pub fn create(
     session_name: &str,
     cwd: &std::path::Path,
     shell: &std::path::Path,
-) -> anyhow::Result<()> {
+) -> ekko_err::Result<()> {
     let now = now_secs();
     let manifest = Manifest {
         session_name: session_name.to_string(),
@@ -77,11 +77,12 @@ pub fn create(
     write(&manifest)
 }
 
-fn write(manifest: &Manifest) -> anyhow::Result<()> {
+fn write(manifest: &Manifest) -> ekko_err::Result<()> {
     let dir = manifest_dir(&manifest.session_name);
     fs::create_dir_all(&dir)?;
-    let json = serde_json::to_vec_pretty(manifest)?;
-    fs::write(manifest_path(&manifest.session_name), json)?;
+    let payload =
+        serde_json::to_vec_pretty(manifest).map_err(|e| ekko_err::Error::msg(e.to_string()))?;
+    fs::write(manifest_path(&manifest.session_name), payload)?;
     Ok(())
 }
 
@@ -92,7 +93,7 @@ pub fn read(session_name: &str) -> Option<Manifest> {
 
 /// Bump `last_active_secs` without changing status. Called periodically by
 /// the heartbeat thread and is a no-op if no manifest exists yet.
-pub fn touch(session_name: &str) -> anyhow::Result<()> {
+pub fn touch(session_name: &str) -> ekko_err::Result<()> {
     if let Some(mut manifest) = read(session_name) {
         manifest.last_active_secs = now_secs();
         write(&manifest)?;
@@ -102,7 +103,7 @@ pub fn touch(session_name: &str) -> anyhow::Result<()> {
 
 /// Update the status field (e.g. to `Exited` or `Crashed`), keeping the rest
 /// of the manifest as-is.
-pub fn set_status(session_name: &str, status: SessionStatus) -> anyhow::Result<()> {
+pub fn set_status(session_name: &str, status: SessionStatus) -> ekko_err::Result<()> {
     if let Some(mut manifest) = read(session_name) {
         manifest.status = status;
         manifest.last_active_secs = now_secs();
@@ -119,7 +120,7 @@ pub fn delete(session_name: &str) {
 /// List all known sessions: live ones (a socket is bound) plus resurrectable
 /// ones (a manifest exists but no socket). Prunes manifests older than
 /// [`MAX_MANIFEST_AGE`] that aren't currently alive.
-pub fn list_sessions() -> anyhow::Result<Vec<SessionSummary>> {
+pub fn list_sessions() -> ekko_err::Result<Vec<SessionSummary>> {
     prune_stale_manifests();
 
     let mut names = std::collections::BTreeSet::new();

@@ -4,7 +4,7 @@
 
 use std::sync::Arc;
 
-use anyhow::Result;
+use ekko_err::Result;
 use ekko_event::{NoteKind, UiAction};
 
 #[derive(Clone)]
@@ -70,7 +70,7 @@ impl CommandOutput {
 /// [`ExtensionHost::register_action_interpreter`](crate::ExtensionHost::register_action_interpreter);
 /// the host chains the returned actions like any others (bounded by the
 /// same recursion limit). Errors surface as status notes, never panics.
-pub type ActionInterpreterFn = Arc<dyn Fn(&str) -> anyhow::Result<Vec<UiAction>> + Send + Sync>;
+pub type ActionInterpreterFn = Arc<dyn Fn(&str) -> ekko_err::Result<Vec<UiAction>> + Send + Sync>;
 
 /// A named interpreter for `UiAction::Custom`. `name` is matched exactly;
 /// duplicate names are hard errors at runtime build, like every registry.

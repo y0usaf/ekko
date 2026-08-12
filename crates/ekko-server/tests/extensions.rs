@@ -226,7 +226,7 @@ impl Extension for RecordingExtension {
         }
     }
 
-    fn register(&self, host: &mut dyn ExtensionHost) -> anyhow::Result<()> {
+    fn register(&self, host: &mut dyn ExtensionHost) -> ekko_err::Result<()> {
         for kind in &self.kinds {
             let fired = self.fired.clone();
             let kind = *kind;
@@ -256,7 +256,7 @@ impl Extension for EnvOverrideExtension {
         }
     }
 
-    fn register(&self, host: &mut dyn ExtensionHost) -> anyhow::Result<()> {
+    fn register(&self, host: &mut dyn ExtensionHost) -> ekko_err::Result<()> {
         host.subscribe(EventHandlerRegistration {
             event: EventKind::BeforePtySpawn,
             label: "test.env-override/inject".into(),
@@ -284,7 +284,7 @@ impl Extension for SleeperExtension {
         }
     }
 
-    fn register(&self, host: &mut dyn ExtensionHost) -> anyhow::Result<()> {
+    fn register(&self, host: &mut dyn ExtensionHost) -> ekko_err::Result<()> {
         for kind in [EventKind::ClientAttached, EventKind::BeforePtySpawn] {
             host.subscribe(EventHandlerRegistration {
                 event: kind,

@@ -6,7 +6,7 @@
 use std::path::Path;
 use std::sync::Arc;
 
-use anyhow::Result;
+use ekko_err::Result;
 use ekko_ext::{Extension, ExtensionHost, ExtensionManifest, NamerInput, SessionNamerSpec};
 
 pub struct NamingExtension;

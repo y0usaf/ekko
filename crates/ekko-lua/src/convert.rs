@@ -3,7 +3,7 @@
 //! small tables. Everything is data — no host references ever cross into
 //! Lua, mirroring the snapshot-reads/action-writes discipline.
 
-use anyhow::{Result, anyhow, bail};
+use ekko_err::{Result, bail, err as anyhow};
 use ekko_ext::{
     ClientSnapshot, Color, EventKind, EventPayload, EventReturn, KeyIntercept, ModeOutcome,
     NoteKind, NoticeLevel, ProjectGroup, RegistryView, SessionEntry, SurfaceMouseEvent,

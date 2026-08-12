@@ -18,8 +18,8 @@
 
 use std::path::Path;
 
-use anyhow::{Context, Result};
 use ekko_config::LuaConfigEvaluator;
+use ekko_err::{Context, Result};
 use mlua::{Lua, LuaSerdeExt, Table, Value};
 
 use crate::{BOOTSTRAP_BUDGET, with_budget};

@@ -7,8 +7,8 @@
 
 use std::sync::Arc;
 
-use anyhow::Result;
 use ekko_config::Config;
+use ekko_err::Result;
 use ekko_ext::{
     CommandInvocation, CommandOutput, CommandSpec, Extension, ExtensionHost, ExtensionManifest,
     KeybindingSpec, NoteKind, PaneDirection, UiAction, resolve_chords,

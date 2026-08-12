@@ -20,7 +20,7 @@ mod vt_compat;
 use std::os::fd::AsRawFd;
 use std::thread;
 
-use anyhow::Context;
+use ekko_err::Context;
 use signal_hook::consts::{SIGINT, SIGTERM};
 use signal_hook::iterator::Signals;
 use std::sync::mpsc::Sender;
@@ -31,7 +31,7 @@ use hub::{Hub, HubInstruction};
 /// reusing a name fail loudly), filtered by `[extensions] disabled`. Only
 /// scripts declaring `host = "server"` or `"both"` load here; a `"both"`
 /// script gets its own Lua state per process.
-fn build_runtime(config: &ekko_config::Config) -> anyhow::Result<ekko_ext::AppRuntime> {
+fn build_runtime(config: &ekko_config::Config) -> ekko_err::Result<ekko_ext::AppRuntime> {
     let builder = ekko_ext::RuntimeBuilder::new().with_disabled(&config.extensions.disabled);
     #[cfg(feature = "builtins")]
     let builder = builder.register_boxed_extensions(ekko_builtins::server_extensions());
@@ -50,7 +50,7 @@ fn build_runtime(config: &ekko_config::Config) -> anyhow::Result<ekko_ext::AppRu
 /// When `daemonize` is true, this forks into the background (stdout/stderr
 /// redirected to `~/.cache/ekko/logs/<session_name>.log`) and only the child
 /// process's call returns; the parent exits from inside daemonization.
-pub fn run(session_name: &str, daemonize: bool) -> anyhow::Result<()> {
+pub fn run(session_name: &str, daemonize: bool) -> ekko_err::Result<()> {
     // The config cascade (`init.lua` or defaults)
     // lives in ekko-config; the lua feature just injects the evaluator.
     // A broken `init.lua` refuses to start rather than silently running
@@ -70,7 +70,7 @@ pub fn run_with_runtime(
     daemonize: bool,
     config: ekko_config::Config,
     runtime: ekko_ext::AppRuntime,
-) -> anyhow::Result<()> {
+) -> ekko_err::Result<()> {
     logging::init(session_name).context("initializing logging")?;
 
     if daemonize {
@@ -121,14 +121,14 @@ impl Drop for SocketGuard {
 
 /// Scan for known sessions: live ones (a socket is currently bound) and
 /// resurrectable ones (a manifest exists but the daemon has exited).
-pub fn list_sessions() -> anyhow::Result<Vec<ekko_proto::SessionSummary>> {
+pub fn list_sessions() -> ekko_err::Result<Vec<ekko_proto::SessionSummary>> {
     ekko_resurrection::list_sessions()
 }
 
 /// Reproduce daemonize 0.5's daemon process setup: fork, wait-and-exit in
 /// the original parent, then setsid and fork again so the surviving process
 /// cannot reacquire a controlling terminal.
-fn daemonize_process(log_file: std::fs::File) -> anyhow::Result<()> {
+fn daemonize_process(log_file: std::fs::File) -> ekko_err::Result<()> {
     // SAFETY: fork is called before this process creates any threads.
     let first_pid = unsafe { libc::fork() };
     if first_pid < 0 {
@@ -188,7 +188,7 @@ fn daemonize_process(log_file: std::fs::File) -> anyhow::Result<()> {
 fn spawn_listener_thread(
     listener: ekko_proto::IpcListener,
     hub_tx: Sender<HubInstruction>,
-) -> anyhow::Result<()> {
+) -> ekko_err::Result<()> {
     thread::Builder::new()
         .name("listener".to_string())
         .spawn(move || {
@@ -207,7 +207,7 @@ fn spawn_listener_thread(
     Ok(())
 }
 
-fn spawn_signal_thread(hub_tx: Sender<HubInstruction>) -> anyhow::Result<()> {
+fn spawn_signal_thread(hub_tx: Sender<HubInstruction>) -> ekko_err::Result<()> {
     let mut signals = Signals::new([SIGTERM, SIGINT]).context("installing signal handlers")?;
     thread::Builder::new()
         .name("signal-handler".to_string())
