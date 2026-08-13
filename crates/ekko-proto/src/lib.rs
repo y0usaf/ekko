@@ -1,9 +1,12 @@
 //! Wire protocol shared between the ekko client and server: versioned socket
 //! paths, message types, and length-prefixed framing.
 
+pub mod codec;
 pub mod frame;
 pub mod msg;
 pub mod socket;
+
+pub use codec::{DecodeError, Wire, decode, encode};
 
 pub use frame::{FrameError, MAX_FRAME_SIZE, read_msg, write_msg};
 pub use msg::*;

@@ -198,11 +198,11 @@ fn golden_wire_bytes() {
     let mut actual = Vec::new();
     for (n, value) in client_values() {
         let name = format!("ClientToServer::{n}");
-        actual.push((name, bincode::serialize(&value).unwrap()));
+        actual.push((name, ekko_proto::encode(&value)));
     }
     for (n, value) in server_values() {
         let name = format!("ServerToClient::{n}");
-        actual.push((name, bincode::serialize(&value).unwrap()));
+        actual.push((name, ekko_proto::encode(&value)));
     }
     if expected.is_empty() {
         for (name, bytes) in &actual {

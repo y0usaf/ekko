@@ -1,13 +1,12 @@
-//! Length-prefixed bincode framing for messages sent over the IPC socket.
+//! Length-prefixed framed messages sent over the IPC socket.
 //!
 //! Each frame is a little-endian `u32` byte length followed by that many
-//! bincode-serialized bytes. Frames larger than [`MAX_FRAME_SIZE`] are
-//! rejected on both the write and read side.
+//! wire-encoded bytes (see [`crate::codec`]). Frames larger than
+//! [`MAX_FRAME_SIZE`] are rejected on both the write and read side.
 
 use std::io::{self, Read, Write};
 
-use serde::Serialize;
-use serde::de::DeserializeOwned;
+use crate::codec::{DecodeError, Wire, decode, encode};
 
 /// Maximum allowed frame payload size (16 MiB), guarding against a corrupt or
 /// malicious length prefix causing an unbounded allocation.
@@ -21,7 +20,7 @@ pub enum FrameError {
         size: u32,
         max: u32,
     },
-    Bincode(bincode::Error),
+    Decode(DecodeError),
     /// The connection was closed in the middle of a frame (after the length
     /// prefix or a partial payload had already been read). Distinguishable
     /// from a clean EOF, which is reported by returning `Ok(None)` from
@@ -39,7 +38,7 @@ impl std::fmt::Display for FrameError {
                     "frame of {size} bytes exceeds the maximum of {max} bytes"
                 )
             }
-            Self::Bincode(e) => write!(f, "bincode encode/decode error: {e}"),
+            Self::Decode(e) => write!(f, "wire decode error: {e}"),
             Self::Truncated => write!(f, "connection closed mid-frame (truncated)"),
         }
     }
@@ -49,7 +48,7 @@ impl std::error::Error for FrameError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
             Self::Io(e) => Some(e),
-            Self::Bincode(e) => Some(e.as_ref()),
+            Self::Decode(e) => Some(e),
             Self::FrameTooLarge { .. } | Self::Truncated => None,
         }
     }
@@ -61,15 +60,15 @@ impl From<io::Error> for FrameError {
     }
 }
 
-impl From<bincode::Error> for FrameError {
-    fn from(e: bincode::Error) -> Self {
-        Self::Bincode(e)
+impl From<DecodeError> for FrameError {
+    fn from(e: DecodeError) -> Self {
+        Self::Decode(e)
     }
 }
 
 /// Write `msg` to `writer` as a single length-prefixed frame.
-pub fn write_msg<W: Write, T: Serialize>(writer: &mut W, msg: &T) -> Result<(), FrameError> {
-    let bytes = bincode::serialize(msg)?;
+pub fn write_msg<W: Write, T: Wire>(writer: &mut W, msg: &T) -> Result<(), FrameError> {
+    let bytes = encode(msg);
     if bytes.len() > MAX_FRAME_SIZE as usize {
         return Err(FrameError::FrameTooLarge {
             size: bytes.len() as u32,
@@ -90,7 +89,7 @@ pub fn write_msg<W: Write, T: Serialize>(writer: &mut W, msg: &T) -> Result<(), 
 /// `Err(FrameError::Truncated)` if the connection closes partway through a
 /// frame, which indicates a corrupted stream rather than an orderly
 /// disconnect.
-pub fn read_msg<R: Read, T: DeserializeOwned>(reader: &mut R) -> Result<Option<T>, FrameError> {
+pub fn read_msg<R: Read, T: Wire>(reader: &mut R) -> Result<Option<T>, FrameError> {
     let mut len_buf = [0u8; 4];
     if !read_fully_or_eof(reader, &mut len_buf)? {
         return Ok(None);
@@ -106,7 +105,7 @@ pub fn read_msg<R: Read, T: DeserializeOwned>(reader: &mut R) -> Result<Option<T
     if !read_fully_or_eof(reader, &mut buf)? {
         return Err(FrameError::Truncated);
     }
-    let msg = bincode::deserialize(&buf)?;
+    let msg = decode(&buf)?;
     Ok(Some(msg))
 }
 
@@ -141,7 +140,7 @@ mod tests {
 
     fn roundtrip<T>(msg: T)
     where
-        T: Serialize + DeserializeOwned + std::fmt::Debug + PartialEq,
+        T: Wire + std::fmt::Debug + PartialEq,
     {
         let mut buf = Vec::new();
         write_msg(&mut buf, &msg).expect("write");
