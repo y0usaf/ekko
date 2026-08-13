@@ -2,3 +2,9 @@
 /ref
 /result
 /result-*
+
+# Private agent state (rlm logs, agent sessions) — never committed.
+/.pi-rlm/
+/.pi/agents/
+/.reasonix/
+
