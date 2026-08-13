@@ -72,11 +72,9 @@ version = "0.1.0"
 dependencies = [
  "ekko-config",
  "ekko-err",
- "ekko-event",
  "ekko-ext",
  "ekko-resurrection",
  "ekko-tui",
- "log",
 ]
 
 [[package]]
@@ -86,7 +84,6 @@ dependencies = [
  "ekko-builtins",
  "ekko-config",
  "ekko-err",
- "ekko-event",
  "ekko-ext",
  "ekko-grid",
  "ekko-keycast",
@@ -99,7 +96,6 @@ dependencies = [
  "log",
  "serde_json",
  "signal-hook",
- "unicode-width",
 ]
 
 [[package]]
