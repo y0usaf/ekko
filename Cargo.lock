@@ -184,7 +184,6 @@ dependencies = [
 name = "ekko-pty"
 version = "0.1.0"
 dependencies = [
- "ekko-err",
  "ekko-tmp",
  "libc",
  "log",
@@ -220,8 +219,6 @@ dependencies = [
  "ekko-tmp",
  "libc",
  "log",
- "serde",
- "serde_json",
  "signal-hook",
  "vt100",
 ]
