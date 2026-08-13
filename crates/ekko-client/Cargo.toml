@@ -18,7 +18,6 @@ ekko-builtins = { workspace = true, optional = true }
 ekko-keycast = { workspace = true, optional = true }
 ekko-lua = { workspace = true, optional = true }
 ekko-config.workspace = true
-ekko-event.workspace = true
 ekko-ext.workspace = true
 ekko-grid.workspace = true
 ekko-paths.workspace = true
@@ -27,7 +26,6 @@ ekko-resurrection.workspace = true
 ekko-tui.workspace = true
 serde_json.workspace = true
 signal-hook.workspace = true
-unicode-width.workspace = true
 
 [dev-dependencies]
 ekko-builtins.workspace = true

@@ -6,9 +6,7 @@ version.workspace = true
 
 [dependencies]
 ekko-err = { workspace = true }
-log = { workspace = true }
 ekko-config = { workspace = true }
-ekko-event = { workspace = true }
 ekko-ext = { workspace = true }
 ekko-resurrection = { workspace = true }
 ekko-tui = { workspace = true }
