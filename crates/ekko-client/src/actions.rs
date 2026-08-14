@@ -266,9 +266,11 @@ impl App<'_> {
                     );
                     return Ok(None);
                 }
-                if !self.state.hidden_surfaces.remove(&name) {
-                    self.state.hidden_surfaces.insert(name);
+                let mut hidden = self.compose.hidden_surfaces();
+                if !hidden.remove(&name) {
+                    hidden.insert(name);
                 }
+                self.compose.set_hidden_surfaces(hidden);
                 // The terminal pane grows/shrinks with the toggle; the next
                 // loop pass resizes the session grid via
                 // `apply_resize_if_changed`.

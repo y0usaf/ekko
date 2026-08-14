@@ -28,6 +28,7 @@ ekko-ext = { path = "crates/ekko-ext" }
 ekko-grid = { path = "crates/ekko-grid" }
 ekko-keycast = { path = "crates/ekko-keycast" }
 ekko-lua = { path = "crates/ekko-lua" }
+kernel = { path = "crates/kernel" }
 ekko-paths = { path = "crates/ekko-paths" }
 ekko-proto = { path = "crates/ekko-proto" }
 ekko-pty = { path = "crates/ekko-pty" }

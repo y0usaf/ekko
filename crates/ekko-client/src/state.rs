@@ -182,9 +182,6 @@ pub struct ClientState {
     pub selection: TerminalSelection,
     /// The pane `selection` belongs to; highlights render only there.
     pub selection_pane: Option<u64>,
-    /// Surfaces toggled off by `UiAction::ToggleSurface`. Client-local:
-    /// a fresh attach starts with everything visible.
-    pub hidden_surfaces: std::collections::HashSet<String>,
     /// Active scrollback search: matches in absolute rows (0 = oldest
     /// history line), owned by `search.pane`. Cleared on pane close or
     /// `UiAction::SearchClear`.
@@ -225,7 +222,6 @@ impl ClientState {
             status_note: None,
             selection: TerminalSelection::default(),
             selection_pane: None,
-            hidden_surfaces: std::collections::HashSet::new(),
             search: None,
             edge_scroll: None,
             dirty: true,

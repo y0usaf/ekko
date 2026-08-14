@@ -20,6 +20,7 @@ ekko-lua = { workspace = true, optional = true }
 ekko-config.workspace = true
 ekko-ext.workspace = true
 ekko-grid.workspace = true
+kernel.workspace = true
 ekko-paths.workspace = true
 ekko-proto.workspace = true
 ekko-resurrection.workspace = true

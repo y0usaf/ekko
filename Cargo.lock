@@ -92,6 +92,7 @@ dependencies = [
  "ekko-proto",
  "ekko-resurrection",
  "ekko-tui",
+ "kernel",
  "libc",
  "log",
  "serde_json",
