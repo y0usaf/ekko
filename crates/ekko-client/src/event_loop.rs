@@ -78,6 +78,7 @@ pub(crate) fn run_event_loop(
     let mut app = App {
         send,
         state: ClientState::new(session_name.clone()),
+        compose: crate::compose::Clientspace::new(),
         paste: PasteAccumulator::default(),
         palette,
         border_glyphs,
@@ -97,7 +98,7 @@ pub(crate) fn run_event_loop(
     app.runtime.dispatch(
         EventKind::SessionAttached,
         EventPayload::SessionAttached {
-            session_name,
+            session_name: session_name.clone(),
             wire_version: ekko_proto::WIRE_VERSION,
         },
     );
@@ -107,8 +108,16 @@ pub(crate) fn run_event_loop(
         app.enter_mode(&mode);
         app.state.dirty = true;
     }
+    // Mount the per-session lifecycle component (scene/spawn/clipboard/
+    // subscription, each with an inverse); unmounted in reverse on exit so no
+    // residue survives a session switch or detach.
+    app.compose.mount_session(crate::compose::SessionId {
+        name: session_name.clone(),
+        generation,
+    });
 
     let outcome = app.run(rx)?;
+    app.compose.unmount_session();
     Ok(outcome)
 }
 
@@ -180,6 +189,10 @@ pub(crate) fn spawn_resize_watcher(tx: mpsc::Sender<Event>) {
 pub(crate) struct App<'a> {
     pub(crate) send: Box<dyn Write + Send>,
     pub(crate) state: ClientState,
+    /// Spatiotemporal composability surface: owns the kernel [`Context`],
+    /// mounts the per-session lifecycle component, and routes visible-state
+    /// writes through the single write path. See [`crate::compose`].
+    pub(crate) compose: crate::compose::Clientspace,
     pub(crate) paste: PasteAccumulator,
     pub(crate) palette: ThemePalette,
     /// Optional user-supplied separator glyphs (client-local, no wire
@@ -223,7 +236,10 @@ impl App<'_> {
             // Reuse one host snapshot for tick predicates and rendering.
             let snapshot = self.snapshot();
             let animating = self.wants_animation(&snapshot);
-            if self.state.dirty {
+            // Repaint when anything changed: either the ad-hoc dirty flag the
+            // handlers set directly, or a declared kernel state change that the
+            // render reader turned into a repaint notification.
+            if self.state.dirty || self.compose.take_dirty() {
                 self.render(snapshot)?;
                 self.state.dirty = false;
             }
@@ -428,7 +444,7 @@ impl App<'_> {
                 }),
             keybindings: self.runtime.keybinding_infos(),
             now_ms: now_millis(),
-            hidden_surfaces: self.state.hidden_surfaces.iter().cloned().collect(),
+            hidden_surfaces: self.compose.hidden_surfaces().into_iter().collect(),
             theme: self.palette,
         }
     }
