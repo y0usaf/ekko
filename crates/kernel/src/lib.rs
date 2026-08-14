@@ -104,6 +104,17 @@ impl Context {
         self.values.contains_key(key)
     }
 
+    /// The number of keys currently holding state — the residue measure for the
+    /// temporal (mount/unmount) axis.
+    pub fn len(&self) -> usize {
+        self.values.len()
+    }
+
+    /// True if no state is held at all.
+    pub fn is_empty(&self) -> bool {
+        self.values.is_empty()
+    }
+
     /// The single committed write path. Stores the value and notifies only
     /// the components that declared `key` in their `reads`.
     pub fn set<T: Any + Send>(&mut self, key: &'static str, value: T) {

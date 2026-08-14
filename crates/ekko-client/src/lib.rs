@@ -7,6 +7,7 @@
 mod actions;
 mod borders;
 mod clipboard;
+mod compose;
 mod ctl;
 mod drawctx;
 mod event_loop;
