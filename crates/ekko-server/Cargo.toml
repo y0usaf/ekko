@@ -13,6 +13,7 @@ lua = ["dep:ekko-lua"]
 ekko-err.workspace = true
 libc.workspace = true
 log = { workspace = true, features = ["std"] }
+kernel = { path = "../kernel" }
 ekko-builtins = { workspace = true, optional = true }
 ekko-config.workspace = true
 ekko-lua = { workspace = true, optional = true }

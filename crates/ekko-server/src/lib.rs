@@ -7,6 +7,7 @@
 
 mod broadcast;
 mod client_io;
+mod compose;
 mod grid;
 mod hub;
 mod input_compat;

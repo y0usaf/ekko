@@ -17,6 +17,7 @@ use ekko_event::{EventKind, EventPayload, EventReturn, SessionExitReason};
 use ekko_ext::AppRuntime;
 
 use crate::client_io::{self, ClientHandle, ClientId};
+use crate::compose::{self, KContext, PaneSlot, SlotAllocator};
 use crate::terminal_pane::{PaneGeneration, PaneId, PaneKey, TerminalPane};
 use crate::topology::{Direction, PaneTopology, Rect, SplitAxis, SplitRatio, neighbor_in};
 
@@ -77,6 +78,13 @@ pub struct Hub {
     /// First successful client probe; copied into every live pane parser.
     host_colors: Option<ekko_proto::TerminalColors>,
     pub(crate) panes: HashMap<PaneId, TerminalPane>,
+    /// Spatiotemporal composition of live panes over the kernel. Each pane maps
+    /// to a stable slot key here; unmounting a pane's component replays its
+    /// inverse so the context returns to its pre-mount state with no residue.
+    pub(crate) ctx: KContext,
+    slots: SlotAllocator,
+    /// PaneId → its composition (slot + mount id), for reverse teardown.
+    mounts: HashMap<PaneId, (PaneSlot, usize)>,
     pub(crate) topology: Option<PaneTopology>,
     /// Focus is daemon-owned and exists only while a client is attached.
     pub(crate) focus: HashMap<ClientId, PaneId>,
@@ -112,6 +120,9 @@ impl Hub {
             next_client_id: 0,
             host_colors: None,
             panes: HashMap::new(),
+            ctx: KContext::new(),
+            slots: SlotAllocator::default(),
+            mounts: HashMap::new(),
             topology: None,
             focus: HashMap::new(),
             canvas_size: None,
@@ -236,6 +247,13 @@ impl Hub {
     }
 
     fn retire_pane(&mut self, pane_id: PaneId, terminate_child: bool) {
+        // Replay the pane component's inverses (slot registration, live-leaf
+        // declaration) so the composition returns to its pre-mount state, then
+        // retire the real PTY resource.
+        if let Some((slot, mount)) = self.mounts.remove(&pane_id) {
+            self.ctx.unmount(mount);
+            self.slots.free(slot);
+        }
         if let Some(pane) = self.panes.remove(&pane_id) {
             pane.retire(terminate_child);
         }
@@ -249,6 +267,12 @@ impl Hub {
         // The manifest is already deleted/stamped by the SessionExited
         // dispatch that precedes this, so the session simply vanishes.
         let _ = std::fs::remove_file(ekko_proto::socket_path(&self.session_name));
+        // Reverse the composition: unmount every pane component (replaying its
+        // inverses / freeing its slot) before the parallel PTY teardown below.
+        for (_, (slot, mount)) in std::mem::take(&mut self.mounts) {
+            self.ctx.unmount(mount);
+            self.slots.free(slot);
+        }
         let panes = std::mem::take(&mut self.panes);
         self.topology = None;
         self.focus.clear();
@@ -1131,7 +1155,7 @@ impl Hub {
                 let _ = exit_tx.send(HubInstruction::PtyExited { pane: key, code });
             }),
         )?;
-        TerminalPane::from_pty_handle(
+        let pane = TerminalPane::from_pty_handle(
             key,
             handle,
             rows,
@@ -1139,7 +1163,16 @@ impl Hub {
             self.config.general.scrollback_lines,
             self.host_colors.clone(),
             self.hub_tx.clone(),
-        )
+        )?;
+        // Register this pane's slot in the composition. Unmounting later
+        // replays the inverse (frees the slot), so the pool never leaks.
+        if let Some(slot) = self.slots.allocate() {
+            let mount_id = compose::mount_pane(&mut self.ctx, slot, key.id.0);
+            self.mounts.insert(key.id, (slot, mount_id));
+        } else {
+            log::error!("hub: pane slot pool exhausted; pane not composed");
+        }
+        Ok(pane)
     }
 
     fn spawn_heartbeat(&self) {
