@@ -228,15 +228,9 @@ mod tests {
                     })
                 })
                 .effect(|c| {
-                    let had_bg = c.has(BACKGROUND);
                     c.set(BACKGROUND, "#000");
-                    Box::new(move |c| {
-                        if had_bg {
-                            c.remove(BACKGROUND);
-                        } else {
-                            c.remove(BACKGROUND);
-                        }
-                    })
+                    // A fresh value only needs the one inverse.
+                    Box::new(move |c| c.remove(BACKGROUND))
                 }),
         );
 

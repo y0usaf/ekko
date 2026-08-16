@@ -209,12 +209,12 @@ mod tests {
         // checked against the render reader (which declares many keys).
         let hits = Arc::new(AtomicUsize::new(0));
         let h = Arc::clone(&hits);
-        let _ = cs.ctx.mount(
-            Component::new(vec![SCENE_KEY]).on_change(move |_, k| {
+        let _ = cs
+            .ctx
+            .mount(Component::new(vec![SCENE_KEY]).on_change(move |_, k| {
                 assert_eq!(k, SCENE_KEY, "scene reader got a non-scene key");
                 h.fetch_add(1, Ordering::Relaxed);
-            }),
-        );
+            }));
 
         // Change a declared key only the render reader reads (hidden surfaces):
         // render reader fires, scene reader does not.

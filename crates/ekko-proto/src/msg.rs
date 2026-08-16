@@ -442,7 +442,6 @@ wire_unit_enum!(Direction { 0 => Left, 1 => Right, 2 => Up, 3 => Down });
 wire_unit_enum!(MouseMode { 0 => None, 1 => Press, 2 => PressRelease, 3 => ButtonMotion, 4 => AnyMotion });
 wire_unit_enum!(MouseEncoding { 0 => Default, 1 => Utf8, 2 => Sgr });
 
-
 impl Wire for SearchMatch {
     fn write(&self, out: &mut Vec<u8>) {
         self.row.write(out);
@@ -557,7 +556,6 @@ impl Wire for PaneRect {
         })
     }
 }
-
 
 impl Wire for PaneMeta {
     fn write(&self, out: &mut Vec<u8>) {
@@ -775,11 +773,18 @@ impl Wire for TerminalColors {
     }
 }
 
-
 impl Wire for ClientToServer {
     fn write(&self, out: &mut Vec<u8>) {
         match self {
-            Self::Attach { wire_version, cols, rows, cwd, shell, force, terminal_colors } => {
+            Self::Attach {
+                wire_version,
+                cols,
+                rows,
+                cwd,
+                shell,
+                force,
+                terminal_colors,
+            } => {
                 u32::write(&0, out);
                 wire_version.write(out);
                 cols.write(out);
@@ -892,7 +897,10 @@ impl Wire for ClientToServer {
 impl Wire for ServerToClient {
     fn write(&self, out: &mut Vec<u8>) {
         match self {
-            Self::Attached { session_name, wire_version } => {
+            Self::Attached {
+                session_name,
+                wire_version,
+            } => {
                 u32::write(&0, out);
                 session_name.write(out);
                 wire_version.write(out);
@@ -928,7 +936,11 @@ impl Wire for ServerToClient {
                 u32::write(&10, out);
                 delivered.write(out);
             }
-            Self::SearchResults { pane, query, matches } => {
+            Self::SearchResults {
+                pane,
+                query,
+                matches,
+            } => {
                 u32::write(&11, out);
                 pane.write(out);
                 query.write(out);
@@ -972,4 +984,3 @@ impl Wire for ServerToClient {
         })
     }
 }
-

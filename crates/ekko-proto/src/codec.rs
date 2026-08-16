@@ -200,9 +200,7 @@ impl Wire for String {
     }
     fn read(bytes: &[u8], pos: &mut usize) -> Result<Self, DecodeError> {
         let len = u64::read(bytes, pos)? as usize;
-        let s = bytes
-            .get(*pos..*pos + len)
-            .ok_or(DecodeError::Truncated)?;
+        let s = bytes.get(*pos..*pos + len).ok_or(DecodeError::Truncated)?;
         *pos += len;
         String::from_utf8(s.to_vec()).map_err(|_| DecodeError::Mismatch("invalid utf-8 string"))
     }
@@ -294,7 +292,11 @@ impl<A: Wire, B: Wire, C: Wire> Wire for (A, B, C) {
         self.2.write(out);
     }
     fn read(bytes: &[u8], pos: &mut usize) -> Result<Self, DecodeError> {
-        Ok((A::read(bytes, pos)?, B::read(bytes, pos)?, C::read(bytes, pos)?))
+        Ok((
+            A::read(bytes, pos)?,
+            B::read(bytes, pos)?,
+            C::read(bytes, pos)?,
+        ))
     }
 }
 
@@ -344,7 +346,10 @@ mod tests {
     fn primitives_roundtrip() {
         assert_eq!(decode::<u32>(&encode(&42u32)).unwrap(), 42);
         assert!(decode::<bool>(&encode(&true)).unwrap());
-        assert_eq!(decode::<String>(&encode(&"héllo".to_string())).unwrap(), "héllo");
+        assert_eq!(
+            decode::<String>(&encode(&"héllo".to_string())).unwrap(),
+            "héllo"
+        );
         assert_eq!(decode::<char>(&encode(&'界')).unwrap(), '界');
     }
 
@@ -358,7 +363,10 @@ mod tests {
             decode::<Option<i32>>(&encode(&(Some(-7i32)))).unwrap(),
             Some(-7)
         );
-        assert_eq!(decode::<Vec<u8>>(&encode(&vec![1u8, 2, 3])).unwrap(), vec![1u8, 2, 3]);
+        assert_eq!(
+            decode::<Vec<u8>>(&encode(&vec![1u8, 2, 3])).unwrap(),
+            vec![1u8, 2, 3]
+        );
         let arr: [Option<(u8, u8, u8)>; 4] = [None, Some((1, 2, 3)), None, Some((4, 5, 6))];
         assert_eq!(
             decode::<[Option<(u8, u8, u8)>; 4]>(&encode(&arr)).unwrap(),
