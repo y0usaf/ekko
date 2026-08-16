@@ -183,7 +183,7 @@ impl App<'_> {
                 Ok(None)
             }
             UiAction::CloseOverlay => {
-                self.state.overlay = None;
+                self.state.overlay_close();
                 Ok(None)
             }
             UiAction::SetStatusNote { text, kind, ttl_ms } => {
@@ -208,23 +208,13 @@ impl App<'_> {
                 Ok(None)
             }
             UiAction::SearchMatchJump { forward } => {
-                if let Some(search) = &mut self.state.search {
-                    let len = search.matches.len();
-                    if len > 0 {
-                        search.current = if forward {
-                            (search.current + 1) % len
-                        } else {
-                            (search.current + len - 1) % len
-                        };
-                        self.scroll_to_current_match();
-                        self.state.dirty = true;
-                    }
+                if self.state.scroll_jump(forward) {
+                    self.scroll_to_current_match();
                 }
                 Ok(None)
             }
             UiAction::SearchClear => {
-                self.state.search = None;
-                self.state.dirty = true;
+                self.state.scroll_abort();
                 Ok(None)
             }
             UiAction::EditScrollback => {

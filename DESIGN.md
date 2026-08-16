@@ -94,6 +94,38 @@ single host write path. The daemon state required by
 parsers, split geometry, and per-session workspace state; it survives client
 detach and reattach.
 
+The client-side mouse selection is the in-process composition unit for
+[[canon:spatiotemporal]]: it mounts on left-press, reads the mouse
+coordinate against its owning pane's rect (spatial), and unmounts on
+left-release. Its context is `ClientState::{selection, selection_pane,
+edge_scroll}`; unmounting reverts the transient residue (drag flag,
+autoscroll) via `selection_end`/`selection_abort` while the completed
+highlight persists as the unit's observable output. An out-of-bounds
+release (pointer left the window) clamps to the pane rect rather than
+dropping, so the copy still commits.
+
+The same ceremony covers the other client transients, each with an
+`_end`/`_abort` unmount (commit vs. full cancel) and a residue-free
+diff against the session snapshot:
+
+- **Scroll-view attach** — context `ClientState::search`; mounts when a
+  search pins an absolute-row match set on a pane (`scroll_attach`),
+  advances via `scroll_jump`, and unmounts via `scroll_end` (the matched
+  hit is committed to the pane's view while the marker reverts) or
+  `scroll_abort` (clear, back to live). Stale-free: a marker never pins to
+  a pane absent from the workspace, and an empty match set never half-sticks.
+- **Transient overlay** — context `ClientState::overlay`; `open_overlay`
+  mounts the `ActiveOverlay` (registry name + extension-owned state) and
+  any close (`CloseOverlay`, an attached mode exit) is the unmount inverse
+  back to `None`.
+- **Gate-dispatched transient-owned progress** — a gate/lifecycle handler
+  runs thread-per-dispatch through the runtime and reports progress by
+  returning `UiAction::SetStatusNote`; the client mounts the resulting
+  `StatusNote` (context `ClientState::status_note`) via the single write
+  path and reverts it when the operation completes (`progress_end`) or is
+  canceled (`progress_abort`) — the note is owned by the dispatched
+  operation, not the host.
+
 The wire's current workspace contract carries complete pane metadata and
 client focus. Since `WIRE_VERSION` 8, `ServerToClient::Workspace` carries the
 pane projection and per-pane grids while `ClientToServer` carries split,

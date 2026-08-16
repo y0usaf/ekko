@@ -19,6 +19,7 @@ use ekko_ext::{
 };
 use ekko_grid::ansi::AnsiRenderer;
 use ekko_grid::cell_surface::CellSurface;
+use ekko_grid::selection::SelectionPoint;
 use ekko_proto::{ClientToServer, ExitReason, ServerToClient};
 use ekko_tui::terminal_size;
 
@@ -548,7 +549,7 @@ impl App<'_> {
                     if self.state.search.as_ref().is_some_and(|search| {
                         !self.state.workspace.panes.contains_key(&search.pane)
                     }) {
-                        self.state.search = None;
+                        self.state.scroll_abort();
                     }
                     self.state.dirty = true;
                     if self.runtime.has_subscribers(EventKind::GridUpdated) {
@@ -586,7 +587,7 @@ impl App<'_> {
                 matches,
             } => {
                 if matches.is_empty() {
-                    self.state.search = None;
+                    self.state.scroll_abort();
                     self.state.set_note(
                         format!("no matches: {query}"),
                         NoteKind::Error,
@@ -607,14 +608,14 @@ impl App<'_> {
                         .position(|m| i64::from(m.row) >= viewport_first)
                         .unwrap_or(0);
                     let count = matches.len();
-                    self.state.search = Some(crate::state::SearchState {
-                        pane,
-                        matches,
-                        current,
-                    });
-                    self.scroll_to_current_match();
-                    self.state
-                        .set_note(format!("{count} matches"), NoteKind::Ok, STATUS_NOTE_TTL);
+                    if let Some(()) = self.state.scroll_attach(pane, matches, current) {
+                        self.scroll_to_current_match();
+                        self.state.set_note(
+                            format!("{count} matches"),
+                            NoteKind::Ok,
+                            STATUS_NOTE_TTL,
+                        );
+                    }
                 }
                 self.state.dirty = true;
                 None
@@ -815,7 +816,7 @@ impl App<'_> {
             return Ok(None);
         };
         let Some(spec) = self.runtime.overlay(&name) else {
-            self.state.overlay = None;
+            self.state.overlay_close();
             return Ok(None);
         };
         let handle_key = spec.handle_key.clone();
@@ -826,11 +827,11 @@ impl App<'_> {
         match outcome {
             OverlayOutcome::None => Ok(None),
             OverlayOutcome::Close => {
-                self.state.overlay = None;
+                self.state.overlay_close();
                 Ok(None)
             }
             OverlayOutcome::CloseWith(actions) => {
-                self.state.overlay = None;
+                self.state.overlay_close();
                 self.apply_ui_actions(actions, 0)
             }
         }
@@ -944,6 +945,26 @@ impl App<'_> {
                 && row < i32::from(pane.rect.rows))
             .then_some((id, col, row, pane.grid.modes, pane.grid.scrollback))
         });
+        // A drag/release that lands outside every pane (the pointer left the
+        // window mid-drag) still belongs to the pane owning the active
+        // selection: resolve it there and clamp to the pane rect (spatial
+        // read), so the release still commits the copy.
+        let hit = hit.or_else(|| {
+            if !matches!(mouse.kind, MouseKind::LeftDrag | MouseKind::LeftRelease) {
+                return None;
+            }
+            let (pane_id, point) = self
+                .state
+                .selection_target(terminal, mouse.col, mouse.row)?;
+            let pane = self.state.workspace.panes.get(&pane_id)?;
+            Some((
+                pane_id,
+                i32::from(point.col),
+                i32::from(point.row),
+                pane.grid.modes,
+                pane.grid.scrollback,
+            ))
+        });
         let Some((pane_id, local_col, local_row, modes, scrollback)) = hit else {
             return Ok(None);
         };
@@ -983,23 +1004,20 @@ impl App<'_> {
                 }
             }
             MouseKind::LeftPress => {
-                self.state
-                    .selection
-                    .set(ekko_grid::selection::SelectionPoint {
+                self.state.selection_begin(
+                    pane_id,
+                    SelectionPoint {
+                        row: local_row as u16,
+                        col: local_col as u16,
+                    },
+                );
+            }
+            MouseKind::LeftDrag => {
+                if self.state.selection_pane == Some(pane_id) {
+                    self.state.selection_update(SelectionPoint {
                         row: local_row as u16,
                         col: local_col as u16,
                     });
-                self.state.selection_pane = Some(pane_id);
-                self.state.edge_scroll = None;
-            }
-            MouseKind::LeftDrag => {
-                if self.state.selection.is_active() && self.state.selection_pane == Some(pane_id) {
-                    self.state
-                        .selection
-                        .update_focus(ekko_grid::selection::SelectionPoint {
-                            row: local_row as u16,
-                            col: local_col as u16,
-                        });
                     // Held at the pane's top/bottom edge: keep scrolling so
                     // a drag can sweep a multi-screen region (zellij-style).
                     let pane_rows = self
@@ -1020,22 +1038,17 @@ impl App<'_> {
             MouseKind::LeftRelease => {
                 // The release report is the authoritative final hovered cell;
                 // motion events can be coalesced before the button comes up.
-                if self.state.selection.is_active() && self.state.selection_pane == Some(pane_id) {
-                    self.state
-                        .selection
-                        .update_focus(ekko_grid::selection::SelectionPoint {
-                            row: local_row as u16,
-                            col: local_col as u16,
-                        });
+                if self.state.selection_pane == Some(pane_id) {
+                    self.state.selection_update(SelectionPoint {
+                        row: local_row as u16,
+                        col: local_col as u16,
+                    });
                 }
-                self.state.selection.end_drag();
-                self.state.edge_scroll = None;
-                if let Some(range) = self.state.selection.normalized() {
+                if let Some(range) = self.state.selection_end() {
                     let text = self
                         .state
-                        .workspace
-                        .panes
-                        .get(&pane_id)
+                        .selection_pane
+                        .and_then(|id| self.state.workspace.panes.get(&id))
                         .map(|pane| pane.grid.selected_text(range))
                         .unwrap_or_default();
                     if !text.is_empty() {
@@ -1048,8 +1061,7 @@ impl App<'_> {
                     }
                 } else {
                     // A plain click without a drag clears any old highlight.
-                    self.state.selection.clear();
-                    self.state.selection_pane = None;
+                    self.state.selection_abort();
                 }
             }
             MouseKind::Other => {}
@@ -1167,8 +1179,7 @@ impl App<'_> {
                 .overlay(&open)
                 .is_some_and(|spec| spec.attach_mode.as_deref() == Some(mode))
         {
-            self.state.overlay = None;
-            self.state.dirty = true;
+            self.state.overlay_close();
         }
     }
 
@@ -1184,7 +1195,7 @@ impl App<'_> {
         let init_state = spec.init_state.clone();
         let build_payload = spec.build_payload.clone();
         let payload = build_payload.map(|build| build(&self.runtime.registry_view()));
-        self.state.overlay = Some(ActiveOverlay {
+        self.state.overlay_open(ActiveOverlay {
             name: name.to_string(),
             state: init_state(payload),
         });

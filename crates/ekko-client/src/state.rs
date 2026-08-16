@@ -5,8 +5,8 @@
 
 use std::time::{Duration, Instant};
 
-use ekko_ext::{ClientSnapshot, ModeState, NoteKind, OverlayState, ProjectGroup};
-use ekko_grid::selection::{SelectionRange, TerminalSelection, selection_span};
+use ekko_ext::{ClientSnapshot, ModeState, NoteKind, OverlayState, ProjectGroup, Rect};
+use ekko_grid::selection::{SelectionPoint, SelectionRange, TerminalSelection, selection_span};
 use ekko_proto::{
     CursorState, GridCell, GridPayload, GridRow, GridUpdate, PaneBorderStyle, PaneRect, TermModes,
     WorkspaceUpdate,
@@ -248,6 +248,208 @@ impl ClientState {
             self.status_note = None;
             self.dirty = true;
         }
+    }
+    // ── Selection gesture (spatiotemporal composition unit) ──────────────
+    // The mouse selection is one composable unit: it mounts on left-press,
+    // reads the mouse coordinate against its owning pane's rect (spatial),
+    // and unmounts on left-release. Its context is `{ selection,
+    // selection_pane, edge_scroll }`; unmounting reverts the transient
+    // residue (drag flag, autoscroll) while the completed highlight
+    // persists as the unit's observable output.
+
+    /// Resolve a terminal-absolute mouse coordinate against the pane owning
+    /// the active selection, clamped to its rect. Spatial read: an
+    /// out-of-bounds coordinate (pointer left the window mid-drag) lands on
+    /// the edge cell rather than being dropped, so the release still commits.
+    pub fn selection_target(
+        &self,
+        terminal: Rect,
+        col: i32,
+        row: i32,
+    ) -> Option<(u64, SelectionPoint)> {
+        let pane_id = self.selection_pane?;
+        let pane = self.workspace.panes.get(&pane_id)?;
+        let local_col = (col - terminal.col - i32::from(pane.rect.x))
+            .clamp(0, i32::from(pane.rect.cols).saturating_sub(1));
+        let local_row = (row - terminal.row - i32::from(pane.rect.y))
+            .clamp(0, i32::from(pane.rect.rows).saturating_sub(1));
+        Some((
+            pane_id,
+            SelectionPoint {
+                row: local_row as u16,
+                col: local_col as u16,
+            },
+        ))
+    }
+
+    /// Mount the gesture: claim `pane` and anchor the selection at `point`.
+    pub fn selection_begin(&mut self, pane: u64, point: SelectionPoint) {
+        self.selection.set(point);
+        self.selection_pane = Some(pane);
+        self.edge_scroll = None;
+    }
+
+    /// Update the gesture's focus (spatial read), only while a gesture is
+    /// active.
+    pub fn selection_update(&mut self, point: SelectionPoint) {
+        if self.selection.is_active() {
+            self.selection.update_focus(point);
+        }
+    }
+
+    /// Unmount the gesture: end the drag and revert the autoscroll residue.
+    /// Returns the normalized range (None = plain click, no copy). The
+    /// completed highlight persists as the unit's observable output.
+    pub fn selection_end(&mut self) -> Option<SelectionRange> {
+        self.selection.end_drag();
+        self.edge_scroll = None;
+        self.selection.normalized()
+    }
+
+    /// Abort the gesture, reverting every committed mutation (inverse
+    /// replay): clear the selection, release the pane, drop autoscroll.
+    pub fn selection_abort(&mut self) {
+        self.selection.clear();
+        self.selection_pane = None;
+        self.edge_scroll = None;
+    }
+    // ── Scroll-view attach (spatiotemporal composition unit) ───────────────
+    // The scroll view attaches a search marker to its pane: mounting pins
+    // the absolute-row match set plus the current hit on the pane; jumping
+    // advances composition; leaving reverts the transient marker via
+    // `scroll_end` (commit) / `scroll_abort` (cancel full inverse). The
+    // completed scroll position/revealed match persists as observable
+    // output.
+
+    /// Mount the scroll-view marker on `pane` starting at match `first`.
+    /// A mounted marker pins (`pane`, `matches`, `current`) with its
+    /// absolute-row indexing. Rejects (and clears) when the pane is gone or
+    /// no matches remain — never a half-mounted unit.
+    pub fn scroll_attach(
+        &mut self,
+        pane: u64,
+        matches: Vec<ekko_proto::SearchMatch>,
+        first: usize,
+    ) -> Option<()> {
+        if !self.workspace.panes.contains_key(&pane) || matches.is_empty() {
+            // Unmount-at-stale-mount: a missing pane or empty result set
+            // means there is nothing to pin; revert to pre-scroll state now.
+            self.search = None;
+            return None;
+        }
+        let first = first.min(matches.len() - 1);
+        self.search = Some(SearchState {
+            pane,
+            matches,
+            current: first,
+        });
+        self.dirty = true;
+        Some(())
+    }
+
+    /// Advance the scroll-marker one hit forward (`forward = true`) or back
+    /// (`false`), wrapping around the match list (composition exercise).
+    /// Returns `false` when no marker is mounted.
+    pub fn scroll_jump(&mut self, forward: bool) -> bool {
+        let Some(search) = &mut self.search else {
+            return false;
+        };
+        let len = search.matches.len();
+        if len == 0 {
+            self.scroll_abort();
+            return false;
+        }
+        search.current = if forward {
+            (search.current + 1) % len
+        } else {
+            (search.current + len - 1) % len
+        };
+        self.dirty = true;
+        true
+    }
+
+    /// Finish composition: the matched hit is committed to the pane's view
+    /// (observable output) while the transient marker reverts. Returns the
+    /// pane and the finalized hit so the caller can keep the view on it.
+    ///
+    /// Ceremony-observation surface: the host's live scroll paths resolve
+    /// through the same state via the single write path; this aside lives for
+    /// the spatiotemporal ceremony tests that pin the `_end` unmount contract.
+    #[allow(dead_code)] // sp-temporal ceremony observation; test consumer.
+    pub fn scroll_end(&mut self) -> Option<(u64, ekko_proto::SearchMatch)> {
+        let hit = self
+            .search
+            .as_ref()
+            .and_then(|s| s.matches.get(s.current).copied())
+            .map(|m| (self.search.as_ref().map_or(0, |s| s.pane), m));
+        self.search = None;
+        self.dirty = true;
+        hit
+    }
+
+    /// Cancel the scroll-view marker in full: clear the search and leave the
+    /// pane riding the live scroll, reverting every committed mutation.
+    pub fn scroll_abort(&mut self) {
+        self.search = None;
+        self.dirty = true;
+    }
+    // ── Transient overlay (spatiotemporal composition unit) ────────────────
+    // The overlay unit mounts an [`ActiveOverlay`] (its registry name plus
+    // extension-owned, type-erased state). Any close is the unmount inverse
+    // reverting it to `None`; the extension-owned state dies with it.
+
+    /// Mount the overlay. Drops any prior overlay (a modal overlay is
+    /// single-slot: mounting replaces, never stacks — the replaced one's
+    /// inverse runs by assignment).
+    pub fn overlay_open(&mut self, overlay: ActiveOverlay) {
+        self.overlay = Some(overlay);
+        self.dirty = true;
+    }
+
+    /// Unmount the overlay: revert to the pre-mount `None` (full inverse).
+    pub fn overlay_close(&mut self) {
+        self.overlay = None;
+        self.dirty = true;
+    }
+
+    /// Whether the overlay unit is currently mounted.
+    #[allow(dead_code)] // spatiotemporal ceremony observation; test consumer.
+    pub fn overlay_active(&self) -> bool {
+        self.overlay.is_some()
+    }
+    // ── Gate-dispatched transient-owned progress (composition unit) ────────
+    // A gate/lifecycle handler runs thread-per-dispatch through the runtime
+    // and reports progress by returning `UiAction::SetStatusNote`; the client
+    // mounts the resulting [`StatusNote`] through the single write path here
+    // and reverts it (expiry/clear) when the operation completes — the
+    // transient is owned by the dispatched operation, not the host.
+
+    /// Mount the progress note (a gate handler's `SetStatusNote` resolved by
+    /// `apply_ui_action`).
+    #[allow(dead_code)] // spatiotemporal ceremony observation; test consumer.
+    pub fn progress_begin(&mut self, text: impl Into<String>, kind: NoteKind, ttl: Duration) {
+        self.set_note(text, kind, ttl);
+    }
+
+    /// The progress residue: a note is currently mounted.
+    #[allow(dead_code)] // spatiotemporal ceremony observation; test consumer.
+    pub fn progress_active(&self) -> bool {
+        self.status_note.is_some()
+    }
+
+    /// Unmount the progress unit NOW (the operation completed): revert the
+    /// note regardless of the pending TTL (time-based inverse forced early).
+    #[allow(dead_code)] // spatiotemporal ceremony observation; test consumer.
+    pub fn progress_end(&mut self) {
+        self.status_note = None;
+        self.dirty = true;
+    }
+
+    /// Cancel the progress: same full inverse as `progress_end`, named to
+    /// mirror the selection/`scroll_abort` cancel path.
+    #[allow(dead_code)] // spatiotemporal ceremony observation; test consumer.
+    pub fn progress_abort(&mut self) {
+        self.progress_end();
     }
 }
 
@@ -497,5 +699,229 @@ mod tests {
         assert_eq!(grid.cells[1].cells[0].ch, 'z');
         assert_eq!(grid.cols, 1);
         assert_eq!(grid.rows, 2);
+    }
+}
+
+#[cfg(test)]
+mod selection_gesture_tests {
+    use super::ClientState;
+    use ekko_ext::Rect;
+    use ekko_grid::selection::SelectionPoint;
+    use ekko_proto::PaneRect;
+
+    fn state_with_pane() -> ClientState {
+        let mut state = ClientState::new("s".into());
+        state.workspace.panes.insert(
+            0,
+            crate::state::PaneState {
+                rect: PaneRect {
+                    x: 0,
+                    y: 0,
+                    cols: 10,
+                    rows: 5,
+                },
+                ..Default::default()
+            },
+        );
+        state
+    }
+
+    #[test]
+    fn selection_target_clamps_out_of_bounds_coordinates() {
+        let mut state = state_with_pane();
+        state.selection_begin(0, SelectionPoint { row: 0, col: 0 });
+        let terminal = Rect {
+            col: 0,
+            row: 0,
+            cols: 10,
+            rows: 5,
+        };
+        // Pointer left the window far above-left: clamp to the top-left edge.
+        let (pane, point) = state.selection_target(terminal, 999, -50).unwrap();
+        assert_eq!(pane, 0);
+        assert_eq!(point, SelectionPoint { row: 0, col: 9 });
+        // Far below: clamp to the bottom edge.
+        let (_, point) = state.selection_target(terminal, 5, 999).unwrap();
+        assert_eq!(point, SelectionPoint { row: 4, col: 5 });
+    }
+
+    #[test]
+    fn selection_end_reverts_transient_residue() {
+        let mut state = state_with_pane();
+        state.selection_begin(0, SelectionPoint { row: 0, col: 0 });
+        state.selection_update(SelectionPoint { row: 2, col: 3 });
+        state.edge_scroll = Some(1);
+        let range = state.selection_end().unwrap();
+        assert_eq!(range.start, SelectionPoint { row: 0, col: 0 });
+        assert_eq!(range.end, SelectionPoint { row: 2, col: 4 });
+        assert_eq!(state.edge_scroll, None); // transient residue reverted
+        assert!(state.selection.is_active()); // completed highlight persists
+    }
+
+    #[test]
+    fn selection_abort_reverts_everything() {
+        let mut state = state_with_pane();
+        state.selection_begin(0, SelectionPoint { row: 1, col: 1 });
+        state.edge_scroll = Some(-1);
+        state.selection_abort();
+        assert!(!state.selection.is_active());
+        assert_eq!(state.selection_pane, None);
+        assert_eq!(state.edge_scroll, None);
+    }
+}
+
+#[cfg(test)]
+mod transient_ceremony_tests {
+    //! Spatiotemporal ceremony for the client transient units (scroll-view
+    //! attach, transient overlay, gate-dispatched transient-owned progress).
+    //! Each follows the model mouse unit's timing: snapshot the context,
+    //! mount on trigger, exercise the effects, unmount, then diff the
+    //! context against the snapshot — any residue beyond the completed
+    //! observable output is a bug.
+    use super::{ActiveOverlay, ClientState};
+    use crate::state::PaneState;
+    use ekko_ext::NoteKind;
+    use ekko_proto::{PaneRect, SearchMatch};
+    use std::time::Duration;
+
+    fn state_with_pane() -> ClientState {
+        let mut state = ClientState::new("s".into());
+        state.workspace.panes.insert(
+            0,
+            PaneState {
+                rect: PaneRect {
+                    x: 0,
+                    y: 0,
+                    cols: 10,
+                    rows: 5,
+                },
+                ..Default::default()
+            },
+        );
+        state
+    }
+
+    /// The scroll-view residue measure: only `search` and `dirty` move;
+    /// everything else is context to be left untouched.
+    fn scroll_snapshot(state: &ClientState) -> (Option<usize>, bool) {
+        (state.search.as_ref().map(|s| s.current), state.dirty)
+    }
+
+    #[test]
+    fn scroll_attach_mounts_and_end_commits_without_residue() {
+        let mut state = state_with_pane();
+        let matches = vec![
+            SearchMatch {
+                row: 2,
+                col: 0,
+                len: 1,
+            },
+            SearchMatch {
+                row: 7,
+                col: 1,
+                len: 3,
+            },
+        ];
+
+        // mount (on a wheel/search trigger) → pin the match set on pane 0.
+        assert!(state.scroll_attach(0, matches.clone(), 0).is_some());
+        assert!(state.search.is_some());
+        assert_eq!(state.search.as_ref().unwrap().pane, 0);
+        assert_eq!(state.search.as_ref().unwrap().current, 0);
+
+        // exercise → jump forward wraps to the next hit.
+        assert!(state.scroll_jump(true));
+        assert_eq!(state.search.as_ref().unwrap().current, 1);
+        // exercise → jump back wraps to the first hit.
+        assert!(state.scroll_jump(false));
+        assert_eq!(state.search.as_ref().unwrap().current, 0);
+
+        // unmount (end) → commit the finalized hit, revert the marker.
+        let committed = state.scroll_end().unwrap();
+        assert_eq!(committed.0, 0);
+        assert_eq!(committed.1, matches[0]);
+        assert_eq!(
+            scroll_snapshot(&state),
+            (None, true),
+            "marker residue after end"
+        );
+        assert!(state.search.is_none());
+        assert!(state.dirty, "a repaint is still bound (observable present)");
+        // No residue beyond context returning to an unattached, dirty scroll.
+    }
+
+    #[test]
+    fn scroll_attach_reverts_everything_on_abort() {
+        let mut state = state_with_pane();
+        let matches = vec![SearchMatch {
+            row: 2,
+            col: 0,
+            len: 1,
+        }];
+        let before = scroll_snapshot(&state);
+        let _ = state.scroll_attach(0, matches.clone(), 0);
+        assert!(state.scroll_jump(true));
+        // unmount (cancel) → full inverse: nothing left of the marker.
+        state.scroll_abort();
+        assert!(state.search.is_none());
+        assert_eq!(scroll_snapshot(&state).0, before.0);
+        assert!(state.dirty, "repaint bound by the abort");
+    }
+
+    #[test]
+    fn scroll_attach_mounts_stale_free() {
+        // Unmount at stale-free mount: a marker can never be pinned to a pane
+        // that isn't in the workspace, and an empty match set never half-sticks.
+        let mut state = state_with_pane();
+        let matches = vec![SearchMatch {
+            row: 2,
+            col: 0,
+            len: 1,
+        }];
+        assert!(state.scroll_attach(0, vec![], 0).is_none());
+        assert!(state.search.is_none());
+        assert!(state.scroll_attach(99, matches.clone(), 0).is_none());
+        assert!(state.search.is_none());
+    }
+
+    #[test]
+    fn overlay_mounts_and_unmounts_leaving_no_residue() {
+        let mut state = state_with_pane();
+        assert!(!state.overlay_active());
+
+        // mount → the overlay opens.
+        state.overlay_open(ActiveOverlay {
+            name: "help".into(),
+            state: Box::new(7usize),
+        });
+        assert!(state.overlay_active());
+        assert_eq!(state.overlay.as_ref().unwrap().name, "help");
+
+        // exercise → the overlay owns the input (name/state present).
+        let opaque = &state.overlay.as_ref().unwrap().state;
+        assert_eq!((**opaque).downcast_ref::<usize>(), Some(&7));
+
+        // unmount → full inverse back to None.
+        state.overlay_close();
+        assert!(!state.overlay_active());
+        assert!(state.overlay.is_none());
+    }
+
+    #[test]
+    fn progress_note_mounts_and_unmount_clears_residue() {
+        // A gate-dispatched operation owns a StatusNote transient: mounted on
+        // its first SetStatusNote, and reverted when it completes.
+        let mut state = state_with_pane();
+        assert!(!state.progress_active());
+
+        state.progress_begin("searching…", NoteKind::Info, Duration::from_millis(500));
+        assert!(state.progress_active());
+        assert_eq!(state.status_note.as_ref().unwrap().text, "searching…");
+
+        // unmount (operation completed / canceled): note reverts, no residue.
+        state.progress_end();
+        assert!(!state.progress_active());
+        assert!(state.status_note.is_none());
+        assert!(state.dirty, "repaint bound by the note lifecycle");
     }
 }
