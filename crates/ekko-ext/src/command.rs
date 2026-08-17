@@ -6,6 +6,7 @@ use std::sync::Arc;
 
 use ekko_err::Result;
 use ekko_event::{NoteKind, UiAction};
+use serde::{Deserialize, Serialize};
 
 #[derive(Clone)]
 pub struct CommandSpec {
@@ -21,7 +22,7 @@ pub struct CommandSpec {
 
 pub type CommandHandler = Arc<dyn Fn(CommandInvocation) -> Result<CommandOutput> + Send + Sync>;
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize)]
 pub struct CommandInvocation {
     /// Everything after the command name, trimmed.
     pub raw_args: String,
@@ -36,7 +37,7 @@ pub struct CommandInfo {
     pub description: String,
 }
 
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CommandOutput {
     pub actions: Vec<UiAction>,
 }

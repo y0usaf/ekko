@@ -6,6 +6,7 @@
 use std::sync::Arc;
 
 use ekko_event::UiAction;
+use serde::Serialize;
 
 use crate::snapshot::ClientSnapshot;
 
@@ -140,7 +141,7 @@ pub struct KeybindingSpec {
 }
 
 /// Listing entry for help/hint output.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub struct KeybindingInfo {
     pub chord_text: String,
     /// Mode scope: `None` matches in normal mode only.

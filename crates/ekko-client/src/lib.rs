@@ -121,10 +121,10 @@ fn build_runtime(
         .register_boxed_extensions(ekko_builtins::client_extensions(config, terminal_colors));
     #[cfg(feature = "keycast")]
     let builder = builder.register_extension(ekko_keycast::KeycastExtension);
-    #[cfg(feature = "lua")]
-    let builder = builder.register_boxed_extensions(ekko_lua::load_extensions(
+    #[cfg(feature = "wasm")]
+    let builder = builder.register_boxed_extensions(ekko_ext::wasm::load_extensions(
         &ekko_config::config_dir().join("extensions"),
-        ekko_lua::HostKind::Client,
+        ekko_ext::wasm::HostKind::Client,
         config,
     ));
     builder.build()
@@ -138,13 +138,13 @@ fn build_runtime(
 /// navigation) and left an orphaned stdin reader that ate the next
 /// keystroke.
 pub fn run(options: ClientOptions) -> Result<()> {
-    // The config cascade (`init.lua` or defaults)
-    // lives in ekko-config; the lua feature just injects the evaluator.
-    // A broken `init.lua` refuses to start rather than silently running on
+    // The config cascade (`config.wasm` or defaults) lives in
+    // ekko-config; the wasm feature injects the cordis evaluator. A broken
+    // `config.wasm` refuses to start rather than silently running on
     // defaults. Loaded before raw mode, so the error prints normally.
-    #[cfg(feature = "lua")]
-    let config = ekko_lua::load_config_cascade()?;
-    #[cfg(not(feature = "lua"))]
+    #[cfg(feature = "wasm")]
+    let config = ekko_ext::wasm::load_config_cascade()?;
+    #[cfg(not(feature = "wasm"))]
     let config = Config::load_cascade(None)?;
 
     // Restore the terminal from anywhere a panic unwinds through, since the

@@ -29,17 +29,17 @@ use std::sync::mpsc::Sender;
 use hub::{Hub, HubInstruction};
 
 /// Build the daemon's extension runtime: builtins first (so user extensions
-/// reusing a name fail loudly), filtered by `[extensions] disabled`. Only
-/// scripts declaring `host = "server"` or `"both"` load here; a `"both"`
-/// script gets its own Lua state per process.
+/// reusing a name fail loudly), filtered by `[extensions] disabled`. `.wasm`
+/// extensions (declared units via the cordis kernel) load here; each process
+/// mounts its own instance with no shared guest state.
 fn build_runtime(config: &ekko_config::Config) -> ekko_err::Result<ekko_ext::AppRuntime> {
     let builder = ekko_ext::RuntimeBuilder::new().with_disabled(&config.extensions.disabled);
     #[cfg(feature = "builtins")]
     let builder = builder.register_boxed_extensions(ekko_builtins::server_extensions());
-    #[cfg(feature = "lua")]
-    let builder = builder.register_boxed_extensions(ekko_lua::load_extensions(
+    #[cfg(feature = "wasm")]
+    let builder = builder.register_boxed_extensions(ekko_ext::wasm::load_extensions(
         &ekko_config::config_dir().join("extensions"),
-        ekko_lua::HostKind::Server,
+        ekko_ext::wasm::HostKind::Server,
         config,
     ));
     builder.build()
@@ -52,13 +52,12 @@ fn build_runtime(config: &ekko_config::Config) -> ekko_err::Result<ekko_ext::App
 /// redirected to `~/.cache/ekko/logs/<session_name>.log`) and only the child
 /// process's call returns; the parent exits from inside daemonization.
 pub fn run(session_name: &str, daemonize: bool) -> ekko_err::Result<()> {
-    // The config cascade (`init.lua` or defaults)
-    // lives in ekko-config; the lua feature just injects the evaluator.
-    // A broken `init.lua` refuses to start rather than silently running
-    // on defaults.
-    #[cfg(feature = "lua")]
-    let config = ekko_lua::load_config_cascade()?;
-    #[cfg(not(feature = "lua"))]
+    // The config cascade (`config.wasm` or defaults) lives in ekko-config;
+    // the wasm feature injects the cordis evaluator. A broken `config.wasm`
+    // refuses to start rather than silently running on defaults.
+    #[cfg(feature = "wasm")]
+    let config = ekko_ext::wasm::load_config_cascade()?;
+    #[cfg(not(feature = "wasm"))]
     let config = ekko_config::Config::load_cascade(None)?;
     let runtime = build_runtime(&config).context("building extension runtime")?;
     run_with_runtime(session_name, daemonize, config, runtime)

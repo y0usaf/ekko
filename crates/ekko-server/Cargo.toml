@@ -5,9 +5,10 @@ edition.workspace = true
 license.workspace = true
 
 [features]
-default = ["builtins", "lua"]
+default = ["builtins", "wasm"]
 builtins = ["dep:ekko-builtins"]
-lua = ["dep:ekko-lua"]
+# The WASM extension + config bridge through the shared cordis kernel.
+wasm = ["ekko-ext/wasm"]
 
 [dependencies]
 ekko-err.workspace = true
@@ -16,7 +17,6 @@ log = { workspace = true, features = ["std"] }
 kernel = { path = "../kernel" }
 ekko-builtins = { workspace = true, optional = true }
 ekko-config.workspace = true
-ekko-lua = { workspace = true, optional = true }
 ekko-event.workspace = true
 ekko-ext.workspace = true
 ekko-proto.workspace = true
@@ -28,8 +28,8 @@ vt100.workspace = true
 
 [dev-dependencies]
 ekko-builtins.workspace = true
-ekko-lua.workspace = true
 ekko-tmp.workspace = true
+wat = "1"
 
 [lints]
 workspace = true

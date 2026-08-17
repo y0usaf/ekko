@@ -5,10 +5,11 @@ edition.workspace = true
 license.workspace = true
 
 [features]
-default = ["builtins", "keycast", "lua"]
+default = ["builtins", "keycast", "wasm"]
 builtins = ["dep:ekko-builtins"]
 keycast = ["dep:ekko-keycast"]
-lua = ["dep:ekko-lua"]
+# The WASM extension + config bridge through the shared cordis kernel.
+wasm = ["ekko-ext/wasm"]
 
 [dependencies]
 ekko-err.workspace = true
@@ -16,7 +17,6 @@ libc.workspace = true
 log.workspace = true
 ekko-builtins = { workspace = true, optional = true }
 ekko-keycast = { workspace = true, optional = true }
-ekko-lua = { workspace = true, optional = true }
 ekko-config.workspace = true
 ekko-ext.workspace = true
 ekko-grid.workspace = true

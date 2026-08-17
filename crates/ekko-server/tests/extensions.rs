@@ -19,8 +19,8 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use ekko_ext::{
-    AppRuntime, EventHandlerRegistration, EventKind, EventReturn, Extension, ExtensionHost,
-    ExtensionManifest, RuntimeBuilder,
+    AppRuntime, CommandDispatch, EventHandlerRegistration, EventKind, EventReturn, Extension,
+    ExtensionHost, ExtensionManifest, NoteKind, RuntimeBuilder, UiAction,
 };
 use ekko_proto::{
     ClientToServer, ExitReason, GridPayload, GridUpdate, ServerToClient, WIRE_VERSION, read_msg,
@@ -399,89 +399,109 @@ fn pty_spawn_override_reaches_the_shell() {
     kill_and_join(client, daemon, &env.session_name);
 }
 
-/// The B-acceptance proof for server-side Lua: `examples/spawn-hook.lua`
-/// (`host = "server"`) drives the real daemon end-to-end. Its
-/// `before_pty_spawn` override reaches the spawned shell's environment, and
-/// the `session_created` payload it stashes comes back over the wire as a
-/// `Notice` on attach. A client-only script in the same extensions dir must
-/// not load in the daemon.
+/// The wasm-bridge acceptance for the daemon surface: a compiled `.wasm`
+/// module (the shared cordis kernel, function set 2) mounts through
+/// `ekko_ext::wasm`, its declared `(name, kind)` units are read back through
+/// the same public registration API builtins use, and the runtime builds with
+/// it (no privileged path). Since the kernel's set-6 host->guest dispatch
+/// (W1 "dynamic dispatch — LANDED"), a declared command with a live guest
+/// export is a REAL handler: it shows up in the registry and `invoke_command`
+/// reaches the guest and applies its returned action.
 #[test]
-fn lua_spawn_hook_example_overrides_a_real_spawn() {
-    let env = TestEnv::new("t-lua-hook");
-    let ext_dir = ekko_tmp::tempdir().expect("tempdir for extensions");
-    std::fs::copy(
-        concat!(env!("CARGO_MANIFEST_DIR"), "/../../examples/spawn-hook.lua"),
-        ext_dir.path().join("spawn-hook.lua"),
-    )
-    .unwrap();
-    std::fs::write(
-        ext_dir.path().join("client-only.lua"),
+fn wasm_extension_declares_units_and_builds_runtime() {
+    let cmd_res =
+        r#"{"actions":[{"SetStatusNote":{"text":"c1 ready","kind":"Info","ttl_ms":1000}}]}"#;
+    let esc = cmd_res.replace('\\', "\\\\").replace('"', "\\\"");
+    let wasm_text = format!(
         r#"
-        local ext = { id = "test.client-only" }
-        function ext.register(ekko)
-          ekko.subscribe("before_pty_spawn", function()
-            return { spawn_override = { env = { EKKO_SPAWN_HOOK = "client-script-leaked" } } }
-          end)
-        end
-        return ext
+        (module
+          (import "host" "register_command" (func $reg (param i32 i32 i32 i32)))
+          (import "host" "ctx_read" (func $read (param i32 i32)))
+          (memory (export "memory") 2)
+          (data (i32.const 0) "c1desc")
+          (data (i32.const 64) "{esc}")
+          (func (export "scratch") (result i32 i32) i32.const 256 i32.const 256)
+          (func (export "mount")
+            i32.const 0 i32.const 2 i32.const 2 i32.const 4 call $reg
+            i32.const 0 i32.const 2 call $read)
+          (func (export "on_change") (param i32 i32))
+          (func (export "on_command") (param $p i32) (param $l i32) (result i32 i32)
+            i32.const 64 i32.const {len})
+        )
+        "#,
+        esc = esc,
+        len = cmd_res.len()
+    );
+    let wasm = wat::parse_str(&wasm_text).expect("the wasm guest is valid");
+    let ext = ekko_ext::wasm::WasmExtension::from_bytes(&wasm, "test.wasm-ext").unwrap();
+    assert_eq!(
+        ext.declared(),
+        &[(
+            "c1".to_string(),
+            "command".to_string(),
+            vec!["desc".to_string()]
+        )],
+        "the module's set-2 registration unit must be read back"
+    );
+    let runtime = RuntimeBuilder::new()
+        .register_extension(ext)
+        .build()
+        .expect("runtime builds with the wasm extension");
+    // The declared command now resolves to a LIVE handler (host->guest
+    // dispatch). Assert the forward direction: it is in the registry.
+    assert_eq!(runtime.command_infos().len(), 1);
+    assert_eq!(runtime.command_infos()[0].name, "c1");
+    assert!(
+        runtime.command("c1").is_some(),
+        "the declared command must resolve to a live spec"
+    );
+    // And the reverse direction: `invoke_command` reaches the guest's
+    // on_command export and the host applies the returned action.
+    assert_eq!(
+        runtime.invoke_command(":c1"),
+        CommandDispatch::Invoked(vec![UiAction::SetStatusNote {
+            text: "c1 ready".into(),
+            kind: NoteKind::Info,
+            ttl_ms: 1000,
+        }]),
+        "the declared command's guest handler is reached and its action applied"
+    );
+}
+
+/// Once a declared command has a live on_command export, a guest that does NOT
+/// provide the export is the failure direction: the command is still
+/// registered (registry matches) but its handler dispatch fails LOUDLY
+/// (CommandDispatch::Failed), not silently inert.
+#[test]
+fn wasm_command_without_dispatch_export_fails_loudly() {
+    let wasm = wat::parse_str(
+        r#"
+        (module
+          (import "host" "register_command" (func $reg (param i32 i32 i32 i32)))
+          (memory (export "memory") 1)
+          (data (i32.const 0) "c2")
+          (func (export "scratch") (result i32 i32) i32.const 256 i32.const 256)
+          (func (export "mount")
+            i32.const 0 i32.const 2 i32.const 0 i32.const 0 call $reg)
+          (func (export "on_change") (param i32 i32))
+        )
         "#,
     )
     .unwrap();
-    let extensions = ekko_lua::load_extensions(
-        ext_dir.path(),
-        ekko_lua::HostKind::Server,
-        &ekko_config::Config::default(),
-    );
-    assert_eq!(
-        extensions.len(),
-        1,
-        "only the host = \"server\" script may load in the daemon"
-    );
+    let ext = ekko_ext::wasm::WasmExtension::from_bytes(&wasm, "test-nodispatch").unwrap();
     let runtime = RuntimeBuilder::new()
-        .register_boxed_extensions(extensions)
+        .register_extension(ext)
         .build()
-        .unwrap();
-    let daemon = spawn_daemon_with(env.session_name.clone(), runtime);
-
-    let mut client = TestClient::connect(&env.session_name);
-    client.attach(env.cwd());
-    assert!(
-        client
-            .wait_for(Duration::from_secs(5), |m| matches!(
-                m,
-                ServerToClient::Attached { .. }
-            ))
-            .is_some()
+        .expect("runtime builds");
+    assert_eq!(
+        runtime.command_infos().len(),
+        1,
+        "command 'c2' is registered"
     );
-
-    // The stashed session_created payload arrives as a Notice after attach.
-    let Some(ServerToClient::Notice(notice)) = client.wait_for(Duration::from_secs(5), |m| {
-        matches!(m, ServerToClient::Notice(_))
-    }) else {
-        panic!("expected the spawn-hook's client_attached notice");
-    };
-    assert_eq!(notice.source, "user.spawn-hook:client_attached");
     assert!(
-        notice.message.contains("'t-lua-hook'") && notice.message.contains("/bin/sh"),
-        "notice must carry the session_created payload, got: {}",
-        notice.message
+        matches!(runtime.invoke_command(":c2"), CommandDispatch::Failed(_)),
+        "a registered command with no on_command export must fail loudly (no silent no-op)"
     );
-
-    // The before_pty_spawn override reached the real child environment.
-    client.send(&ClientToServer::Key(
-        b"printf \"%s\" \"$EKKO_SPAWN_HOOK\"\n".to_vec(),
-    ));
-    assert!(
-        client
-            .wait_for(Duration::from_secs(10), |m| grid_contains(
-                m,
-                "lua:t-lua-hook"
-            ))
-            .is_some(),
-        "expected the lua-injected environment variable in shell output"
-    );
-
-    kill_and_join(client, daemon, &env.session_name);
 }
 
 #[test]

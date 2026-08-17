@@ -22,7 +22,7 @@ phi (`phi-ext`/`phi-builtins`) and takhti (core-as-mechanism, dogfooded
   builtin by disabling it and registering its own.
 - **2026-07-02 — Bare harness:** The acceptance criterion, checked by
   `nix flake check`, is that building without `ekko-builtins`, `ekko-keycast`,
-  and `ekko-lua` leaves a bare-but-functional harness: attach, raw key
+  and the WASM bridge (`ekko-lua` before, `cordis` after the 2026-08-16 WASM decision) leaves a bare-but-functional harness: attach, raw key
   passthrough, full-screen grid, and a minimal fallback palette. If removing
   builtins breaks core, core was cheating.
 - **2026-07-02 — Snapshot reads, action writes:** Extensions never see `&mut`
@@ -43,7 +43,7 @@ phi (`phi-ext`/`phi-builtins`) and takhti (core-as-mechanism, dogfooded
   synchronous end to end and uses no tokio.
 - **2026-07-02 — Hot-path exception:** surface, overlay, and mode `draw`
   closures run directly and unguarded during rendering. They are trusted
-  in-process Rust and write cells only. The `ekko-lua` bridge instead applies
+  in-process Rust and write cells only. The WASM bridge (`cordis`, previously `ekko-lua`) instead applies
   instruction budgets to every callback and buffers data-only draw operations,
   replaying them after a clean return; native extensions pay no bridge cost.
 - **2026-07-02 — Extension state:** Extensions own state such as sidebar
@@ -65,8 +65,9 @@ phi (`phi-ext`/`phi-builtins`) and takhti (core-as-mechanism, dogfooded
   split tree, and focus per attached client. Detach preserves all panes; the
   client owns neither canonical topology nor PTY state. Core owns pane
   mechanism and `ekko-builtins` owns stock commands, chords, and presentation.
-  Pane operations enter through public `UiAction`s and are bridged to Lua,
-  never through a builtin-only hub path.
+  Pane operations enter through public `UiAction`s and are bridged to the
+  extension surface (`ekko-lua` before, WASM on `cordis` after the 2026-08-16
+  decision), never through a builtin-only hub path.
 - **2026-07-13 — Pane snapshot and canvas:** The wire carries complete pane
   metadata/topology, sparse or full grids, and each client's focused pane.
   Client state is a discardable composition, hit-testing, and selection cache.
@@ -80,12 +81,13 @@ phi (`phi-ext`/`phi-builtins`) and takhti (core-as-mechanism, dogfooded
   in the session cwd; inheriting a foreground process cwd is deferred because
   it requires platform-specific process inspection.
 
-- **2026-07-13 — Dependency replacement boundary:** A dependency is replaced only when our replacement is smaller than the API surface we used from it, or when std already provides the exact API. Fewer crates alone does not justify more of our code: that loses to the prime directive of writing less code. This clearly removed interprocess because `std::os::unix::net` is the same API and ekko is Unix-only; tempfile because it was test-only and six crates bought one `mkdtemp`; nix and close_fds because libc was already a dependency and the fd-close path must be async-signal-safe, with unconditional fallback on any `close_range` failure so seccomp EPERM cannot leak every PTY master and the session socket into a child; daemonize because a documented double fork is about 50 lines; and itoa because it lived inside vendored vt100, which we already own. The rule stops at signal-hook: the daemon registers two independent Signals instances for SIGINT/SIGTERM (its signal thread and one reaper thread per PTY), exactly the fan-out provided by signal-hook-registry; libc::sigaction would silently replace the first registration, while a correct self-pipe, fan-out, and SA_RESTART implementation is 150–300 lines of unsafe global state, so three crates are not worth it. thiserror was removed only barely—the hand-written impls cost 59 lines for two crates—and is the marginal case calibrating the rule. mlua stays because Lua scripting is the product: `vendored` statically compiles Lua 5.4 from C source, costing 16 build-time crates but no runtime library dependencies; `ldd` shows only libc, libm, and libgcc_s. Safe `Lua::new()` calls `disable_c_modules()`, so user scripts cannot dlopen native modules and the interpreter cannot reintroduce a runtime dependency. serde/bincode stay because hand-rolling the wire format is more code than it deletes. unicode-width stays because correctness depends on a generated Unicode table, not code.
+- **2026-07-13 — Dependency replacement boundary:** A dependency is replaced only when our replacement is smaller than the API surface we used from it, or when std already provides the exact API. Fewer crates alone does not justify more of our code: that loses to the prime directive of writing less code. This clearly removed interprocess because `std::os::unix::net` is the same API and ekko is Unix-only; tempfile because it was test-only and six crates bought one `mkdtemp`; nix and close_fds because libc was already a dependency and the fd-close path must be async-signal-safe, with unconditional fallback on any `close_range` failure so seccomp EPERM cannot leak every PTY master and the session socket into a child; daemonize because a documented double fork is about 50 lines; and itoa because it lived inside vendored vt100, which we already own. The rule stops at signal-hook: the daemon registers two independent Signals instances for SIGINT/SIGTERM (its signal thread and one reaper thread per PTY), exactly the fan-out provided by signal-hook-registry; libc::sigaction would silently replace the first registration, while a correct self-pipe, fan-out, and SA_RESTART implementation is 150–300 lines of unsafe global state, so three crates are not worth it. thiserror was removed only barely—the hand-written impls cost 59 lines for two crates—and is the marginal case calibrating the rule. ~~mlua stays because Lua scripting is the product~~ — **REVERSED 2026-08-16 by the WASM-on-cordis-rs decision** (ekko moves to the shared `cordis-rs` kernel); the 16 build-time crates and 29-crate mlua graph are deleted, not justified. (The pre-reversal rationale follows for the record: `vendored` statically compiled Lua 5.4 from C source, costing 16 build-time crates but no runtime library dependencies; `ldd` showed only libc, libm, and libgcc_s. Safe `Lua::new()` called `disable_c_modules()`, so user scripts could not dlopen native modules and the interpreter could not reintroduce a runtime dependency.) serde/bincode stay because hand-rolling the wire format is more code than it deletes. unicode-width stays because correctness depends on a generated Unicode table, not code.
 
 - **2026-08-01 — TOML configuration removal:** `config.toml` support and the `toml` dependency are removed because `init.lua` superseded TOML; the replacement is nothing, not more code, consistent with the 2026-07-13 dependency replacement boundary. Reversing this requires a demonstrated need for TOML plus a smaller complete implementation than the dependency and its integration.
-- **2026-08-01 — Compiled dependency graph audit:** The full compiled external graph was audited with `cargo tree -e normal`: 38 normal-edge crates plus 12 build-only crates; mlua accounts for roughly 29 of the 50. No external crate was removed, because under the 2026-07-13 boundary every remaining one is smaller than its replacement. What was removed is 13 unused dependency edges and one duplicated manifest parser. The tempting mlua `serialize` removal was rejected: it removes only 4 crates (erased-serde, typeid, serde-value, ordered-float) but costs ~150+ lines of hand-written bidirectional Lua-table-to-Config mapping across 6 serde types with `#[serde(default)]` and an untagged `Keybind` enum. The tempting mlua `send` removal was rejected: it removes ZERO crates (parking_lot is an unconditional mlua dependency), and `Extension: Send + Sync` at `crates/ekko-ext/src/traits.rs:9` requires it. These decisions reverse on a compiled-graph change, not a crate count.
+- **2026-08-01 — Compiled dependency graph audit:** The full compiled external graph was audited with `cargo tree -e normal`: 38 normal-edge crates plus 12 build-only crates; mlua accounts for roughly 29 of the 50. No external crate was removed, because under the 2026-07-13 boundary every remaining one is smaller than its replacement. What was removed is 13 unused dependency edges and one duplicated manifest parser. The tempting mlua `serialize` removal was rejected: it removes only 4 crates (erased-serde, typeid, serde-value, ordered-float) but costs ~150+ lines of hand-written bidirectional Lua-table-to-Config mapping across 6 serde types with `#[serde(default)]` and an untagged `Keybind` enum. The tempting mlua `send` removal was rejected: it removes ZERO crates (parking_lot is an unconditional mlua dependency), and `Extension: Send + Sync` at `crates/ekko-ext/src/traits.rs:9` requires it. These decisions reverse on a compiled-graph change, not a crate count. **The 2026-08-16 WASM-on-cordis-rs decision is exactly such a reversal**: moving off mlua deletes the ~29-crate mlua graph (serialize + send included), the least-code trigger the audit ruled out on the then-current compiled graph.
 
 - **2026-08-03 — ASCII border glyphs:** Pane separator glyphs can be replaced by an optional three-character table (`ui.border_glyphs = { horizontal, vertical, junction }`) that collapses the box-drawing table to one glyph per line direction plus one junction glyph for every corner/tee/cross. The setting is client-local rendering only — the daemon still owns separator-cell reservation and announces the border *style* over the wire, but the glyph table never touches the wire or a client snapshot, so no `WIRE_VERSION` change and no extension-API change.
+- **2026-08-16 — WASM on cordis-rs (accepted proposal):** **REVERSES** the 2026-07-13 "mlua stays because Lua scripting is the product" decision and the 2026-08-01 effect on it. ekko's extension-scripting bridge *and* its config evaluator move from `ekko-lua` (mlua 0.10, embedded Lua 5.4) onto the **shared `cordis-rs` WASM kernel** (`cordis`, wasmtime 47, values = `String`, JSON-serialized) as ekko's *only* kernel. `ekko-lua` and the standalone `ekko-wasm` are deleted; the 4 consumers (server, client, config, ext) load `.wasm` extensions and a compiled config `.wasm` through `cordis`. Why the reversal: one shared kernel across four sibling repos replaces four per-repo embedded interpreters, deleting roughly 29 external crates (mlua and its graph) that were the single largest compiled-dep entry under the 2026-07-13 dependency-replacement boundary and replacing them with the kernel's already-committed dependency — a strict code-and-dependency win under `[[principle:least-code]]`. Lua the *language* is not the product; the extension surface (`Extension`/`ExtensionHost`) is, and it becomes language-neutral over WASM. The scripting *guard rails* ekko-lua added (instruction budgets, buffered data-only draw ops replayed after a clean return) survive unchanged because they are exactly the cordis-rs kernel's fuel metering and two-tier write model. The extension boundary for [[canon:functional-core]] remains the public trait surface in `ekko-ext`; `ekko-client/src/actions.rs::apply_ui_action` remains the single host write path; no-privileged-path holds because builtins and user extensions go through the *same* public WASM ABI (config included).
 
 The extension boundary for [[canon:functional-core]] is the public trait
 surface in `ekko-ext`; `ekko-client/src/actions.rs::apply_ui_action` is the
@@ -155,10 +157,10 @@ they need no attach or TTY and act on the session's primary pane.
 | `ekko-pty` | PTY spawn, I/O, and reaping | core (machinery) |
 | `ekko-tmp` | Zero-dependency temp-directory helper used only by tests | **machinery** |
 | `ekko-paths` | XDG/env path resolution for disk and socket roots | core (policy boundary) |
-| `ekko-config` | Config schema, Lua cascade policy, binding strings, shared border vocabulary | core (policy) |
+| `ekko-config` | Config schema, WASM config cascade policy, binding strings, shared border vocabulary | core (policy) |
 | `ekko-resurrection` | Manifest I/O used by resurrection and `ekko ls` | core (machinery) |
 | `ekko-keycast` | Keystroke display extension | **policy** |
-| `ekko-lua` | Lua-to-Extension bridge, instruction budgets, buffered draw ops, config evaluation | core (bridge machinery) |
+| `ekko-wasm` (folded into `cordis`) | WASM-to-Extension bridge on the shared `cordis-rs` kernel: instruction budgets (fuel), buffered draw ops, extension registration, config evaluation | core (bridge machinery) — previously `ekko-lua` (mlua), **deleted by the 2026-08-16 WASM decision** |
 
 Both client and server are separate processes with their own `AppRuntime`
 built by the same `RuntimeBuilder`; each dispatches only its event subset.
@@ -171,11 +173,12 @@ built by the same `RuntimeBuilder`; each dispatches only its event subset.
   non-blocking mailbox, not thread-per-dispatch.
 - **Server-side Key/Paste interception:** every keystroke would pay a
   dispatch round trip, so the client owns input policy.
-- **Lua hot reload:** both processes evaluate scripts once per runtime build;
-  the client rereads on next attach and the daemon on next session. `ekko kill`
-  plus resurrection is the reload path. A manifest `host` field selects
-  `client` (default), `server`, or `both`; `both` means independent Lua
-  states sharing nothing.
+- **Extension/module reload:** both processes evaluate modules once per runtime
+  build; the client rereads on next attach and the daemon on next session.
+  `ekko kill` plus resurrection is the reload path. A manifest `host` field
+  selects `client` (default), `server`, or `both`; `both` means independent
+  WASM instances sharing nothing. (WASM extension/local module reload is
+  deliberately out of scope, exactly as Lua hot reload was.)
 - **Foreground-process cwd inheritance:** it requires platform-specific
   process inspection rather than pane mechanism.
 - **Floating panes, tabs, stacks, pane rename/move/zoom, layout files,
@@ -212,8 +215,10 @@ as a status ledger:
   `--no-default-features`.
 - **WS8 — keycast:** a separate public-API extension can provide keystroke
   display without a builtin-only dependency.
-- **WS9 — Lua bridge:** extension scripts load through `Extension`/
-  `ExtensionHost`, with instruction budgets and buffered draw operations.
+- **WS9 — WASM bridge:** extension modules load through `Extension`/
+  `ExtensionHost` on the shared `cordis-rs` kernel, with instruction budgets
+  (fuel) and buffered draw operations. **Superseded by the 2026-08-16 WASM-on-cordis-rs decision**:
+  originally the `ekko-lua` (mlua) Lua bridge, now `.wasm` through `cordis`.
 - **WS10 — terminal fidelity:** scrollback, selection, mouse/paste/OSC
   behavior, wide cells, cursor/focus reporting, and PTY backpressure are
   represented and rendered correctly.
