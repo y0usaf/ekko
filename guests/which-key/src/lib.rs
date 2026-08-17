@@ -373,22 +373,41 @@ fn overlay(name: &str, desc: &str, attach: &str) {
 
 fn handle_key(req: &str) -> String {
     let (snap, name, _bytes) = request(req);
+
+    // Mode-scoped dispatch: the same chord means different things in leader
+    // vs pane mode. `n`/`x`/`j`/`k` collide, so route by the active mode.
+    let mode = snap.mode.as_str();
+    if mode == PANE {
+        return match name.as_str() {
+            "n" => r#"["ExitMode","SplitDown"]"#.into(),
+            "x" => r#"["CloseFocusedPane"]"#.into(),
+            "q" => r#"["ExitMode"]"#.into(),
+            "h" | "left" => pane_focus("Left"),
+            "j" | "down" => pane_focus("Down"),
+            "k" | "up" => pane_focus("Up"),
+            "l" | "right" => pane_focus("Right"),
+            _ => r#"[]"#.into(),
+        };
+    }
+
     match name.as_str() {
         "ctrl+b" => {
             // Same chord in normal + leader scope: exit leader when already in it.
-            if snap.mode == LEADER {
+            if mode == LEADER {
                 r#"["ExitMode"]"#.into()
             } else {
-                r#"["EnterMode",{"name":"leader"}]"#.into()
+                r#"[{"EnterMode":{"name":"leader"}}]"#.into()
             }
         }
-        "ctrl+p" => r#"["EnterMode",{"name":"pane"}]"#.into(),
-        // Leader stock map and session nav (sticky), keyed by the chord.
-        "n" => r#"["ExitMode","NewSession",{"name":null}]"#.into(),
+        "ctrl+p" => r#"[{"EnterMode":{"name":"pane"}}]"#.into(),
+        // Leader stock map and session nav. Serde uses external tagging on
+        // UiAction: unit variants are bare strings, struct variants are
+        // {"Variant":{"field":...}}.
+        "n" => r#"["ExitMode",{"NewSession":{"name":null}}]"#.into(),
         "d" => r#"["ExitMode","Detach"]"#.into(),
-        "?" => r#"["ExitMode","OpenOverlay",{"name":"ekko:help"}]"#.into(),
-        "s" => r#"["EnterMode",{"name":"scroll"}]"#.into(),
-        "c" => r#"["EnterMode",{"name":"command"}]"#.into(),
+        "?" => r#"["ExitMode",{"OpenOverlay":{"name":"ekko:help"}}]"#.into(),
+        "s" => r#"[{"EnterMode":{"name":"scroll"}}]"#.into(),
+        "c" => r#"[{"EnterMode":{"name":"command"}}]"#.into(),
         "j" => step_session(&snap, 1),
         "k" => step_session(&snap, -1),
         "x" => kill_session(&snap),
@@ -396,18 +415,31 @@ fn handle_key(req: &str) -> String {
     }
 }
 
+/// Build the JSON for a pane-focus action.
+fn pane_focus(dir: &str) -> String {
+    format!(r#"[{{"FocusPaneDirection":{{"direction":"{dir}"}}}}]"#)
+}
+
 fn handle_command(req: &str) -> String {
     let v: Json = serde_json::from_str(req).unwrap_or(Json::Null);
     let name = v.get("name").and_then(|x| x.as_str()).unwrap_or("").to_string();
     let args = v.get("args").and_then(|x| x.as_str()).unwrap_or("").to_string();
+    // A command handler returns a CommandOutput { actions: Vec<UiAction> }.
     match name.as_str() {
-        "pane-new" => r#""SplitDown""#.into(),
+        "pane-new" => r#"{"actions":["SplitDown"]}"#.into(),
         "pane-focus" => {
             let dir = if args.is_empty() { "right" } else { &args };
-            format!(r#"{{"FocusPaneDirection":{{"direction":"{dir}"}}}}"#)
+            // PaneDirection is serde-external-tagged as PascalCase variants.
+            let d = match dir {
+                "left" => "Left",
+                "up" => "Up",
+                "down" => "Down",
+                _ => "Right",
+            };
+            format!(r#"{{"actions":[{{"FocusPaneDirection":{{"direction":"{d}"}}}}]}}"#)
         }
-        "pane-close" => r#""CloseFocusedPane""#.into(),
-        _ => r#""""#.into(),
+        "pane-close" => r#"{"actions":["CloseFocusedPane"]}"#.into(),
+        _ => r#"{"actions":[]}"#.into(),
     }
 }
 
@@ -421,8 +453,9 @@ fn handle_mode_key(req: &str) -> String {
         let c = bytes[0];
         if (0x20..=0x7e).contains(&c) {
             let ch = c as char;
+            // ModeOutcome::ExitWith(actions) -> external-tagged {"ExitWith":[...]}.
             return format!(
-                r#"["Exit",{{"SetStatusNote":{{"text":"leader: '{ch}' is unbound","kind":"Info","ttl_ms":2000}}}}]"#
+                r#"{{"ExitWith":[{{"SetStatusNote":{{"text":"leader: '{ch}' is unbound","kind":"Info","ttl_ms":2000}}}}]}}"#
             );
         }
     }
@@ -489,11 +522,11 @@ fn current_index(names: &[String], current: &str) -> Option<usize> {
 fn step_session(snap: &Snapshot, delta: isize) -> String {
     let names = session_names(snap);
     if names.len() < 2 {
-        return r#"["SetStatusNote",{"text":"no other session","kind":"Info","ttl_ms":2000}]"#.into();
+        return r#"[{"SetStatusNote":{"text":"no other session","kind":"Info","ttl_ms":2000}}]"#.into();
     }
     let i = current_index(&names, &snap.session_name).unwrap_or(0);
     let target = &names[((i as isize + delta).rem_euclid(names.len() as isize)) as usize];
-    format!(r#"["SwitchSession",{{"name":"{target}"}}]"#)
+    format!(r#"[{{"SwitchSession":{{"name":"{target}"}}}}]"#)
 }
 
 fn kill_session(snap: &Snapshot) -> String {
@@ -501,7 +534,9 @@ fn kill_session(snap: &Snapshot) -> String {
     if names.len() >= 2 {
         let i = current_index(&names, &snap.session_name).unwrap_or(0);
         let target = &names[(i + 1) % names.len()];
-        format!(r#"["KillCurrentSession","SwitchSession",{{"name":"{target}"}},"ExitMode"]"#)
+        format!(
+            r#"["KillCurrentSession",{{"SwitchSession":{{"name":"{target}"}}}},"ExitMode"]"#
+        )
     } else {
         r#"["KillCurrentSession","ExitMode"]"#.into()
     }
