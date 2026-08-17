@@ -297,6 +297,11 @@ fn register_all() {
     kb(Some(LEADER), "k", "prev session", "prev_session");
     kb(Some(LEADER), "x", "kill session", "kill");
 
+    // The leader MODE itself — EnterMode leader needs a registered mode by
+    // that name. (Previously missing: ctrl+b fired EnterMode leader but
+    // enter_mode("leader") found no such mode, so the leader never engaged.)
+    register_mode_guest(LEADER);
+
     // Pane commands.
     cmd("pane-new", "open a new pane", "pane-new");
     cmd("pane-focus", "focus the neighboring pane in a direction", "pane-focus");
@@ -581,6 +586,10 @@ fn draw_top(snap: &Snapshot) {
     if cols < 1 {
         return;
     }
+    // Clear the whole bar row first so narrower frames don't leave stale
+    // glyphs from a wider previous draw (the surface region persists across
+    // frames; only cells the guest repaints change).
+    rect(0, 0, cols, 1, "transparent");
     let mode_label = format!(" {} ", snap.mode.to_uppercase());
     let mode_w = UnicodeWidthStr::width(mode_label.as_str());
     let chip_w = mode_w + if snap.mode == "normal" { 0 } else { 1 };
@@ -625,6 +634,9 @@ fn draw_bottom(snap: &Snapshot) {
     if cols < 1 {
         return;
     }
+    // Clear the whole bar row first so a narrower hint set doesn't leave
+    // stale tokens from a wider mode's previous draw.
+    rect(0, 0, cols, 1, "transparent");
     // Collect the hints valid for the current mode, deduped by description.
     let mut entries: Vec<(String, String)> = Vec::new();
     let mut seen = std::collections::HashSet::new();
