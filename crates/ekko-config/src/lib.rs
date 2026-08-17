@@ -1,13 +1,15 @@
 //! ekko configuration: the settings schema shared by client and server.
 //!
 //! Loaded once at process start; a missing file yields `Config::default()`.
-//! The `init.lua` settings source lives in `ekko-lua`, which deserializes the
-//! returned table into the same [`Config`], so this crate stays a dumb
-//! store (its one dependency beyond serde is `ekko-proto`, for the
-//! `PaneBorderStyle` vocabulary the wire shares). Keybind values stay as
-//! raw strings here — chord parsing lives in the client's input layer,
-//! which owns the key vocabulary.
+//! The WASM settings source (`config.wasm`) is evaluated by the shared
+//! `cordis` kernel through the [`ConfigWasmEvaluator`] bridge (implemented in
+//! `ekko-ext`'s wasm module), so this crate stays a dumb store (its one
+//! dependency beyond serde is `ekko-proto`, for the `PaneBorderStyle`
+//! vocabulary the wire layer shares). Keybind values stay as raw strings
+//! here — chord parsing lives in the client's input layer, which owns the
+//! key vocabulary.
 
+use ekko_err::Context;
 use ekko_proto::PaneBorderStyle;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -20,8 +22,6 @@ pub const ANIMATION_INTERVAL_MS_DEFAULT: u16 = 80;
 pub const ANIMATION_INTERVAL_MS_MIN: u16 = 8;
 pub const ANIMATION_INTERVAL_MS_MAX: u16 = 1000;
 pub const SCROLLBACK_LINES_DEFAULT: usize = 10_000;
-pub const LUA_DRAW_BUDGET_DEFAULT: u32 = 200_000;
-pub const LUA_HANDLER_BUDGET_DEFAULT: u32 = 2_000_000;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -39,7 +39,6 @@ pub struct Config {
     /// Action name -> binding text(s), e.g. `detach = "ctrl+q"`.
     pub keybinds: BTreeMap<String, Keybind>,
     pub extensions: Extensions,
-    pub lua: LuaLimits,
 }
 
 /// Extension loading controls. Manifest ids listed in `disabled` are skipped
@@ -48,28 +47,6 @@ pub struct Config {
 #[serde(default)]
 pub struct Extensions {
     pub disabled: Vec<String>,
-}
-
-/// Instruction budgets for the Lua bridge (`ekko-lua`). Draw-path callbacks
-/// run on the client's frame pass and get the tight budget; handler
-/// callbacks (commands, keybindings, events) get the loose one, since the
-/// host already bounds them with wall-clock timeouts. Bootstrap exception:
-/// `init.lua` itself and a script's top-level chunk are evaluated before any
-/// config applies, so they always run under the hard-coded defaults.
-#[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(default)]
-pub struct LuaLimits {
-    pub draw_budget: u32,
-    pub handler_budget: u32,
-}
-
-impl Default for LuaLimits {
-    fn default() -> Self {
-        Self {
-            draw_budget: LUA_DRAW_BUDGET_DEFAULT,
-            handler_budget: LUA_HANDLER_BUDGET_DEFAULT,
-        }
-    }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -161,33 +138,45 @@ impl Keybind {
 
 impl Config {
     /// The config cascade, owned here so every process resolves config the
-    /// same way: `init.lua` in `dir` supersedes defaults.
+    /// same way: `config.wasm` in `dir` supersedes defaults.
     ///
-    /// Lua evaluation is injected via [`LuaConfigEvaluator`] (implemented by
-    /// `ekko-lua`) so this crate stays a dumb, dependency-free store while
-    /// still owning the *precedence policy*:
-    /// - `init.lua` present → evaluate it. A broken one is a **hard error**,
-    ///   never a silent fall-through: refusing to start beats ignoring the
-    ///   user's config.
+    /// WASM evaluation is injected via [`ConfigWasmEvaluator`] (implemented by
+    /// `ekko-ext`'s wasm bridge over the `cordis` kernel) so this crate stays
+    /// a dumb, dependency-free store while still owning the *precedence
+    /// policy*:
+    /// - a user `config.wasm` present → mount it (set 1 of the cordis ABI:
+    ///   the module `ctx_set`s a `config` key) and rebuild [`Config`] from its
+    ///   JSON. A broken one is a **hard error**, never a silent
+    ///   fall-through: refusing to start beats ignoring the user's config.
     /// - else a stale `config.toml` is a hard error directing migration;
     /// - neither → defaults.
     ///
-    /// With `lua = None` (a build without the bridge), defaults apply unless
+    /// The compiled *default* config module is provided by the bridge
+    /// (`ekko_ext::wasm::load_config_cascade`), matching the config-wasm
+    /// reference pattern of the `cordis` test-suite.
+    ///
+    /// With `wasm = None` (a build without the bridge), defaults apply unless
     /// a stale `config.toml` is present.
     pub fn load_cascade_in(
         dir: &Path,
-        lua: Option<&dyn LuaConfigEvaluator>,
+        wasm: Option<&dyn ConfigWasmEvaluator>,
     ) -> ekko_err::Result<Self> {
-        let init = dir.join("init.lua");
-        if init.exists()
-            && let Some(evaluator) = lua
-        {
-            return evaluator.eval_init_lua(&init);
+        let module = dir.join("config.wasm");
+        if module.is_file() {
+            let evaluator = wasm.ok_or_else(|| {
+                ekko_err::err!(
+                    "config file {} present but this build has no WASM config evaluator",
+                    module.display()
+                )
+            })?;
+            let bytes =
+                std::fs::read(&module).with_context(|| format!("reading {}", module.display()))?;
+            return evaluator.eval_config_wasm(&bytes);
         }
         let toml = dir.join("config.toml");
         if toml.exists() {
             ekko_err::bail!(
-                "unsupported config file {}; migrate to init.lua",
+                "unsupported config file {}; migrate to config.wasm",
                 toml.display()
             );
         }
@@ -196,8 +185,8 @@ impl Config {
 
     /// [`Self::load_cascade_in`] against the platform config directory —
     /// the single entry point both processes (client and daemon) call.
-    pub fn load_cascade(lua: Option<&dyn LuaConfigEvaluator>) -> ekko_err::Result<Self> {
-        Self::load_cascade_in(&config_dir(), lua)
+    pub fn load_cascade(wasm: Option<&dyn ConfigWasmEvaluator>) -> ekko_err::Result<Self> {
+        Self::load_cascade_in(&config_dir(), wasm)
     }
 
     /// Sidebar width clamped to the valid range.
@@ -238,30 +227,25 @@ impl Config {
         defaults.iter().map(|s| s.to_string()).collect()
     }
 
-    /// Repair nonsense values after deserializing an `init.lua` table in
-    /// `ekko-lua`.
+    /// Repair nonsense values after deserializing a `config.wasm` JSON in
+    /// the bridge.
     pub fn normalize(&mut self) {
         if self.general.scrollback_lines == 0 {
             self.general.scrollback_lines = SCROLLBACK_LINES_DEFAULT;
         }
-        // A zero budget would abort every callback on its first instruction.
-        if self.lua.draw_budget == 0 {
-            self.lua.draw_budget = LUA_DRAW_BUDGET_DEFAULT;
-        }
-        if self.lua.handler_budget == 0 {
-            self.lua.handler_budget = LUA_HANDLER_BUDGET_DEFAULT;
-        }
     }
 }
 
-/// The Lua `init.lua` evaluator, injected into the config cascade by the
-/// process's runtime builder. Implemented by `ekko-lua` (the only crate
-/// that may depend on a Lua VM); `ekko-config` depends only on this trait,
-/// keeping the crate graph acyclic: `ekko-lua → ekko-config`, never back.
-pub trait LuaConfigEvaluator {
-    /// Evaluate `init.lua` at `path` into a normalized [`Config`]. A broken
-    /// script must be an error, not a fall-through.
-    fn eval_init_lua(&self, path: &Path) -> ekko_err::Result<Config>;
+/// The WASM `config.wasm` evaluator, injected into the config bridge by the
+/// process's runtime builder. Implemented by `ekko-ext`'s wasm bridge (the
+/// crate that owns the shared `cordis` kernel dependency); `ekko-config`
+/// depends only on this trait, keeping the crate graph acyclic:
+/// `ekko-ext → ekko-config`, never back.
+pub trait ConfigWasmEvaluator {
+    /// Evaluate the compiled config module `wasm` (loaded at startup) into a
+    /// normalized [`Config`]. A broken module must be an error, not a
+    /// fall-through.
+    fn eval_config_wasm(&self, wasm: &[u8]) -> ekko_err::Result<Config>;
 }
 
 /// Config directory, resolved by the workspace's single resolver
@@ -323,20 +307,17 @@ mod tests {
             vec!["ctrl+k".to_string()]
         );
     }
-
     #[test]
-    fn lua_budgets_parse_and_zero_is_normalized() {
+    fn zero_scrollback_is_normalized() {
         let mut config = Config {
-            lua: LuaLimits {
-                draw_budget: 500_000,
-                handler_budget: 0,
+            general: General {
+                scrollback_lines: 0,
+                ..Default::default()
             },
             ..Default::default()
         };
         config.normalize();
-        assert_eq!(config.lua.draw_budget, 500_000);
-        assert_eq!(config.lua.handler_budget, LUA_HANDLER_BUDGET_DEFAULT);
-        assert_eq!(Config::default().lua.draw_budget, LUA_DRAW_BUDGET_DEFAULT);
+        assert_eq!(config.general.scrollback_lines, SCROLLBACK_LINES_DEFAULT);
     }
 
     #[test]
@@ -357,6 +338,40 @@ mod tests {
             ..Default::default()
         };
         assert_eq!(config.animation_interval_ms(), ANIMATION_INTERVAL_MS_MAX);
+    }
+
+    struct FakeEval;
+    impl ConfigWasmEvaluator for FakeEval {
+        fn eval_config_wasm(&self, wasm: &[u8]) -> ekko_err::Result<Config> {
+            assert_eq!(wasm, b"FAKE-WASM-BYTES");
+            Ok(Config {
+                general: General {
+                    default_shell: "/bin/fake".into(),
+                    ..Default::default()
+                },
+                ..Default::default()
+            })
+        }
+    }
+
+    #[test]
+    fn user_config_wasm_supersedes_defaults() {
+        let dir = std::env::temp_dir().join(format!("ekko-config-test-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("config.wasm"), b"FAKE-WASM-BYTES").unwrap();
+        let config = Config::load_cascade_in(&dir, Some(&FakeEval)).unwrap();
+        assert_eq!(config.general.default_shell, "/bin/fake");
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn stale_toml_is_a_migration_error() {
+        let dir = std::env::temp_dir().join(format!("ekko-config-toml-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("config.toml"), "x").unwrap();
+        let err = Config::load_cascade_in(&dir, None).unwrap_err();
+        assert!(format!("{err}").contains("migrate to config.wasm"));
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]

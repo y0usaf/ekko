@@ -9,11 +9,12 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use ekko_event::NoteKind;
+use serde::{Deserialize, Serialize};
 
 use crate::visual::ThemePalette;
 
 /// Coarse session state as seen locally by the client (no server round-trip).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum SessionState {
     /// Socket exists: a server process is presumably alive.
     Alive,
@@ -21,7 +22,7 @@ pub enum SessionState {
     Gone,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
 pub struct SessionEntry {
     pub name: String,
     pub cwd: PathBuf,
@@ -31,20 +32,24 @@ pub struct SessionEntry {
 
 /// A group of sessions sharing a "project" as decided by the registered
 /// session grouper.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub struct ProjectGroup {
     pub name: String,
     pub sessions: Vec<SessionEntry>,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub struct StatusNote {
     pub text: String,
     pub kind: NoteKind,
 }
 
 /// Read-only view of the client's state for one render/input cycle.
-#[derive(Clone, Debug)]
+///
+/// `Serialize` so a WASM guest receives the immutable snapshot as a JSON
+/// payload on dynamic dispatch (`ekko_ext::wasm`, set-6 of the cordis ABI);
+/// the guest never holds `&mut` host state (functional-core).
+#[derive(Clone, Debug, Serialize)]
 pub struct ClientSnapshot {
     /// The attached session's name.
     pub session_name: String,
@@ -83,7 +88,7 @@ pub struct ClientSnapshot {
 /// One tiled pane as projected by the daemon: identity, canvas-local
 /// geometry, and last-known title. Canvas coordinates are cells relative to
 /// the terminal region's origin.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub struct PaneInfo {
     pub id: u64,
     pub x: u16,

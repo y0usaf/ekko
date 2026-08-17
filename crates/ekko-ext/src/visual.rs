@@ -8,8 +8,10 @@
 
 use std::sync::Arc;
 
+use serde::{Deserialize, Serialize};
+
 /// Packed ARGB color in extension space.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Color(pub u32);
 
 impl Color {
@@ -84,7 +86,7 @@ pub fn fade_toward(color: Color, target: Color, mix: u8) -> Color {
 ///
 /// Field set is exactly the role vocabulary the frame chrome consumes; the
 /// host converts a registered theme's palette into its internal theme type.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 pub struct ThemePalette {
     pub text: Color,
     pub muted: Color,

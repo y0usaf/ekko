@@ -4,6 +4,11 @@
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
     flake-utils.url = "github:numtide/flake-utils";
+    # The shared WASM kernel (crate `cordis`). A Cargo path dep
+    # path=../../cordis-rs/crates/cordis is NOT covered by this repo's source
+    # filter, so cordis-rs is a flake input and its crates/cordis source is
+    # materialised into the tree via a symlink (see `cordisSymlink`).
+    cordis-rs.url = "github:y0usaf/cordis-rs";
   };
 
   outputs =
@@ -11,6 +16,7 @@
       self,
       nixpkgs,
       flake-utils,
+      cordis-rs,
     }:
     flake-utils.lib.eachDefaultSystem (
       system:
@@ -28,6 +34,15 @@
           root = ./.;
           fileset = sourceFiles;
         };
+        # Point the Cargo path dep `path=../../cordis-rs/...` (up two
+        # levels, i.e. a `cordis-rs` sibling of the source root) at the flake
+        # input so the cordis crate resolves inside the sandbox. Runs in
+        # preConfigure (cwd = source root), not postUnpack (cwd = top build
+        # dir where `../` would escape the tree).
+        cordisSymlink = ''
+          ln -s ${cordis-rs} "$PWD/cordis-rs"
+        '';
+
         mkEkko =
           args:
           pkgs.rustPlatform.buildRustPackage (
@@ -36,6 +51,7 @@
               version = "0.1.0";
               inherit src;
               cargoLock.lockFile = ./Cargo.lock;
+              preConfigure = cordisSymlink;
             }
             // args
           );
@@ -68,13 +84,15 @@
                 ];
               }
               {
-                name = "features-lua";
+                name = "features-wasm";
                 flags = [
                   "-p"
                   "ekko"
+                  "-p"
+                  "ekko-ext"
                   "--no-default-features"
                   "--features"
-                  "lua"
+                  "wasm"
                 ];
               }
               {
@@ -125,9 +143,11 @@
                 ];
               }
               ''
-                cp -r ${src} source
+                cp -rL ${src} source
                 chmod -R u+w source
                 cd source
+                # cargo fmt formats only this workspace's members; it does not
+                # need the cordis path dep resolved, so no symlink here.
                 cargo fmt --all -- --check
                 touch $out
               '';

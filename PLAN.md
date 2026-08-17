@@ -1,6 +1,107 @@
-# PLAN — Lua everywhere (complete) → tiled panes (complete) → pane borders (complete) → scrollback UX (complete)
+# PLAN — Lua everywhere (complete) → tiled panes (complete) → pane borders (complete) → scrollback UX (complete) → WASM on cordis-rs (current)
 
-Goal: everything in ekko that is user-configurable is configurable from Lua.
+> **Superseded goal note (2026-08-16):** The historical "Lua everywhere" goal
+> below is **complete and superseded** by the **WASM-on-cordis-rs** decision
+> (DESIGN.md, 2026-08-16, an accepted proposal that REVERSES "mlua stays because
+> Lua scripting is the product"). ekko's extension bridge and config evaluator
+> move from `ekko-lua` (mlua) to the shared `cordis-rs` WASM kernel (`cordis`).
+> The historical Lua plan/workstreams are preserved below for the record; the
+> **active plan is WS-WASM below.** `ekko-lua` and the standalone `ekko-wasm`
+> are deleted; the 4 consumers (server, client, config, ext) load `.wasm`
+> extensions and a compiled config `.wasm` through `cordis`, all via function
+> sets 1 (config) / 2 (registration) / 3 (draw) of
+> `/home/y0usaf/dev/cordis-rs/docs/abi.md`.
+
+---
+
+## WS-WASM — migrate ekko onto the shared cordis-rs WASM kernel
+
+**Active workstream.** Depends on `cordis-growth` (sibling) landing function
+sets 2+3 into the `cordis` crate; config (see WS-WASM-Config) uses only set 1,
+so it can proceed once set 1 is confirmed. Cordis-rs is owned by the sibling
+`cordis-growth`; we never grow it ourselves — we consume the `cordis` crate as
+a workspace/path dependency.
+
+### W0. Enumerate host-function needs → `cordis-growth` (done, in flight)
+- [x] Routed function sets 2+3 (echko registration + draw ops) to `cordis-growth`.
+- [x] Confirmed config-wasm uses only function set 1 (config = extension that
+      `ctx_set`s keys, mounted at startup).
+- [ ] Await `cordis-growth` landing sets 2+3 in the `cordis` crate.
+
+### W1. `ekko-ext` WASM bridge (`ekko-ext::wasm`) — LANDED
+- [x] `ekko-ext` — `WasmExtension` (`crates/ekko-ext/src/wasm.rs`) owns a
+      `cordis::Context`, mounts each module, and reads its set-2 `(name, kind)`
+      units back through the same public registration API builtins share
+      (no-privileged-path). Functional-core holds: `apply_ui_action` remains
+      the single host write path.
+- [x] `ekko-client` — `build_runtime` uses `ekko_ext::wasm::load_extensions(..., Client)`;
+      feature `lua` → `wasm` (dep `ekko-ext/wasm` via `cordis`); `run()`
+      loads config through `ekko_ext::wasm::load_config_cascade()`.
+- [x] `ekko-server` — same rewire for `HostKind::Server`.
+- [x] `ekko-config` — `LuaConfigEvaluator` → `ConfigWasmEvaluator`;
+      `load_cascade_in` maps "init.lua" → compiled config `.wasm`.
+- [x] Fold `ekko-wasm` into cordis-rs (its is now the cordis set 2+3 — the
+      standalone `ekko-wasm` is DELETED, it is superseded by `cordis`); delete
+      `ekko-wasm` and `ekko-lua`. `cargo tree` clean of mlua/lua.
+
+**Dynamic dispatch (set 6) — LANDED.**  The shared kernel now exposes
+`cordis::Context::call` (host->guest dispatch; independently Nix-verified).
+`WasmExtension::register` wires each set-2 `(name, kind)` unit to a guest
+export and builds the native spec whose handler calls that export
+synchronously with an immutable JSON payload and decodes the returned action
+JSON — functional-core at the WASM boundary (snapshot in / actions out / one
+host write path). Dispatch table: `command → on_command` (→ [`CommandOutput`]),
+`keybinding → on_key` (→ `Vec<UiAction>`), `mode → on_mode_key` /
+`on_mode_render` (→ [`ModeOutcome`] / cursor), `subscription → on_event`
+(→ `Option<EventReturn>`). Covered end-to-end by
+`wasm::tests::wasm_dynamic_dispatch_round_trip_end_to_end`: a `.wat` guest
+registers a command + keybinding + mode + subscription and actually responds
+(a `register_command` then `invoke_command` hits the guest `on_command` and
+returns a decoded [`CommandOutput`]). functional-core and no-privileged-path
+hold (guest reads the immutable snapshot, returns actions; builtins use the
+same `Context::call` machine).
+
+**RESIDUAL GAPS (dette).**
+- The cordis set-2 registration keeps only the first descriptor as `(name,
+  kind)` — `register_keybinding`'s `mode` scope and per-unit descriptions are
+  dropped, so WASM keybindings route in **normal mode** (`mode: None`). A
+  which-key/leader map needs a cordis follow-up: return the fuller descriptor
+  fields from `registrations` (or a per-unit descriptor string) so the host
+  can reconstruct mode-scoped bindings and descriptions. Listed as cordis
+  follow-up, not fixed here (grow once).
+- Mode/overlay/surface **render** dispatch runs the guest (returns the cursor)
+  but does not yet bridge the guest's buffered draw ops (`set 3`) onto the
+  host [`DrawContext`] — status-bar/which-key chrome needs that op bridge.
+- Kinds with no dynamic handler yet in the bridge (`overlay`, `theme`,
+  `spinner`, `surface`, `session_grouper/namer`) are logged and left inert.
+
+### W2. Config as compiled `.wasm` — LANDED
+- [x] Default `Config` ships as an embedded compiled config module
+      (`crates/ekko-ext/src/default_config.wat`, `include_str!`) that emits
+      `config = "{}"` via `ctx_set` (set 1 only); `wat::parse_str` compiles it
+      once at startup and it is mounted before any extension (reference
+      `config_wasm` pattern). `#[serde(default)]` yields `Config::default()`.
+- [x] Startup loads config `.wasm` through `cordis`; a user `config.wasm` in
+      the config dir overrides the default; a stale `config.toml` is a hard
+      migration error.
+
+### W3. Docs
+- [x] DESIGN.md: 2026-08-16 WASM-on-cordis-rs locked decision (reverses mlua),
+      crate map, architecture, roadmap, deferred updates.
+- [x] PLAN.md WS-WASM recorded (this section) and updated by the ekko migration.
+- [ ] README: replace `init-star.lua`/Lua reference with WASM config/extension docs.
+
+### W-Acceptance
+- `nix build` / `nix flake check` exit zero (QUOTE the command).
+- `cargo tree` clean of mlua/lua.
+- `ekko-lua` and `ekko-wasm` gone; `cordis` is the only kernel.
+- Default config ships as a compiled `.wasm` loaded at startup.
+- functional-core (snapshot in / actions out / one write path / no `&mut`
+  host state in extensions) and no-privileged-path hold at the boundary.
+
+---
+
+Goal (historical, superseded): everything in ekko that is user-configurable is configurable from Lua.
 Two concrete end states:
 
 1. **Registry parity** — every `ExtensionHost` method is reachable from a

@@ -7,6 +7,7 @@ use std::any::Any;
 use std::sync::Arc;
 
 use ekko_event::UiAction;
+use serde::{Deserialize, Serialize};
 
 use crate::draw::DrawContext;
 use crate::snapshot::ClientSnapshot;
@@ -24,7 +25,7 @@ pub type ModeRenderFn = Arc<
     dyn Fn(&mut dyn DrawContext, &ModeState, &ClientSnapshot) -> Option<(i32, i32)> + Send + Sync,
 >;
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ModeOutcome {
     /// Stay in the mode.
     Continue,

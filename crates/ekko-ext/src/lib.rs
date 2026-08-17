@@ -6,8 +6,9 @@
 //! built-in path. This crate is pure registration/dispatch mechanism; it
 //! depends only on `ekko-event` (the vocabulary), never on the client, server,
 //! wire protocol, or renderer crates. The client implements [`DrawContext`]
-//! as a thin adapter over its cell surface; a future `ekko-lua` bridge
-//! implements the same traits for scripted extensions.
+//! as a thin adapter over its cell surface; the `wasm` bridge (over the
+//! shared cordis kernel) implements the same traits for compiled `.wasm`
+//! extensions.
 
 mod builder;
 mod command;
@@ -51,6 +52,9 @@ pub use surface::{
     SurfaceSpec, SurfaceTickFn, SurfaceVisibleFn,
 };
 pub use traits::{Extension, ExtensionHost};
+
+#[cfg(feature = "wasm")]
+pub mod wasm;
 pub use visual::{Color, SpinnerSpec, ThemePalette, ThemeSpec, brighten, fade_toward};
 
 // Re-export the event vocabulary so extensions only need one dependency.

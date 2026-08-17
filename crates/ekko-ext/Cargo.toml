@@ -4,12 +4,25 @@ edition.workspace = true
 license.workspace = true
 version.workspace = true
 
+[features]
+default = []
+# The WASM extension + config bridge, loaded through the shared cordis-rs
+# kernel. Opt-in so a build without it (bare harness) links no wasmtime.
+wasm = ["dep:cordis", "dep:wat", "dep:ekko-config", "dep:serde_json"]
+
 [dependencies]
 ekko-err = { workspace = true }
 log = { workspace = true }
 ekko-event = { workspace = true }
 serde = { workspace = true }
+# The shared spatiotemporal kernel (wasmtime). Optional behind `wasm`.
+cordis = { path = "../../cordis-rs/crates/cordis", optional = true }
+wat = { version = "1", optional = true }
+ekko-config = { workspace = true, optional = true }
+serde_json = { workspace = true, optional = true }
+
+[dev-dependencies]
+wat = "1"
 
 [lints]
 workspace = true
-
