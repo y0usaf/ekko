@@ -54,7 +54,7 @@ use crate::snapshot::ClientSnapshot;
 use crate::{
     Color, CommandSpec, DockEdge, DrawContext, Extension, ExtensionHost, ExtensionManifest,
     KeybindingSpec, ModeOutcome, ModeSpec, ModeState, Rect, ScrollbarModel, ScrollbarStyle,
-    SurfaceDrawFn, SurfaceSize, SurfaceSpec, TextStyle,
+    SurfaceDrawFn, SurfaceSize, SurfaceSpec, SurfaceTickFn, TextStyle,
 };
 // `CommandOutput`, `EventReturn` and `UiAction` appear only in the dispatch
 // table's intra-doc links / inferred return types; keep them imported (with
@@ -207,7 +207,12 @@ impl Extension for WasmExtension {
                     self.register_dispatch_keybinding(host, &ctx, plugin, name, descriptors)?
                 }
                 "mode" => self.register_dispatch_mode(host, &ctx, plugin, name)?,
-                "surface" => self.register_dispatch_surface(host, &ctx, plugin, name, descriptors)?,
+                "surface" => {
+                    self.register_dispatch_surface(host, &ctx, plugin, name, descriptors)?
+                }
+                "overlay" => {
+                    self.register_dispatch_overlay(host, &ctx, plugin, name, descriptors)?
+                }
                 "subscription" => self.register_dispatch_event(host, &ctx, plugin, name)?,
                 other => log::info!(
                     "wasm extension '{}' declares {other} '{name}' (no dynamic dispatch for this kind yet)",
@@ -278,20 +283,27 @@ impl WasmExtension {
             return Ok(());
         };
         let chord_bytes = parse_key_binding(name).unwrap_or_default();
-        // The mode descriptor is the first arg after the chord; an empty or
-        // absent mode means normal scope (mode: None).
+        // Keybinding descriptors are `[mode, description, handler]` (the
+        // non-name fields the guest passes to `register_keybinding`). Mode
+        // is the empty-or-absent normal scope; the description feeds the
+        // hint bar / keybinding listing surfaced to extensions.
         let mode = descriptors
             .first()
             .map(String::as_str)
             .filter(|m| !m.is_empty())
             .map(str::to_string);
+        let description = descriptors
+            .get(1)
+            .map(String::as_str)
+            .unwrap_or("")
+            .to_string();
         let ctx = Arc::clone(ctx);
         let name = name.to_string();
         host.register_keybinding(KeybindingSpec {
             chords,
             chord_text: name.clone(),
             mode,
-            description: String::new(),
+            description,
             handler: Arc::new(move |snapshot: &ClientSnapshot| {
                 let req = DispatchRequest {
                     kind: "keybinding",
@@ -422,26 +434,50 @@ impl WasmExtension {
         let name = name.to_string();
         let draw_ctx = Arc::clone(&ctx);
         let draw_name = name.clone();
-        let draw: SurfaceDrawFn = Arc::new(move |dc: &mut dyn DrawContext, snapshot: &ClientSnapshot| {
+        let draw: SurfaceDrawFn =
+            Arc::new(move |dc: &mut dyn DrawContext, snapshot: &ClientSnapshot| {
+                let req = DispatchRequest {
+                    kind: "surface_draw",
+                    name: &draw_name,
+                    bytes: None,
+                    args: None,
+                    snapshot: Some(snapshot),
+                    event: None,
+                };
+                match dispatch(&draw_ctx, plugin, "on_surface_draw", req) {
+                    Ok(_) => {}
+                    Err(e) => log::warn!("wasm on_surface_draw '{draw_name}' failed: {e:#}"),
+                }
+                // Drain the set-3 draw ops the guest emitted and apply them to
+                // the real DrawContext.
+                let ops = match draw_ctx.lock() {
+                    Ok(mut g) => g.take_ops(plugin).unwrap_or_default(),
+                    Err(e) => e.into_inner().take_ops(plugin).unwrap_or_default(),
+                };
+                apply_draw_ops(dc, &ops, snapshot);
+            });
+
+        // Optional `wants_tick` predicate: if the guest exports
+        // `on_surface_wants_tick(snapshot) -> "true"/"false"`, drive it each
+        // frame so a surface can ask to be repainted (e.g. the which-key top
+        // bar's note/mode/flipper emphasis). Absent export -> always tick
+        // (backward compatible, keeps the surface repainting every frame).
+        let tick_ctx = Arc::clone(&ctx);
+        let tick_name = name.clone();
+        let wants_tick: SurfaceTickFn = Arc::new(move |snapshot: &ClientSnapshot| {
             let req = DispatchRequest {
-                kind: "surface_draw",
-                name: &draw_name,
+                kind: "surface_wants_tick",
+                name: &tick_name,
                 bytes: None,
                 args: None,
                 snapshot: Some(snapshot),
                 event: None,
             };
-            match dispatch(&draw_ctx, plugin, "on_surface_draw", req) {
-                Ok(_) => {}
-                Err(e) => log::warn!("wasm on_surface_draw '{draw_name}' failed: {e:#}"),
+            match dispatch(&tick_ctx, plugin, "on_surface_wants_tick", req) {
+                Ok(raw) => serde_json::from_str::<bool>(raw.trim()).unwrap_or(true),
+                // Unknown export -> treat as "always tick".
+                Err(_) => true,
             }
-            // Drain the set-3 draw ops the guest emitted and apply them to
-            // the real DrawContext.
-            let ops = match draw_ctx.lock() {
-                Ok(mut g) => g.take_ops(plugin).unwrap_or_default(),
-                Err(e) => e.into_inner().take_ops(plugin).unwrap_or_default(),
-            };
-            apply_draw_ops(dc, &ops, snapshot);
         });
 
         host.register_surface(SurfaceSpec {
@@ -453,7 +489,95 @@ impl WasmExtension {
             visible: None,
             draw,
             on_mouse: None,
-            wants_tick: None,
+            wants_tick: Some(wants_tick),
+        })
+    }
+
+    /// Register a mode-attached (or free) overlay whose `render` / `handle_key`
+    /// hooks dispatch to the guest's `on_overlay_render` / `on_overlay_key`
+    /// exports. Overlay descriptors from the kernel are
+    /// `[description, render, key, init, attach_mode]`.
+    ///
+    /// The render callback dispatches to the guest with a snapshot; the guest
+    /// paints via set-3 draw ops which are drained and applied (exactly like a
+    /// surface). The key callback dispatches with the key bytes and reads back
+    /// one of the overlay outcomes: `null`/empty -> consume, `"close"` ->
+    /// `Close`, or a JSON array of [`UiAction`]s -> `CloseWith`. Native overlay
+    /// state is empty (`()`); the guest owns any modal state in its own memory.
+    fn register_dispatch_overlay(
+        &self,
+        host: &mut dyn ExtensionHost,
+        ctx: &Arc<Mutex<CordisContext>>,
+        plugin: usize,
+        name: &str,
+        descriptors: &[String],
+    ) -> Result<()> {
+        // descriptors = [description, render, key, init, attach_mode].
+        let description = descriptors.first().cloned().unwrap_or_default();
+        let attach_mode = descriptors
+            .get(4)
+            .map(String::as_str)
+            .filter(|m| !m.is_empty())
+            .map(str::to_string);
+
+        // Render -> guest render export; drain its draw ops like a surface.
+        let render_ctx = Arc::clone(ctx);
+        let render_name = name.to_string();
+        let render: crate::overlay::OverlayRenderFn = Arc::new(
+            move |dc: &mut dyn DrawContext,
+                  _state: &mut crate::OverlayState,
+                  snapshot: &ClientSnapshot| {
+                let req = DispatchRequest {
+                    kind: "overlay_render",
+                    name: &render_name,
+                    bytes: None,
+                    args: None,
+                    snapshot: Some(snapshot),
+                    event: None,
+                };
+                if let Err(e) = dispatch(&render_ctx, plugin, "on_overlay_render", req) {
+                    log::warn!("wasm on_overlay_render '{render_name}' failed: {e:#}");
+                }
+                let ops = match render_ctx.lock() {
+                    Ok(mut g) => g.take_ops(plugin).unwrap_or_default(),
+                    Err(e) => e.into_inner().take_ops(plugin).unwrap_or_default(),
+                };
+                apply_draw_ops(dc, &ops, snapshot);
+            },
+        );
+
+        // Key -> guest key export; decode OverlayOutcome.
+        let key_ctx = Arc::clone(ctx);
+        let key_name = name.to_string();
+        let handle_key: crate::overlay::OverlayKeyFn =
+            Arc::new(move |_state: &mut crate::OverlayState, bytes: &[u8]| {
+                let req = DispatchRequest {
+                    kind: "overlay_key",
+                    name: &key_name,
+                    bytes: Some(bytes),
+                    args: None,
+                    snapshot: None,
+                    event: None,
+                };
+                match dispatch(&key_ctx, plugin, "on_overlay_key", req) {
+                    Ok(raw) => decode_overlay_outcome(&raw),
+                    Err(e) => {
+                        log::warn!("wasm on_overlay_key '{key_name}' failed: {e:#}");
+                        crate::OverlayOutcome::None
+                    }
+                }
+            });
+
+        host.register_overlay(crate::OverlaySpec {
+            name: name.to_string(),
+            description,
+            init_state: Arc::new(|_: Option<crate::OverlayPayload>| {
+                Box::new(()) as crate::OverlayState
+            }),
+            render,
+            handle_key,
+            build_payload: None,
+            attach_mode,
         })
     }
 
@@ -562,17 +686,36 @@ fn decode_cursor(raw: &str) -> Option<(i32, i32)> {
         .and_then(|r| r.cursor)
 }
 
+/// Decode a guest overlay-key reply into an [`OverlayOutcome`]: `null`/empty
+/// -> consume (stay open), the JSON string `"close"` -> close, or a JSON array
+/// of [`UiAction`]s -> close-and-apply. Anything else degrades to consume.
+fn decode_overlay_outcome(raw: &str) -> crate::OverlayOutcome {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() || trimmed == "null" {
+        return crate::OverlayOutcome::None;
+    }
+    if trimmed == "\"close\"" || trimmed == "close" {
+        return crate::OverlayOutcome::Close;
+    }
+    match serde_json::from_str::<Vec<UiAction>>(trimmed) {
+        Ok(actions) if !actions.is_empty() => crate::OverlayOutcome::CloseWith(actions),
+        _ => crate::OverlayOutcome::None,
+    }
+}
+
 /// Apply a drained set-3 draw-op buffer to a real [`DrawContext`], resolving
 /// color names against the snapshot's theme palette. Each op is a `(kind,
 /// args)` pair where `args` are the validated string parameters the guest
 /// passed (coordinates, text, color/style names). Unknown op kinds and
 /// malformed args are skipped with a warning rather than panicking — a guest
 /// drawing something the host can't express degrades gracefully.
-fn apply_draw_ops(dc: &mut dyn DrawContext, ops: &[(String, Vec<String>)], snapshot: &ClientSnapshot) {
+fn apply_draw_ops(
+    dc: &mut dyn DrawContext,
+    ops: &[(String, Vec<String>)],
+    snapshot: &ClientSnapshot,
+) {
     for (kind, args) in ops {
-        let n = |i: usize| -> i32 {
-            args.get(i).and_then(|s| s.parse::<i32>().ok()).unwrap_or(0)
-        };
+        let n = |i: usize| -> i32 { args.get(i).and_then(|s| s.parse::<i32>().ok()).unwrap_or(0) };
         let color = |i: usize| -> Color { resolve_color(&args, i, snapshot) };
         match kind.as_str() {
             "fill_rect" => {
@@ -712,7 +855,8 @@ mod tests {
     /// (set 1), with no privileged text parser.
     #[test]
     fn default_config_module_loads_at_startup() {
-        let evaluator = WasmConfigEvaluator;        let wasm = wat::parse_str(DEFAULT_CONFIG_WAT).expect("default config wat is valid");
+        let evaluator = WasmConfigEvaluator;
+        let wasm = wat::parse_str(DEFAULT_CONFIG_WAT).expect("default config wat is valid");
         let config = evaluator.eval_config_wasm(&wasm).expect("config evaluates");
         let expected = Config::default();
         assert_eq!(
@@ -768,7 +912,8 @@ mod tests {
     #[test]
     fn finix_config_module_evaluates_to_intended_settings() {
         let evaluator = WasmConfigEvaluator;
-        let wasm = wat::parse_str(include_str!("finix_config.wat")).expect("valid finix config wat");
+        let wasm =
+            wat::parse_str(include_str!("finix_config.wat")).expect("valid finix config wat");
         let config = evaluator.eval_config_wasm(&wasm).expect("config evaluates");
         assert_eq!(
             config.extensions.disabled,
@@ -1038,15 +1183,7 @@ mod tests {
         fn put_text(&mut self, _: i32, _: i32, _: i32, _: Color, _: Color, value: &str) {
             self.texts.push(value.to_string());
         }
-        fn put_text_bold(
-            &mut self,
-            _: i32,
-            _: i32,
-            _: i32,
-            _: Color,
-            _: Color,
-            value: &str,
-        ) {
+        fn put_text_bold(&mut self, _: i32, _: i32, _: i32, _: Color, _: Color, value: &str) {
             self.texts.push(value.to_string());
         }
         fn put_text_styled(&mut self, _: i32, _: i32, _: i32, value: &str, _: TextStyle) {
@@ -1166,6 +1303,106 @@ mod tests {
             dc.fill_rects,
             vec![Rect::new(0, 0, 10, 1)],
             "guest fill_rect applied"
+        );
+    }
+
+    /// An overlay guest: registers a leader-attached session-list panel whose
+    /// render emits a `draw_box`, and whose key handler returns a close-with
+    /// action. Proves the overlay descriptors -> OverlaySpec ->
+    /// on_overlay_render/on_overlay_key dispatch -> draw-op application path.
+    #[test]
+    fn overlay_dispatch_renders_and_handles_keys() {
+        // Data layout (offset: string):
+        //   0:"sessions" 8:"sessions" 16:"leader"
+        //   22:"" 30:"panel" 40:"accent"
+        //   48: JSON reply for on_overlay_key: ["exit_mode"]
+        let data = [
+            (0usize, "sessions"), // overlay name
+            (8, ""),              // description
+            (9, ""),              // render tag
+            (9, ""),              // key tag
+            (9, ""),              // init tag
+            (10, "leader"),       // attach_mode
+            (17, ""),             // padding
+            (22, "panel"),        // text drawn by render
+            (28, "1"),            // box height
+        ];
+        let data_items = data
+            .iter()
+            .map(|(off, s)| format!("(data (i32.const {off}) \"{}\")", wat_str(s)))
+            .collect::<Vec<_>>()
+            .join("\n  ");
+        // The JSON action reply lives at offset 512 (outside the data layout).
+        let reply = r#"["ExitMode","Detach"]"#;
+        // Escape the reply's quotes/backslashes into the `(data ...)` string
+        // via wat_str, which emits a valid wasm string literal.
+        let reply_wat = format!("\"{}\"", wat_str(reply));
+        let wat = format!(
+            r#"(module
+  (import "host" "register_overlay" (func $reg_ov
+    (param i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32)))
+  (import "host" "draw_box" (func $draw_box (param i32 i32 i32 i32 i32 i32 i32 i32 i32 i32)))
+  (memory (export "memory") 2)
+  {data_items}
+  (data (i32.const 512) {reply_wat})
+  (func (export "scratch") (result i32 i32) i32.const 1024 i32.const 1024)
+  (func (export "mount")
+    ;; register_overlay("sessions", desc, render, key, init, attach="leader")
+    i32.const 0 i32.const 8
+    i32.const 8 i32.const 0
+    i32.const 9 i32.const 0
+    i32.const 9 i32.const 0
+    i32.const 9 i32.const 0
+    i32.const 10 i32.const 6
+    call $reg_ov)
+  (func (export "on_change") (param i32 i32))
+  (func (export "on_overlay_render") (param i32 i32)
+    ;; draw_box(x=0, y=0, w=5, h=1, color="accent")
+    i32.const 0 i32.const 1
+    i32.const 0 i32.const 1
+    i32.const 22 i32.const 1
+    i32.const 28 i32.const 1
+    i32.const 40 i32.const 6
+    call $draw_box)
+  (func (export "on_overlay_key") (param i32 i32) (result i32 i32)
+    i32.const 512 i32.const {reply_len})
+)"#,
+            data_items = data_items,
+            reply_wat = reply_wat,
+            reply_len = reply.len(),
+        );
+        let wasm = wat::parse_str(&wat).expect("valid overlay guest");
+        let ext = WasmExtension::from_bytes(&wasm, "overlay-ext").expect("overlay mounts");
+        let runtime = crate::RuntimeBuilder::new()
+            .register_extension(ext)
+            .build()
+            .expect("runtime builds");
+
+        // The leader-attached overlay is present and attached to leader.
+        let ov = runtime.overlay("sessions").expect("overlay registered");
+        assert_eq!(ov.attach_mode.as_deref(), Some("leader"), "leader-attached");
+        assert!(
+            runtime.overlay_attached_to("leader").is_some(),
+            "overlay attached to leader mode"
+        );
+
+        // Driving its render dispatches to on_overlay_render and applies draw ops.
+        let mut dc = RecordingDraw::default();
+        let mut state = (ov.init_state)(None);
+        (ov.render)(&mut dc, &mut state, &minimal_snapshot());
+        // The guest emitted one draw_box; RecordingDraw captures it as a box.
+        assert_eq!(dc.boxes.len(), 1, "overlay render emitted a draw_box");
+
+        // Driving its key handler decodes a close-with action reply.
+        let outcome = (ov.handle_key)(&mut state, b"\x1b");
+        assert!(
+            matches!(
+                outcome,
+                crate::OverlayOutcome::CloseWith(ref a)
+                    if a.iter().any(|x| matches!(x, UiAction::ExitMode))
+                        && a.iter().any(|x| matches!(x, UiAction::Detach))
+            ),
+            "overlay key dispatch decodes CloseWith actions, got {outcome:?}"
         );
     }
 }
