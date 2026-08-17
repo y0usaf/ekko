@@ -26,6 +26,7 @@
         sourceFiles = lib.fileset.unions [
           ./crates
           ./examples
+          ./guests
           ./Cargo.toml
           ./Cargo.lock
           (lib.fileset.fileFilter (file: lib.hasPrefix "LICENSE" file.name) ./.)
@@ -105,6 +106,45 @@
             ]
         );
       in
+      let
+        # Build the which-key WASM extension guest (targets wasm32, standalone
+        # crate under `guests/which-key`). Produces `which-key.wasm` for the
+        # finix flake to place at `~/.config/ekko/extensions/which-key.wasm`.
+        whichKeyWasm = pkgs.rustPlatform.buildRustPackage {
+          pname = "which-key-wasm";
+          version = "0.1.0";
+          src = lib.fileset.toSource {
+            root = ./guests/which-key;
+            fileset = lib.fileset.unions [
+              ./guests/which-key/Cargo.toml
+              ./guests/which-key/Cargo.lock
+              ./guests/which-key/src
+            ];
+          };
+          cargoLock.lockFile = ./guests/which-key/Cargo.lock;
+          # `rustPlatform`'s rustc already ships the wasm32-unknown-unknown std
+          # (confirmed: the guest compiled; only the host-target test phase was
+          # the failure). Provide `lld` for the wasm linker and drop the default
+          # host-target check (it can't link wasm-only externs).
+          nativeBuildInputs = [ pkgs.lld ];
+          doCheck = false;
+          doInstallCheck = false;
+          # Ensure cargo targets the wasm ABI (not the default host build).
+          cargoBuildFlags = [ "--target" "wasm32-unknown-unknown" ];
+          CARGO_BUILD_TARGET = "wasm32-unknown-unknown";
+          buildPhase = ''
+            runHook preBuild
+            cargo build --release --target wasm32-unknown-unknown --lib
+            runHook postBuild
+          '';
+          installPhase = ''
+            runHook preInstall
+            mkdir -p $out
+            cp target/wasm32-unknown-unknown/release/which_key_wasm.wasm $out/which-key.wasm
+            runHook postInstall
+          '';
+        };
+      in
       {
         packages.default = mkEkko {
           meta = {
@@ -113,6 +153,7 @@
             mainProgram = "ekko";
           };
         };
+        packages.which-key = whichKeyWasm;
 
         checks = featureChecks // {
           bare-harness = mkEkko {

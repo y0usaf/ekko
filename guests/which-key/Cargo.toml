@@ -1,0 +1,26 @@
+[package]
+name = "which-key-wasm"
+version = "0.1.0"
+edition = "2021"
+
+# Standalone wasm guest (NOT an ekko workspace member — targets wasm32).
+[workspace]
+
+# This crate compiles to a `.wasm` extension for ekko (cordis set-2/3/6 ABI).
+# It is NOT a native workspace member: it targets wasm32-unknown-unknown and
+# is built separately (see flake.nix `which-key-wasm` output), then shipped as
+# `which-key.wasm` loaded from `~/.config/ekko/extensions/`.
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# The host's `unicode-width` gives true terminal cell widths for the status
+# bars / overlays (fidelity over the Lua manual codepoint tables).
+unicode-width = "0.2"
+
+[profile.release]
+opt-level = "s"
+lto = true
