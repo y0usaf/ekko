@@ -1405,4 +1405,37 @@ mod tests {
             "overlay key dispatch decodes CloseWith actions, got {outcome:?}"
         );
     }
+
+    /// Guard against the which-key JSON-shape bug: `UiAction` is serde-externally
+    /// tagged, so a unit variant decodes as a bare `"ExitMode"` and a struct
+    /// variant as `{"EnterMode":{...}}`. A guest returning the Lua-style
+    /// `[EnterMode,{...}]` won't parse and degrades to "no action" — exactly why
+    /// keybinds silently did nothing. This asserts the correct forms parse.
+    #[test]
+    fn ui_action_serde_shape_is_externally_tagged() {
+        use ekko_event::UiAction;
+        // Unit + struct variants, mixed in one array: valid.
+        let good = serde_json::from_str::<Vec<UiAction>>(
+            r#"["ExitMode",{"NewSession":{"name":null}},{"SwitchSession":{"name":"s2"}},{"SetStatusNote":{"text":"no other session","kind":"Info","ttl_ms":2000}}]"#,
+        )
+        .expect("mixed unit+struct variants parse");
+        assert!(matches!(good[0], UiAction::ExitMode));
+        assert!(matches!(good[1], UiAction::NewSession { .. }));
+        assert!(matches!(good[2], UiAction::SwitchSession { .. }));
+
+        // A struct variant MUST be tagged as an object {"Variant":{...}}; the
+        // Lua-style ["EnterMode",{...}] (two array elements) must NOT parse as
+        // a single action — it would mis-deserialize or fail.
+        assert!(
+            serde_json::from_str::<Vec<UiAction>>(r#"["EnterMode",{"name":"leader"}]"#).is_err()
+                || serde_json::from_str::<Vec<UiAction>>(r#"["EnterMode",{"name":"leader"}]"#)
+                    .map(|v| v.len() != 1)
+                    .unwrap_or(true),
+            "Lua-style tuple action form must not decode as one action"
+        );
+        // The correct object form parses as a single EnterMode.
+        let one = serde_json::from_str::<Vec<UiAction>>(r#"[{"EnterMode":{"name":"leader"}}]"#)
+            .expect("tagged struct variant parses");
+        assert!(matches!(one.as_slice(), [UiAction::EnterMode { .. }]));
+    }
 }
