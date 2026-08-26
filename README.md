@@ -2,6 +2,7 @@
 
 <img align="left" src="assets/pixel-ekko.png" alt="Pixel art of Ekko" width="132" height="108">
 <img align="right" src="assets/pixel-ekko-mirrored.png" alt="Mirrored pixel art of Ekko" width="132" height="108">
+<p align="center"><img src="assets/title-ekko.svg" alt="Ekko" width="420" height="108"></p>
 <br clear="both">
 
 
