@@ -716,7 +716,7 @@ fn apply_draw_ops(
 ) {
     for (kind, args) in ops {
         let n = |i: usize| -> i32 { args.get(i).and_then(|s| s.parse::<i32>().ok()).unwrap_or(0) };
-        let color = |i: usize| -> Color { resolve_color(&args, i, snapshot) };
+        let color = |i: usize| -> Color { resolve_color(args, i, snapshot) };
         match kind.as_str() {
             "fill_rect" => {
                 let rect = Rect::new(n(0), n(1), n(2), n(3));
@@ -778,7 +778,8 @@ fn resolve_color(args: &[String], i: usize, snapshot: &ClientSnapshot) -> Color 
         return Color::TRANSPARENT;
     };
     let p = &snapshot.theme;
-    let named = match name.as_str() {
+
+    match name.as_str() {
         "text" => p.text,
         "muted" => p.muted,
         "heading" => p.heading,
@@ -801,19 +802,18 @@ fn resolve_color(args: &[String], i: usize, snapshot: &ClientSnapshot) -> Color 
         "transparent" => Color::TRANSPARENT,
         _ => {
             // Try a #rrggbb hex literal.
-            if let Some(hex) = name.strip_prefix('#') {
-                if let Ok(v) = u32::from_str_radix(hex, 16) {
-                    return Color::rgb(
-                        ((v >> 16) & 0xff) as u8,
-                        ((v >> 8) & 0xff) as u8,
-                        (v & 0xff) as u8,
-                    );
-                }
+            if let Some(hex) = name.strip_prefix('#')
+                && let Ok(v) = u32::from_str_radix(hex, 16)
+            {
+                return Color::rgb(
+                    ((v >> 16) & 0xff) as u8,
+                    ((v >> 8) & 0xff) as u8,
+                    (v & 0xff) as u8,
+                );
             }
             Color::TRANSPARENT
         }
-    };
-    named
+    }
 }
 
 /// Load every `*.wasm` file in `dir` (sorted by name) as an extension,
@@ -927,12 +927,12 @@ mod tests {
             "builtin chrome extensions are disabled (which-key owns them)"
         );
         assert_eq!(
-            serde_json::to_value(&config.ui.pane_borders).unwrap(),
+            serde_json::to_value(config.ui.pane_borders).unwrap(),
             serde_json::json!("frame"),
             "pane borders are framed"
         );
         assert_eq!(
-            serde_json::to_value(&config.ui.pane_layout).unwrap(),
+            serde_json::to_value(config.ui.pane_layout).unwrap(),
             serde_json::json!("equal"),
             "pane layout is equal"
         );
