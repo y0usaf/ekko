@@ -1,7 +1,7 @@
 # ekko
 
-<img align="left" src="assets/pixel-ekko.png" alt="Pixel art of Ekko" width="132" height="108">
-<img align="right" src="assets/pixel-ekko-mirrored.png" alt="Mirrored pixel art of Ekko" width="132" height="108">
+<img align="left" src="assets/pixel-ekko.png" alt="Pixel art of Ekko" width="1320" height="1080">
+<img align="right" src="assets/pixel-ekko-mirrored.png" alt="Mirrored pixel art of Ekko" width="1320" height="1080">
 <br clear="both">
 
 
