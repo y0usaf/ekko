@@ -1,5 +1,13 @@
 # ekko
 
+<table>
+<tr>
+<td align="left"><img src="assets/pixel-ekko.png" alt="Pixel art of Ekko" height="96"></td>
+<td align="right"><img src="assets/pixel-ekko-mirrored.png" alt="Mirrored pixel art of Ekko" height="96"></td>
+</tr>
+</table>
+
+
 An **extension-first** terminal multiplexer with zellij-class robustness and
 an unboxed chrome themed from the host terminal's own colors —
 project/session sidebar, one fullscreen terminal, a single statusbar row — in
