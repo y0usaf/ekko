@@ -63,6 +63,16 @@ pub fn parse_key_chords(text: &str) -> Option<Vec<Vec<u8>>> {
         if rest == "space" {
             return Some(vec![vec![0x00]]);
         }
+        // Tab under ctrl is not a C0 byte (ctrl+tab == tab == 0x09 in legacy
+        // encoding); terminals that disambiguate it (foot, modifyOtherKeys,
+        // xterm-style CSI u) send the encoded CSI form instead. Bind that
+        // sequence, with shift carried as the modifier param 6.
+        if rest == "tab" {
+            return Some(vec![vec![0x1b, b'[', b'2', b'7', b';', b'5', b';', b'9', b'~']]);
+        }
+        if rest == "shift+tab" {
+            return Some(vec![vec![0x1b, b'[', b'2', b'7', b';', b'6', b';', b'9', b'~']]);
+        }
         let letter = single_char(rest)?;
         if !letter.is_ascii_alphabetic() {
             return None;
@@ -220,5 +230,17 @@ mod tests {
         assert_eq!(parse_key_binding("shift+a"), None);
         assert_eq!(parse_key_binding("f1"), None);
         assert_eq!(parse_key_binding(""), None);
+    }
+}
+
+#[cfg(test)]
+mod ctrl_tab_tests {
+    use super::parse_key_binding;
+    #[test]
+    fn parses_ctrl_tab_csi_chords() {
+        let want: Vec<u8> = vec![0x1b, b'[', b'2', b'7', b';', b'5', b';', b'9', b'~'];
+        assert_eq!(parse_key_binding("ctrl+tab"), Some(want));
+        let shifted: Vec<u8> = vec![0x1b, b'[', b'2', b'7', b';', b'6', b';', b'9', b'~'];
+        assert_eq!(parse_key_binding("ctrl+shift+tab"), Some(shifted));
     }
 }
