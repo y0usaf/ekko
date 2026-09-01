@@ -184,16 +184,19 @@ impl Context {
             .into_iter()
             .collect();
         for id in targets {
-            // Move the callback out so it may mutate the context.
-            let cb = {
-                let inner = self.scopes.get_mut(&id).unwrap();
-                inner.on_change.take()
+            // Move the callback out so it may mutate the context. The
+            // callback may unmount its own scope, so later targets may
+            // already be gone; skip them.
+            let Some(mut cb) = self
+                .scopes
+                .get_mut(&id)
+                .and_then(|inner| inner.on_change.take())
+            else {
+                continue;
             };
-            if let Some(mut cb) = cb {
-                (cb)(self, key);
-                if let Some(inner) = self.scopes.get_mut(&id) {
-                    inner.on_change = Some(cb);
-                }
+            (cb)(self, key);
+            if let Some(inner) = self.scopes.get_mut(&id) {
+                inner.on_change = Some(cb);
             }
         }
         self.notifying = false;
@@ -317,5 +320,38 @@ mod tests {
         assert_eq!(ctx.get::<&str>(MODE), Some(&"a"));
         ctx.unmount(a);
         assert!(!ctx.has(MODE));
+    }
+
+    /// A callback that unmounts its own scope must not panic, and the
+    /// unmount must leave no residue.
+    #[test]
+    fn on_change_unmounting_own_scope_does_not_panic() {
+        let mut ctx = Context::new();
+        ctx.set(THEME, "dark");
+
+        let snapshot = ctx.values.len();
+        let id_slot = std::sync::Arc::new(std::sync::Mutex::new(None::<usize>));
+
+        let slot = id_slot.clone();
+        let id = ctx.mount(
+            Component::new(vec![THEME])
+                .effect(|_| {
+                    let noop: Inverse = Box::new(|_| {});
+                    noop
+                })
+                .on_change(move |c, _| {
+                    let id = slot.lock().unwrap().expect("id recorded");
+                    c.unmount(id);
+                }),
+        );
+        *id_slot.lock().unwrap() = Some(id);
+
+        ctx.set(THEME, "light");
+
+        assert!(
+            !ctx.scopes.contains_key(&id),
+            "scope survived its own unmount"
+        );
+        assert_eq!(ctx.values.len(), snapshot, "residue after self-unmount");
     }
 }
