@@ -68,10 +68,14 @@ pub fn parse_key_chords(text: &str) -> Option<Vec<Vec<u8>>> {
         // xterm-style CSI u) send the encoded CSI form instead. Bind that
         // sequence, with shift carried as the modifier param 6.
         if rest == "tab" {
-            return Some(vec![vec![0x1b, b'[', b'2', b'7', b';', b'5', b';', b'9', b'~']]);
+            return Some(vec![vec![
+                0x1b, b'[', b'2', b'7', b';', b'5', b';', b'9', b'~',
+            ]]);
         }
         if rest == "shift+tab" {
-            return Some(vec![vec![0x1b, b'[', b'2', b'7', b';', b'6', b';', b'9', b'~']]);
+            return Some(vec![vec![
+                0x1b, b'[', b'2', b'7', b';', b'6', b';', b'9', b'~',
+            ]]);
         }
         let letter = single_char(rest)?;
         if !letter.is_ascii_alphabetic() {
