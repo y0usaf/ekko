@@ -283,6 +283,13 @@ def integration(binary, shared=False, local=True):
             assert len(host.images) == 1, status()
             os.write(master, b"\x02" + b"2PAUSE")
             pump(.4)
+            os.write(master, b"\x02[")
+            pump(.3)
+            assert not host.images, "copy mode left application graphics visible"
+            assert status()["panes"][1]["copy_mode"]
+            os.write(master, b"q")
+            pump(.3)
+            assert len(host.images) == 1, "leaving copy mode lost retained image"
             uploads = host.uploads
             placements = host.placements
             input_before = (root / "blue.input").read_bytes()

@@ -21,6 +21,7 @@
 (defun now () (/ (get-internal-real-time) internal-time-units-per-second))
 
 (define-alien-routine ("ek_close" close-fd) int (fd int))
+(define-alien-routine ("ek_nonblock" nonblock) int (fd int))
 (define-alien-routine ("ek_raw" raw) int (fd int))
 (define-alien-routine ("ek_restore" restore) int)
 (define-alien-routine ("ek_reap" reap) int (pid int))

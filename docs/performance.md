@@ -13,7 +13,7 @@ at 10 Hz during text and graphics workloads. The benchmark uses one pane; the
 correctness suite separately covers two-pane isolation and layout changes.
 
 CPU is expressed as percent of one core from Linux process counters, independently
-for the daemon, client, and fixture. RSS is sampled at the start and end, not
+for the daemon, client, fixture, and extension worker (when exposed by the binary). RSS is sampled at the start and end, not
 measured as a peak. Voluntary context switches help expose idle polling changes
 when CPU ticks are too coarse. Daemon allocation and GC counters are cumulative
 SBCL counters exposed through `status`; the report subtracts their initial values.
@@ -258,3 +258,23 @@ query ownership, invalid dimensions/names/lengths/modes, quota rejection, and
 fragmented/unrelated host replies. [Live counters](evidence/local-transport-live.json)
 and the [session-preference check](evidence/browser-session-transport.json) record
 the real browser path and an inline override against the same browser daemon.
+
+## Daily-use foundation — 2026-09-05
+
+The final 1274 × 1368 CookUnity-frame replay (shared transport, 30 Hz target,
+five seconds) delivered 138 frames with 6.82 ms p95 frame receipt and 1.22 ms
+p95 input latency. Combined daemon/client/extension CPU was about 7.0% of one
+core. These short synthetic samples retain the local-transport speedup; they
+exclude Kitty rendering and display latency and do not establish a new speedup.
+
+The extension worker used no measurable CPU in this rendering workload and
+had five voluntary context switches. Its sampled RSS was 123.8 MiB. This is
+an additional SBCL process per session; RSS is not peak or proportional memory.
+Reducing worker memory is a remaining efficiency task. History is allocated
+lazily; ordinary key input and graphics do not invoke Lisp extension callbacks.
+
+[Raw replay report](evidence/daily-performance.json) and
+[Nix verification](evidence/daily-checks.json) identify the executable and checks.
+The checks include failed/stuck reloads, callback termination and recovery,
+exact declared dependencies, action validation, split/input ordering, copy/search,
+client replacement, image restoration, and an external command in the bare build.

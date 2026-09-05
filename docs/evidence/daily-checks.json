@@ -1,0 +1,138 @@
+{
+  "commands": [
+    "nix build -L",
+    "nix flake check -L",
+    "nix run . -- --help",
+    "EKKO_CONFIG=\"$PWD/examples/init.lisp\" nix run . -- config check"
+  ],
+  "exit_codes": [
+    0,
+    0,
+    0,
+    0
+  ],
+  "binary": "/nix/store/akpgwa1vfjw989cyfipzc6arm9p2bbbw-ekko-0.1.0/bin/ekko",
+  "checks": {
+    "daily": {
+      "output": "/nix/store/1i0d2vfdbr0x1rmgc9bm7k8inhi6p745-ekko-daily",
+      "reports": [
+        {
+          "status": "pass",
+          "suite": "daily-customization"
+        },
+        {
+          "status": "pass",
+          "suite": "bare-external-extension"
+        }
+      ]
+    },
+    "runtime": {
+      "output": "/nix/store/4f6r9mrg0zdkqqxga9wn03d0c3410cm9-ekko-runtime",
+      "reports": [
+        {
+          "status": "pass",
+          "checks": [
+            "controlling-pty",
+            "fragmented-rgba",
+            "id-isolation",
+            "native-clipping",
+            "scoped-delete",
+            "reply-routing",
+            "keyboard-focus",
+            "pixel-mouse",
+            "paste",
+            "client-death",
+            "detached-updates",
+            "reattach",
+            "zoom",
+            "swap",
+            "placement-reuse",
+            "standalone-escape",
+            "idle-upload-expiry",
+            "shutdown"
+          ]
+        },
+        {
+          "status": "pass",
+          "checks": [
+            "shell-beside-graphics",
+            "shell-output",
+            "ctrl-z",
+            "foreground-job",
+            "ctrl-c",
+            "sigterm-restores-terminal"
+          ]
+        },
+        {
+          "status": "pass",
+          "checks": [
+            "controlling-pty",
+            "fragmented-rgba",
+            "id-isolation",
+            "native-clipping",
+            "scoped-delete",
+            "reply-routing",
+            "keyboard-focus",
+            "pixel-mouse",
+            "paste",
+            "client-death",
+            "detached-updates",
+            "reattach",
+            "zoom",
+            "swap",
+            "placement-reuse",
+            "standalone-escape",
+            "idle-upload-expiry",
+            "shutdown"
+          ]
+        },
+        {
+          "status": "pass",
+          "checks": [
+            "controlling-pty",
+            "fragmented-rgba",
+            "id-isolation",
+            "native-clipping",
+            "scoped-delete",
+            "reply-routing",
+            "keyboard-focus",
+            "pixel-mouse",
+            "paste",
+            "client-death",
+            "detached-updates",
+            "reattach",
+            "zoom",
+            "swap",
+            "placement-reuse",
+            "standalone-escape",
+            "idle-upload-expiry",
+            "shutdown"
+          ]
+        },
+        {
+          "status": "pass",
+          "checks": [
+            "controlling-pty",
+            "fragmented-rgba",
+            "id-isolation",
+            "native-clipping",
+            "scoped-delete",
+            "reply-routing",
+            "keyboard-focus",
+            "pixel-mouse",
+            "paste",
+            "client-death",
+            "detached-updates",
+            "reattach",
+            "zoom",
+            "swap",
+            "placement-reuse",
+            "standalone-escape",
+            "idle-upload-expiry",
+            "shutdown"
+          ]
+        }
+      ]
+    }
+  }
+}

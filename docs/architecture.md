@@ -1,7 +1,7 @@
 # Current module contracts
 
 The live preview has one daemon per named session, one attached interactive
-client, and one or two independently owned application PTYs. The daemon stores
+client, and up to 16 independently owned application PTYs. The daemon stores
 text screens, compressed inline image assets, and immutable local frame snapshots; a client reconstructs presentation on
 attach. Applications never write to the outer terminal directly.
 
@@ -9,10 +9,13 @@ attach. Applications never write to the outer terminal directly.
 | --- | --- |
 | `platform.c`, `platform.lisp` | Controlling PTYs, argv execution, nonblocking I/O, poll, terminal modes, local sockets, process groups, bounded zlib calls |
 | `vt.lisp` | Incremental byte parser, basic text cells/rendition, cursor, alternate screen, modes, virtual terminal replies |
+| `history.lisp`, `layout.lisp` | Bounded main-screen row history and pure mixed split-tree geometry |
+| `extensions.lisp`, `builtins.lisp` | Public declaration/snapshot/action API and default commands/keymaps |
+| `worker.lisp`, `commands.lisp` | Worker transport and deadlines, atomic config replacement, validated actions, copy mode |
 | `graphics.lisp` | Pane-owned RGB/RGBA uploads, validation, compressed assets, native placements, deletion, quotas |
 | `assets.lisp` | Daemon-owned raw frame snapshots, byte quota, reference ownership and crash reclamation |
-| `wire.lisp` | Length-prefixed local IPC, wire version 2, bounded buffers, scene acknowledgements, private session directory |
-| `server.lisp` | Reactor, pane processes, two-pane layout, focus, input routing, snapshots, status, shutdown |
+| `wire.lisp` | Length-prefixed local IPC, wire version 3, bounded buffers, scene acknowledgements, private session directory |
+| `server.lisp` | Reactor, pane processes, layout application, focus, input routing, snapshots, status, shutdown |
 | `client.lisp` | Host input decoding, dimensions, text/Kitty rendering, per-client image IDs, terminal restoration |
 | `geometry.lisp`, `presentation.lisp` | Rational clipping and attachment identity/transaction contracts, also exercised by synthetic experiments |
 
@@ -46,10 +49,19 @@ Shutdown closes sockets/PTYS and signals owned process groups with a bounded
 escalation period. Socket startup uses an exclusive lock; peers must have the
 same OS UID. There is no network listener or eval RPC.
 
-This is a fixed two-pane preview. No extension code is executed or mounted.
-The public extension API and general split tree in GOAL.md remain unimplemented;
-the current key/layout/status policies are local functions. They must be separated
-behind that API before third-party policy is loaded.
+Configuration is trusted Lisp in a separate worker process. The daemon sends
+only declared metadata snapshots; callbacks return validated actions. Registration
+replacement reconstructs owned contributions while preserving session state.
+Hooks react only to declared context changes and may contribute status. Candidate
+loads run alongside the reactor; failed loads leave the active worker in place.
+A callback deadline kills the worker and reconstructs it from the accepted init
+text. Details and current restrictions are in [customization](customization.md).
+
+Command dispatch is asynchronous. Input following a command is deferred in a
+bounded queue, then replayed after the action commits, so focus/split commands
+route trailing bytes to the resulting pane. Main-screen history and frozen copy
+snapshots live in the daemon. Copy mode suppresses graphics presentation without
+releasing the application's image ownership; exit or reattachment reconstructs it.
 
 Local transport uses the existing Kitty `t=s` ingress and `t=f` egress protocols.
 Ingress currently accepts complete uncompressed RGB/RGBA shared objects only;
@@ -74,4 +86,4 @@ runtime directory's tmpfs. A daemon crash can leave snapshots there; startup
 under that session's exclusive lock reclaims them. Normal replacement, deletion,
 client death, and shutdown release references and unlink files. This is a bounded
 copy path, not zero-copy GPU sharing. Filesystem traffic and Kitty's pixel upload
-remain. Version 2 is a breaking attachment change: version 1 is rejected.
+remain. Version 3 adds configurable status metadata and command IPC; older attachments are rejected.

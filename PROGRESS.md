@@ -1,9 +1,21 @@
 # Implementation progress
 
-Active outcome: a live, testable two-pane preview. The browser/Slack benchmark
+Active outcome: a live, customizable multiplexer preview. The browser/Slack benchmark
 runs in Kitty on the Wayland desktop. A separate workspace launcher opens an
 interactive shell beside terminal-browser. The wider GOAL.md release and extension
 gates remain open; no P0, P1, or P2 release is claimed.
+
+Daily-use foundation (2026-09-05): Lisp init and reload, public commands/keymaps,
+declared status hooks, owner reconstruction, split trees, scrollback, and copy/search
+are implemented. Builtins use the public API; a separate bare executable is checked
+with an external init command. The worker has load/dispatch deadlines and recovers
+without stopping PTYs. Attachment IPC is now **version 3**; use a new session name.
+See [customization](docs/customization.md) for limits and examples. This is an
+initial extension surface, not completion of the wider release gates.
+`nix build -L`, `nix flake check -L`, CLI help, and the example init check exited
+zero. Final replay p95 was 6.82 ms, with about 7.0% combined Ekko CPU; the new
+worker adds 123.8 MiB sampled RSS. Evidence: [checks](docs/evidence/daily-checks.json)
+and [replay](docs/evidence/daily-performance.json).
 
 Local transport update (2026-09-05): raw shared-memory ingress, immutable daemon
 snapshots, filename IPC, capability-probed Kitty file egress, and acknowledged
@@ -11,8 +23,8 @@ scene lifetimes are implemented. CookUnity-sized replay p95 frame receipt is
 97.66 → 8.84 ms; combined Ekko CPU is about 70% → 9% of one core. No FPS or
 resolution cap is used. A pinned dependency patch makes browser transport
 preferences session-owned. The `cookunity-shared` workspace visibly uses the new
-path; physical display latency remains unmeasured. Attachment IPC is now version
-2; use a new session name. See docs/adr/003-local-frame-transport.md and the
+path; physical display latency remains unmeasured. This update introduced attachment
+IPC version 2 (superseded by version 3 above). See docs/adr/003-local-frame-transport.md and the
 performance report for resource ownership, fallback, evidence and limitations.
 `nix build -L`, `nix flake check -L`, and `nix run . -- --help` exited zero.
 
@@ -48,7 +60,9 @@ Implemented:
   replies, keyboard modes, pixel mouse routing, paste, and focus.
 - Pane-owned direct RGB/RGBA graphics with zlib, native placement, clipping,
   independent host IDs, scoped deletion, repeated frames, and reconstruction.
-- Two-pane layout, zoom, swap, divider adjustment, detach, status JSON, and stop.
+- Mixed split trees (up to 16 panes), dynamic creation/close, zoom, swap, resize, and rename.
+- Bounded main-screen history, frozen copy mode, line selection/search, and a daemon buffer.
+- Public Lisp commands/keymaps/options/status hooks, isolated worker deadlines, atomic reload, and owner inspection.
 - `nix run .#benchmark` for terminal-browser + local terminal-slack.
 - `nix run .#workspace` for the user's shell + terminal-browser.
 - Packaged integration tests for collision/clipping/reply/input isolation,
@@ -76,8 +90,8 @@ The current Nix runtime check additionally exercises the installed executable
 through actual PTYs and an independent restricted Kitty receiver. Final build
 and check results are recorded in docs/evidence/runtime.json.
 
-Limitations: one attached writer, one/two panes configured at startup, incomplete
-VT/terminfo compatibility, no scrollback or general split tree, no extensions.
+Limitations: one attached writer, incomplete VT/terminfo compatibility, line-only
+copy selection, no history reflow or host clipboard, and a bounded initial extension API.
 Graphics support is deliberately limited to the benchmark's native direct
 RGB/RGBA subset. Full PNG, placeholders, remaining transfer adapters, scaled placement,
 animation, compositor layers, and the remaining GOAL.md gates remain open.

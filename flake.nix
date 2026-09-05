@@ -67,6 +67,7 @@
             mkdir -p $out/lib
             cc -O2 -Wall -Wextra -Werror -fPIC -shared src/platform.c -o $out/lib/libekko-platform.so -lutil -lz
             sh scripts/build.sh
+            EKKO_BUILD_SYSTEM=ekko/core EKKO_OUTPUT=$PWD/ekko-bare sh scripts/build.sh
             EKKO_OUTPUT=$PWD/ekko-graphics-demo sbcl --no-userinit --no-sysinit \
               --non-interactive --load scripts/build-demo.lisp
           '';
@@ -76,6 +77,7 @@
           '';
           installPhase = ''
             install -Dm755 ekko $out/bin/ekko
+            install -Dm755 ekko-bare $out/bin/ekko-bare
             install -Dm755 ekko-graphics-demo $out/bin/ekko-graphics-demo
           '';
         };
@@ -109,6 +111,10 @@
         default = { type = "app"; meta.description = "Ekko terminal multiplexer CLI"; program = "${self.packages.${pkgs.system}.default}/bin/ekko"; };
       });
       checks = forEachSystem (pkgs: {
+        daily = pkgs.runCommand "ekko-daily" { nativeBuildInputs = [ pkgs.python3 ]; } ''
+          python ${./tests/daily.py} ${self.packages.${pkgs.system}.default}/bin/ekko > $out
+          python ${./tests/daily.py} ${self.packages.${pkgs.system}.default}/bin/ekko-bare bare >> $out
+        '';
         runtime = pkgs.runCommand "ekko-runtime" { nativeBuildInputs = [ pkgs.python3 ]; } ''
           python ${./tests/runtime.py} ${self.packages.${pkgs.system}.default}/bin/ekko > $out
         '';

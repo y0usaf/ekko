@@ -49,23 +49,7 @@
     (check (equalp (packet-payloads wire)
                    (list (bytes 27 91 57 56 59 53 117) (bytes 122)))
            "kitty prefix command"))
-  ;; Test dispatch, not just framing: changing focus must not swallow the
-  ;; trailing bytes, whether Ctrl-b was raw, fragmented, or Kitty-encoded.
-  (dolist (parts (list (list (bytes 2 50 82 73 71 72 84))
-                      (list (bytes 2) (bytes 50 82 73 71 72 84))
-                      (list (bytes 27 91 57 56 59 53 117 50 82 73 71 72 84))))
-    (multiple-value-bind (viewer wire) (make-input-viewer)
-      (let* ((left (ekko/runtime::make-pane :id 1 :vt (ekko/vt:make-terminal)
-                                           :io (ekko/runtime::make-wire :fd -1)))
-             (right (ekko/runtime::make-pane :id 2 :vt (ekko/vt:make-terminal)
-                                            :io (ekko/runtime::make-wire :fd -1)))
-             (session (ekko/runtime::make-session :panes (list left right))))
-        (dolist (part parts) (ekko/runtime::input-feed viewer part (length part)))
-        (dolist (payload (packet-payloads wire)) (ekko/runtime::input-key session payload))
-        (check (= (ekko/runtime::session-focus session) 1) "batched focus command")
-        (check (null (ekko/runtime::wire-queue (ekko/runtime::pane-io left))) "input left old pane")
-        (check (equalp (ekko/runtime::wire-queue (ekko/runtime::pane-io right))
-                       (list (bytes 82 73 71 72 84))) "input follows focus change"))))
+  ;; Actual asynchronous focus/input ordering is exercised through real PTYs.
   ;; A drained queue must release its tail so the next append starts a fresh
   ;; list and does not splice into the retired one.
   (ekko/platform:initialize)

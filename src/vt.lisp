@@ -9,7 +9,7 @@
 
 (defstruct (terminal (:constructor %make-terminal))
   (cols 80) (rows 24) (cw 8) (ch 16) (x 0) (y 0) (saved '(0 0))
-  cells main-cells (screen :main) (top 0) (bottom 23) (visible t)
+  cells main-cells history (screen :main) (top 0) (bottom 23) (visible t)
   (rendition '(0)) (modes (make-hash-table)) (keyboards '(0))
   (parser :ground) (buffer (make-array 0 :element-type '(unsigned-byte 8)
                                      :adjustable t :fill-pointer 0))
@@ -19,12 +19,18 @@
   (%make-terminal :cols cols :rows rows :cw cw :ch ch :bottom (1- rows)
                   :cells (blank-cells cols rows)))
 (defun resize-terminal (vt cols rows cw ch)
-  (let ((cells (blank-cells cols rows)))
-    (loop for y below (min rows (terminal-rows vt)) do
-      (loop for x below (min cols (terminal-cols vt)) do
-        (setf (aref cells (+ x (* y cols)))
-              (aref (terminal-cells vt) (+ x (* y (terminal-cols vt)))))))
-    (setf (terminal-cells vt) cells (terminal-main-cells vt) nil
+  (labels ((resized (old)
+             (when old
+               (let ((cells (blank-cells cols rows)))
+                 (loop for y below (min rows (terminal-rows vt)) do
+                   (loop for x below (min cols (terminal-cols vt)) do
+                     (let ((cell (aref old (+ x (* y (terminal-cols vt))))))
+                       ;; Do not leave half a wide glyph at the new right edge.
+                       (unless (and (= x (1- cols)) (plusp (length (first cell)))
+                                    (= 2 (character-width (char (first cell) 0))))
+                         (setf (aref cells (+ x (* y cols))) cell))))) cells))))
+    (setf (terminal-cells vt) (resized (terminal-cells vt))
+          (terminal-main-cells vt) (resized (terminal-main-cells vt))
           (terminal-cols vt) cols (terminal-rows vt) rows (terminal-cw vt) cw (terminal-ch vt) ch
           (terminal-top vt) 0 (terminal-bottom vt) (1- rows)
           (terminal-x vt) (min (terminal-x vt) (1- cols))
@@ -42,6 +48,10 @@
   (let* ((cols (terminal-cols vt)) (cells (terminal-cells vt))
          (top (* cols (terminal-top vt))) (end (* cols (1+ (terminal-bottom vt))))
          (n (* cols (min (abs amount) (- (1+ (terminal-bottom vt)) (terminal-top vt))))))
+    (when (and (plusp amount) (eq (terminal-screen vt) :main)
+               (zerop (terminal-top vt)) (= (terminal-bottom vt) (1- (terminal-rows vt))))
+      (loop for offset from 0 below n by cols do
+        (remember-row vt (subseq cells offset (+ offset cols)))))
     (if (plusp amount)
         (progn (replace cells cells :start1 top :start2 (+ top n) :end2 end)
                (clear-range vt (- end n) end))
@@ -51,10 +61,11 @@
 (defun newline (vt emit)
   (if (= (terminal-y vt) (terminal-bottom vt)) (scroll-lines vt 1 emit)
       (setf (terminal-y vt) (min (1- (terminal-rows vt)) (1+ (terminal-y vt))))))
+(defun character-width (char)
+  (cond ((member (sb-unicode:general-category char) '(:mn :me :cf)) 0)
+        ((member (sb-unicode:east-asian-width char) '(:w :f)) 2) (t 1)))
 (defun put-character (vt char emit)
-  (let* ((category (sb-unicode:general-category char))
-         (width (cond ((member category '(:mn :me :cf)) 0)
-                      ((member (sb-unicode:east-asian-width char) '(:w :f)) 2) (t 1)))
+  (let* ((width (character-width char))
          (cols (terminal-cols vt)))
     (when (zerop width)
       (when (plusp (terminal-x vt))
