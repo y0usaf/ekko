@@ -1,232 +1,128 @@
-# ekko
+# Ekko v2
 
-An **extension-first** terminal multiplexer with zellij-class robustness and
-an unboxed chrome themed from the host terminal's own colors —
-project/session sidebar, one fullscreen terminal, a single statusbar row — in
-front of a detachable session daemon.
+A Linux/SBCL terminal multiplexer with real PTYs, a persistent session daemon,
+text terminals, and a limited Kitty graphics implementation. Each pane can run
+an ordinary shell, a terminal application, or terminal-browser. Ekko manages the
+panes; the Kitty graphics protocol draws images inside them.
 
-Every stock feature (sidebar, statusbar, command mode, keybinds, theme,
-resurrection manifests, ...) is implemented as an extension in `ekko-builtins`
-through the public `ekko-ext` API — see `DESIGN.md` for The Rule and the
-extension surface contract. Building with `--no-default-features` yields the
-bare harness: attach, raw key passthrough, fullscreen grid, nothing else.
-
-## Design
-
-- **Client/server**: a daemon owns the PTYs and per-session `vt100` state;
-  sessions survive client exit. Clients attach over a versioned Unix socket
-  (`$XDG_RUNTIME_DIR/ekko/wire_vN/<session>`); incompatible builds never find
-  each other's sockets.
-- **Structured frames, client-side chrome**: the server streams cell-grid
-  updates for the watched session; the client composites with a
-  damage-tracked cell surface + diffed ANSI writer. All chrome is drawn by
-  surface extensions that claim docked regions of the frame.
-- **Core as mechanism, extensions as policy**: both the client and the
-  daemon host an extension runtime. Extensions register commands, keybinds,
-  modes, surfaces, overlays, themes, and lifecycle-event handlers; they read
-  immutable snapshots and write only through returned actions, so the render
-  loop never blocks on an extension.
-- **Terminal fidelity**: server-side scrollback with a client scroll mode
-  and wheel scrolling, drag-select + OSC 52 copy, mouse passthrough to
-  mouse-aware TUIs (SGR and legacy encodings), bracketed paste re-wrapped
-  for the child, window-title and OSC 52 clipboard passthrough, DECSCUSR
-  cursor shapes, focus reporting (mode 1004), grapheme clusters (combining
-  marks, ZWJ emoji), and italic rendering.
-- **Robustness**: per-child reaper threads (SIGTERM escalation, no zombies),
-  panic hooks routed onto the server's message bus, dedicated PTY reader and
-  writer threads with byte-capped backpressure in both directions, debounced
-  SIGWINCH, slow-client eviction, and session resurrection manifests
-  (`~/.cache/ekko/...`).
-
-## Workspace
-
-| Crate | Responsibility |
-|---|---|
-| `ekko` | CLI binary: `attach`, `new`, `ls`, `kill`, `send`, `dump`, hidden `--server` mode |
-| `ekko-event` | Extension event vocabulary (`EventKind`, `EventReturn`, `UiAction`) |
-| `ekko-ext` | Public extension API: registries, runtime, dispatch, `DrawContext`, dock layout |
-| `ekko-builtins` | **All stock features**, registered through `ekko-ext` like any extension |
-| `ekko-proto` | Wire messages, bincode framing, versioned socket paths |
-| `ekko-pty` | PTY spawn (openpty + login_tty), reaper, non-blocking writes |
-| `ekko-server` | Daemon: hub, session actors, pty writer, extension host |
-| `ekko-resurrection` | Session-manifest I/O library (used by the resurrection builtin and `ekko ls`) |
-| `ekko-paths` | Single owner of XDG/env path resolution (cache/config/socket roots) |
-| `ekko-client` | Attach client: event loop, snapshot building, extension host, action interpreter |
-| `ekko-keycast` | Keystroke display for screencasts (`:keycast`) — a non-builtin extension in its own crate |
-| `ekko-lua` | Lua scripting bridge: `~/.config/ekko/extensions/*.lua` become extensions, with instruction budgets and buffered draw ops |
-| `ekko-grid` | Cell surface, damage tracking, diffed ANSI renderer (from phi-grid) |
-| `ekko-tui` | Raw mode, terminal caps, cell-width/spinner primitives (from phi-tui / pi-harness) |
-| `ekko-config` | Config schema (`keybinds`, `extensions.disabled`, …) and config cascade policy — `init.lua` evaluation lives in `ekko-lua` |
-
-`ref/` holds local checkouts of zellij, phi, and pi-harness used as design
-references; it is not part of the build.
-
-## Usage
+Open your shell beside terminal-browser in a new Kitty window:
 
 ```sh
-ekko                  # start + attach a fresh session in the current directory
-ekko new [name]       # create + attach a session (named, or auto-named)
-ekko attach <name>    # attach; respawns from a resurrection manifest if needed
-ekko ls [--json]      # list live + resurrectable sessions (JSON lines for scripts)
-ekko kill <name>      # kill a session
-ekko send <name> <s>  # inject bytes into a session's primary pane (\n \r \t \xNN escapes)
-ekko dump <name>      # print a session's scrollback to stdout: `ekko dump work | grep error`
+nix run .#workspace
 ```
 
-Non-attach verbs are scriptable Unix citizens: data on stdout (`ls`,
-`dump`), diagnostics on stderr, and exit code 3 when the named session
-doesn't exist.
+Open the browser/Slack benchmark:
 
-Unnamed sessions are named by the registered session-namer extension; the
-stock policy is the tilde-abbreviated working directory plus a random word
-pair — `~/Dev/ekko polished-lemur` — so `ekko ls` and `EKKO_SESSION_NAME`
-read like places, and the sidebar's project grouping (by parent directory
-of each session's cwd) stays orthogonal to display names. A user extension
-(Rust or Lua `register_session_namer`) replaces the scheme wholesale; the
-host still sanitizes, uniquifies, and falls back to `session-<hex>` if no
-namer is registered.
+```sh
+nix run .#benchmark
+```
 
-Inside, navigation lives on the alt layer (nothing steals the control bytes
-your shell depends on):
+Both launchers use Ekko's pinned terminal-browser source, with a small patch
+to read transport preferences from the requesting browser session. The browser
+build wrapper comes from `~/dev/sandbox/terminal-slack`. The benchmark runs that checkout's real Slack
+wrapper in the second pane. Slack starts at its sign-in screen when its browser
+profile has no session. First launch can require downloads and a browser build.
+
+Options: `--current-terminal`, `--session NAME`, and `--browser-url URL`.
+`EKKO_SLACK_SOURCE` selects another checkout; `EKKO_SHELL` selects the workspace
+shell; `TERMINAL_SLACK_URL` selects the Slack URL. Default session names are
+`workspace` and `benchmark`. Running a launcher again attaches to its existing
+session; use a different name to create another workspace.
+
+Inside an existing terminal, launch arbitrary argument vectors with `:::`
+between the two pane commands. For example, two shells:
+
+```sh
+nix run . -- run --session shells "$SHELL" -i ::: "$SHELL" -i
+```
+
+Commands execute directly, without shell interpolation. Use `sh -c '...'`
+explicitly when needed. A single command also works.
 
 | Keys | Action |
-|---|---|
-| `alt+j` / `alt+k` (or `alt+↓`/`alt+↑`) | next / prev session |
-| `alt+h` / `alt+l` (or `alt+←`/`alt+→`) | prev / next project |
-| `alt+n` | new session |
-| `alt+x` | kill session (lands on a neighbor) |
-| `alt+e` | command mode (`:q`, `:detach`, `:new [name]`, `:switch <name>`, `:kill`, `:help`, `:keycast`, `:split right\|down`, `:pane-focus <dir>`, `:pane-close`) |
-| `alt+s` | scroll mode (`j`/`k` line, `u`/`d` half page, PgUp/PgDn page, `g` top, `G` live, `/` search + `n`/`N` jump, `e` edit scrollback in `$EDITOR`, `q`/Esc exit) |
-| `alt+/` | help overlay |
-| `ctrl+space` | leader: a which-key panel of every `mode = "leader"` binding (`e` command mode, `s` scroll, `n` new session, `d` detach, `b` toggle sidebar, `?` help, `\|` split right, `-` split down, `h`/`j`/`k`/`l` focus pane, `x` close pane) |
-| `ctrl+space ctrl+space` | toggle the session sidebar (leader chord again inside leader mode) |
-| `ctrl+q` | detach |
+| --- | --- |
+| Ctrl-b, then Tab / 1 / 2 | Switch focus |
+| Mouse click | Focus and interact with the clicked application |
+| Ctrl-b, then z | Toggle focused-pane zoom |
+| Ctrl-b, then s | Swap panes |
+| Ctrl-b, then < / > | Resize the divider |
+| Ctrl-b, then d | Detach, keeping applications running |
+| Ctrl-b, then x | Close the focused pane's process group |
+| Ctrl-b, then q | Stop the session |
+| Ctrl-b, then Ctrl-b | Send Ctrl-b to the application |
 
-The mouse wheel scrolls history directly (arrow keys on the alternate
-screen); while scrolled, a pane shows its `offset/total` in the top-right
-corner, drag-selecting keeps the highlight glued to its content across
-scrolls, and holding a drag at the pane's top/bottom edge autoscrolls; dragging with the left button selects text and copies it to the
-system clipboard via OSC 52 on release. When the program inside requests
-mouse tracking, mouse events are forwarded to it instead.
-
-The statusbar shows the live chord set, so the defaults are always on
-screen. All keybinds are configurable under `[keybinds]` in the config
-(`ctrl+<letter>`, `ctrl+space`, `alt+<char>`, arrow-key chords, and — for
-mode-scoped bindings like the leader map — bare printables and `space`; one
-action can take a list of chords). Leader entries rebind as
-`"leader.<action>" = "<key>"`, the chord itself as `leader = "..."`.
-
-## Configuration
-
-`~/.config/ekko/init.lua` is the only config file. It evaluates — under an
-instruction budget, in a throwaway
-Lua state — to a table congruent with the config schema:
-
-```lua
-return {
-  general = { default_shell = "/run/current-system/sw/bin/nu", scrollback_lines = 50000 },
-  ui = { sidebar_width = 28, pane_borders = "compact", pane_layout = "manual", animation_interval_ms = 80 }, -- borders: "none" | "compact" | "frame"; layout: "manual" | "equal"
-  keybinds = { detach = "ctrl+q", session_next = { "ctrl+j", "ctrl+down" } },
-  extensions = { disabled = { "ekko-builtins.sidebar" } },
-  lua = { draw_budget = 200000, handler_budget = 2000000 },
-}
+```sh
+nix run . -- attach workspace
+nix run . -- status workspace    # JSON: PIDs, dimensions, frames, errors, bytes
+nix run . -- stop workspace
+nix run . -- doctor --restore-terminal
 ```
 
-The `lua` section sets the instruction budgets scripts run under:
-`draw_budget` for render-path callbacks (draw / `visible` / `wants_tick`),
-`handler_budget` for everything else (commands, keybindings, events,
-`register()` itself). Bootstrap exception: `init.lua` and a script's
-top-level chunk are evaluated before any config applies, so they always run
-under the defaults shown above — config can raise the budgets scripts run
-under, but not the budget it is itself read under.
+Closing the window leaves the session running. `stop` terminates its owned
+process groups. Recovery restores terminal modes after an unclean client exit.
 
-Being Lua, conditionals and env dispatch come for free; ekko only ever sees
-the returned table (config declares data — it cannot register callbacks).
-Unknown keys warn and are ignored, since config files outlive binaries, but
-a *broken* `init.lua` is a hard error: refusing to start beats silently
-running on defaults, so there is no fall-through to a coexisting
-Without `init.lua`, defaults apply. A stale `config.toml` is rejected with
-an error directing you to migrate to `init.lua`. The client and the per-session
-daemon load the same cascade, and scripts read the resolved result as a
-read-only `ekko.config` table.
+This is a two-pane preview, not a P0/P1/P2 release. Dynamic pane creation,
+arbitrary split trees, scrollback/copy mode, and extensions are not implemented.
+Most runtime policy is Common Lisp, but customization currently means editing
+source and rebuilding. A user init file, public commands/hooks, configurable
+keymaps, and live reload are planned; Emacs-style customization is not yet available.
+Text emulation covers the tested shell baseline, not complete xterm behavior.
+Graphics currently support direct RGB/RGBA, optional zlib compression, local
+uncompressed RGB/RGBA shared-memory transfers, native
+pixel placements, pane-scoped deletion, clipping, updates, and reconnect. PNG,
+child file/temporary-file transport, Unicode placeholders, scaled placements, animation,
+and complete keyboard/clipboard negotiation are unsupported. The launchers negotiate local shared-memory frames. Ekko snapshots them into
+owned files and negotiates file delivery with the outer terminal; hosts without
+local-file access receive inline frames. No frame-rate or resolution cap is imposed.
+Set `TERMINAL_BROWSER_FRAMES=inline` to compare the older transport.
 
-`ui.animation_interval_ms` controls the client animation tick cadence (default
-80ms; values are clamped to 8–1000ms). `ui.pane_layout` selects pane sizing: `"manual"` (default, preserving the
-BSP split behavior) or `"equal"` (recomputes a proportional equal-area layout
-when panes are added or closed). `ui.pane_borders` picks how tiled panes are separated: `"none"` (default,
-edge-to-edge), `"compact"` (zellij-style shared boundary lines with
-junction glyphs), or `"frame"` (a full box frame around every pane). The
-daemon owns the canvas, so it reserves the separator cells in the layout
-and tells clients the style over the wire — set it in the config the
-server reads; the boundary touching the focused pane is tinted with the
-theme's accent color. `ui.border_glyphs` optionally replaces the
-box-drawing glyphs with three ASCII/custom characters for the client-side
-separator rendering: `{ horizontal = "-", vertical = "|", junction = "+" }`
-(omitted → box-drawing glyphs).
+This changes attachment IPC to version 2. Existing daemons keep their executable;
+start a **new session name** to use the new transport. Incompatible attachments
+are rejected explicitly.
 
-Disabling a builtin under `extensions.disabled` and re-registering its name
-from a script is the supported way to replace any stock feature wholesale —
-every registry (modes, spinners, the session grouper included) is bridged.
+Build and verify the packaged executable:
 
-## Lua extensions
-
-Scripts in `~/.config/ekko/extensions/*.lua` load as extensions with the same
-standing as the builtins (duplicate names fail the build loudly; broken
-scripts are skipped with a logged warning). A script returns its manifest
-plus a `register(ekko)` function:
-
-```lua
-local ext = { id = "user.hello", name = "hello", version = "0.1.0" }
-
-function ext.register(ekko)
-  ekko.register_command({
-    name = "hello",
-    description = "say hello",
-    handler = function(args)
-      return { { set_status_note = { text = "hello " .. args, kind = "ok" } } }
-    end,
-  })
-  ekko.register_surface({
-    name = "hello-bar", dock = "top", size = 1,
-    draw = function(ctx, snapshot)
-      ctx.put_text(0, 0, 40, "accent", "surface", "session: " .. snapshot.session_name)
-    end,
-  })
-  ekko.subscribe("bell", function(payload) end)
-end
-
-return ext
+```sh
+nix build
+nix flake check
+nix run . -- --help
 ```
 
-Every `ExtensionHost` registry is bridged: `ekko.register_command` /
-`register_keybinding` / `register_surface` / `register_overlay` /
-`register_mode` / `register_theme` / `register_spinner` /
-`register_session_grouper` / `register_session_namer` / `subscribe`. A
-surface's `size` is a fixed integer or a scaled table
-(`{ preferred =, min =, fraction =, min_remaining = }`), and
-`hide_below = { cols =, rows = }` skips it on small frames. Every
-callback runs under an instruction budget, and draw calls are buffered ops
-replayed only if the callback returns cleanly — a runaway script errors out
-instead of wedging the terminal.
+Checks include independent graphics receivers, real PTYs, reply and input routing,
+clipping, scoped deletion, client death, reconnect, zoom/swap, shell job control,
+and terminal restoration. The original synthetic fixtures remain under
+`nix run .#demo-graphics`. The isolated Xvfb precursor is `nix run .#test-kitty`;
+its GLX limitation is separate from the working live Wayland launch.
 
-A manifest's optional `host` field declares which process runs the script:
-`"client"` (the default), `"server"` for the per-session daemon (e.g.
-gating `before_pty_spawn`), or `"both"`. A `"both"` script is evaluated
-independently in each process — two Lua states sharing nothing; the halves
-communicate through events like any other extensions. The daemon evaluates
-scripts once at session start: editing a server script takes effect on the
-next session (`ekko kill` + resurrection is the reload path), while client
-scripts reload on the next attach.
+`nix develop` supplies SBCL, a C toolchain, zlib, and Python. Native fallback:
+`sh scripts/build.sh`, then `sh scripts/test.sh`. The executable disables Lisp
+init files, needs no Quicklisp cache, and ships its OS adapter in the Nix closure.
 
-A keybinding registered with `mode = "leader"` becomes a leader-map entry:
-the host dispatches it while the leader mode is active, and the which-key
-panel lists it automatically. `examples/leader-map.lua` shows leaf entries
-(return `"exit_mode"` ahead of the action) and a sticky, repeatable one.
+Measure fixed idle, scrolling-text, 1 MiB graphics, and 16 KiB paste workloads:
 
-An overlay registered with `attach_mode = "leader"` (or any mode name) is
-mode-attached: the host opens it when that mode is entered and closes it
-when the mode exits. While its mode is active the overlay is render-only —
-keys keep flowing to the mode, so e.g. a session-list popup can track
-sticky leader-map navigation live alongside the which-key panel. Opened
-explicitly (`open_overlay`) outside its mode, it behaves like any other
-overlay and owns the keys.
+```sh
+nix run .#performance -- --seconds 5 > performance.json
+nix run .#performance -- --seconds 5 --direct > direct-pty.json
+```
+
+For larger animated pages, increase frame size and rate:
+
+```sh
+nix run .#performance -- --seconds 5 --graphics-size 1274 1368 --graphics-fps 30
+nix run .#performance -- --seconds 5 --workload graphics --transport shared \
+  --graphics-size 1274 1368 --graphics-fps 30
+```
+
+`--graphics-frame /path/to/frame.rgba` replays raw RGBA pixels of that size;
+the benchmark replaces the first eight bytes with its timestamp.
+
+The JSON records per-process CPU, sampled RSS, voluntary context switches,
+terminal bytes, input latency, graphics transfer latency, and daemon allocation/GC
+counters. `--direct` runs the same fixture directly in a PTY. These synthetic
+measurements exclude Kitty rendering and physical display latency; the live
+browser/Slack launcher remains `.#benchmark`. See [performance](docs/performance.md)
+for workload details and recorded comparisons.
+
+See [PROGRESS.md](PROGRESS.md), [architecture](docs/architecture.md), and the
+[compatibility ledger](docs/compatibility.md). The destination specification is
+[GOAL.md](GOAL.md). Sibling Ekko implementation code was not used.

@@ -1,0 +1,5 @@
+(require "asdf")
+(let ((root (truename (or (uiop:getenv "EKKO_SOURCE_DIR") "."))))
+  (setf asdf:*central-registry* (list root))
+  (asdf:test-system "ekko")
+  (uiop:quit 0))

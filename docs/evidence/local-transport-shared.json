@@ -1,0 +1,60 @@
+{
+  "schema_version": 1,
+  "binary": "/nix/store/rngv7lx1g3xmicvz1jhmd015wdpsq0dw-ekko-0.1.0/bin/ekko",
+  "platform": "Linux-7.2.0-x86_64-with-glibc2.40",
+  "cpu": "AMD Ryzen 9 7950X 16-Core Processor",
+  "direct_pty": false,
+  "viewport": [
+    120,
+    40,
+    960,
+    640
+  ],
+  "graphics": {
+    "width": 1274,
+    "height": 1368,
+    "target_fps": 30.0,
+    "transport": "shared",
+    "frame_file": "/tmp/ekko-cookunity.rgba"
+  },
+  "notes": "Synthetic PTY receiver; excludes Kitty rendering/display. RSS is sampled, not peak. CPU window excludes final drain. Allocation/GC are daemon-only when available.",
+  "workloads": [
+    {
+      "mode": "graphics",
+      "elapsed_seconds": 5.003809604997514,
+      "terminal_bytes": 29580,
+      "input_to_pty": {
+        "count": 49,
+        "p50_ms": 0.104809,
+        "p95_ms": 1.442397
+      },
+      "frame_to_terminal_receipt": {
+        "count": 136,
+        "p50_ms": 6.632769,
+        "p95_ms": 8.837896
+      },
+      "processes": {
+        "client": {
+          "cpu_percent_one_core": 0.7993909272657043,
+          "voluntary_context_switches": 344,
+          "rss_bytes_start": 119820288,
+          "rss_bytes_end": 119820288
+        },
+        "daemon": {
+          "cpu_percent_one_core": 8.193757004473468,
+          "voluntary_context_switches": 310,
+          "rss_bytes_start": 120279040,
+          "rss_bytes_end": 120279040
+        },
+        "fixture": {
+          "cpu_percent_one_core": 6.794822881758487,
+          "voluntary_context_switches": 937,
+          "rss_bytes_start": 62971904,
+          "rss_bytes_end": 62267392
+        }
+      },
+      "daemon_allocated_bytes_delta": 18776064,
+      "daemon_gc_seconds_delta": 0.0
+    }
+  ]
+}

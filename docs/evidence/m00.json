@@ -1,0 +1,37 @@
+{
+  "milestone": "M00",
+  "date": "2026-09-04",
+  "status": "pass",
+  "system": "x86_64-linux",
+  "nix": "2.34.8",
+  "nixpkgs": "ac62194c3917d5f474c1a844b6fd6da2db95077d",
+  "sbcl": "2.5.4",
+  "asdf": "3.3.1",
+  "artifact": "/nix/store/j29walsjh92iiv99s96pqf96czp4j9li-ekko-0.1.0",
+  "checks": [
+    {
+      "command": "nix build --print-out-paths",
+      "exit": 0
+    },
+    {
+      "command": "nix flake check",
+      "exit": 0
+    },
+    {
+      "command": "nix run . -- --help",
+      "exit": 0
+    }
+  ],
+  "coverage": [
+    "M00 CLI arguments and stdout/stderr/status",
+    "B01/I17 initial CLI packaging: installed image outside checkout, empty caches, hostile Lisp init"
+  ],
+  "not_covered": [
+    "runtime multiplexer",
+    "P0 graphics",
+    "full B01 resources required by future milestones",
+    "P1",
+    "P2"
+  ],
+  "resolved_failure": "Nix strip removed appended SBCL core; disable strip and ELF patching and test installed artifact."
+}

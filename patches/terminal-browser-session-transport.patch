@@ -1,0 +1,23 @@
+--- a/engine/crates/pixel-core/src/terminal.rs
++++ b/engine/crates/pixel-core/src/terminal.rs
+@@ -402,7 +402,7 @@
+         if terminal.herdr.is_none() && terminal.herdr_target.is_some() {
+             terminal.herdr_retry = Some((Instant::now() + HERDR_RETRY_MIN, HERDR_RETRY_MIN));
+         }
+-        terminal.transport = terminal.probe_transport()?;
++        terminal.transport = terminal.probe_transport(&env)?;
+         terminal.color_scheme_updates = terminal.probe_color_scheme()?;
+         if terminal.color_scheme_updates {
+             terminal.io.out().write_all(b"\x1b[?2031h")?;
+@@ -430,9 +430,8 @@
+         self.io.out().flush()
+     }
+ 
+-    fn probe_transport(&mut self) -> io::Result<FrameTransport> {
+-        if let Some(forced) = std::env::var("TERMINAL_BROWSER_FRAMES")
+-            .ok()
++    fn probe_transport(&mut self, env: &SessionEnv) -> io::Result<FrameTransport> {
++        if let Some(forced) = env.var("TERMINAL_BROWSER_FRAMES")
+             .and_then(|value| match value.trim() {
+                 "file" => Some(FrameTransport::File),
+                 "shared" | "shm" => Some(FrameTransport::Shared),

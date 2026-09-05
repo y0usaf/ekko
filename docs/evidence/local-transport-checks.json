@@ -1,0 +1,125 @@
+{
+  "commands": [
+    "nix build -L",
+    "nix flake check -L",
+    "nix run . -- --help"
+  ],
+  "exit_codes": [
+    0,
+    0,
+    0
+  ],
+  "runtime_derivation_output": "/nix/store/ds4nqh64q7vfpmx76391xmvmf3x44g0s-ekko-runtime",
+  "runtime_case_order": [
+    "inline",
+    "shell-job-control",
+    "shared-to-file",
+    "shared-to-inline-rejection",
+    "shared-to-inline-timeout"
+  ],
+  "runtime_reports": [
+    {
+      "status": "pass",
+      "checks": [
+        "controlling-pty",
+        "fragmented-rgba",
+        "id-isolation",
+        "native-clipping",
+        "scoped-delete",
+        "reply-routing",
+        "keyboard-focus",
+        "pixel-mouse",
+        "paste",
+        "client-death",
+        "detached-updates",
+        "reattach",
+        "zoom",
+        "swap",
+        "placement-reuse",
+        "standalone-escape",
+        "idle-upload-expiry",
+        "shutdown"
+      ]
+    },
+    {
+      "status": "pass",
+      "checks": [
+        "shell-beside-graphics",
+        "shell-output",
+        "ctrl-z",
+        "foreground-job",
+        "ctrl-c",
+        "sigterm-restores-terminal"
+      ]
+    },
+    {
+      "status": "pass",
+      "checks": [
+        "controlling-pty",
+        "fragmented-rgba",
+        "id-isolation",
+        "native-clipping",
+        "scoped-delete",
+        "reply-routing",
+        "keyboard-focus",
+        "pixel-mouse",
+        "paste",
+        "client-death",
+        "detached-updates",
+        "reattach",
+        "zoom",
+        "swap",
+        "placement-reuse",
+        "standalone-escape",
+        "idle-upload-expiry",
+        "shutdown"
+      ]
+    },
+    {
+      "status": "pass",
+      "checks": [
+        "controlling-pty",
+        "fragmented-rgba",
+        "id-isolation",
+        "native-clipping",
+        "scoped-delete",
+        "reply-routing",
+        "keyboard-focus",
+        "pixel-mouse",
+        "paste",
+        "client-death",
+        "detached-updates",
+        "reattach",
+        "zoom",
+        "swap",
+        "placement-reuse",
+        "standalone-escape",
+        "idle-upload-expiry",
+        "shutdown"
+      ]
+    },
+    {
+      "status": "pass",
+      "checks": [
+        "controlling-pty",
+        "fragmented-rgba",
+        "id-isolation",
+        "native-clipping",
+        "scoped-delete",
+        "reply-routing",
+        "keyboard-focus",
+        "pixel-mouse",
+        "paste",
+        "client-death",
+        "detached-updates",
+        "reattach",
+        "zoom",
+        "swap",
+        "placement-reuse",
+        "standalone-escape",
+        "idle-upload-expiry",
+        "shutdown"
+      ]
+    }
+  ]
+}

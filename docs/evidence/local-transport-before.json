@@ -1,0 +1,170 @@
+{
+  "schema_version": 1,
+  "binary": "/nix/store/52jgsbjfgr4fxz4x51xqyxnn9ikb8p7c-ekko-0.1.0/bin/ekko",
+  "platform": "Linux-7.2.0-x86_64-with-glibc2.40",
+  "cpu": "AMD Ryzen 9 7950X 16-Core Processor",
+  "direct_pty": false,
+  "viewport": [
+    120,
+    40,
+    960,
+    640
+  ],
+  "graphics": {
+    "width": 1274,
+    "height": 1368,
+    "target_fps": 30.0,
+    "frame_file": "/tmp/ekko-cookunity.rgba"
+  },
+  "notes": "Synthetic PTY receiver; excludes Kitty rendering/display. RSS is sampled, not peak. CPU window excludes final drain. Allocation/GC are daemon-only when available.",
+  "workloads": [
+    {
+      "mode": "idle",
+      "elapsed_seconds": 3.0049906150088646,
+      "terminal_bytes": 0,
+      "input_to_pty": {
+        "count": 0,
+        "p50_ms": null,
+        "p95_ms": null
+      },
+      "frame_to_terminal_receipt": {
+        "count": 0,
+        "p50_ms": null,
+        "p95_ms": null
+      },
+      "processes": {
+        "client": {
+          "cpu_percent_one_core": 0.0,
+          "voluntary_context_switches": 18,
+          "rss_bytes_start": 107200512,
+          "rss_bytes_end": 107200512
+        },
+        "daemon": {
+          "cpu_percent_one_core": 0.0,
+          "voluntary_context_switches": 3,
+          "rss_bytes_start": 106971136,
+          "rss_bytes_end": 106971136
+        },
+        "fixture": {
+          "cpu_percent_one_core": 0.3327797414758485,
+          "voluntary_context_switches": 595,
+          "rss_bytes_start": 42708992,
+          "rss_bytes_end": 42708992
+        }
+      },
+      "daemon_allocated_bytes_delta": 0,
+      "daemon_gc_seconds_delta": 0.0
+    },
+    {
+      "mode": "text",
+      "elapsed_seconds": 3.0039233159914147,
+      "terminal_bytes": 338505,
+      "input_to_pty": {
+        "count": 30,
+        "p50_ms": 0.04508,
+        "p95_ms": 0.12876
+      },
+      "frame_to_terminal_receipt": {
+        "count": 0,
+        "p50_ms": null,
+        "p95_ms": null
+      },
+      "processes": {
+        "client": {
+          "cpu_percent_one_core": 0.3328979786789132,
+          "voluntary_context_switches": 101,
+          "rss_bytes_start": 107139072,
+          "rss_bytes_end": 107139072
+        },
+        "daemon": {
+          "cpu_percent_one_core": 0.3328979786789132,
+          "voluntary_context_switches": 88,
+          "rss_bytes_start": 107708416,
+          "rss_bytes_end": 107708416
+        },
+        "fixture": {
+          "cpu_percent_one_core": 0.0,
+          "voluntary_context_switches": 621,
+          "rss_bytes_start": 42688512,
+          "rss_bytes_end": 42688512
+        }
+      },
+      "daemon_allocated_bytes_delta": 8355840,
+      "daemon_gc_seconds_delta": 0.0
+    },
+    {
+      "mode": "graphics",
+      "elapsed_seconds": 3.004051187017467,
+      "terminal_bytes": 139362788,
+      "input_to_pty": {
+        "count": 29,
+        "p50_ms": 8.012748,
+        "p95_ms": 56.860283
+      },
+      "frame_to_terminal_receipt": {
+        "count": 54,
+        "p50_ms": 87.644457,
+        "p95_ms": 97.354551
+      },
+      "processes": {
+        "client": {
+          "cpu_percent_one_core": 19.30726089177746,
+          "voluntary_context_switches": 34139,
+          "rss_bytes_start": 129474560,
+          "rss_bytes_end": 158392320
+        },
+        "daemon": {
+          "cpu_percent_one_core": 49.59968746335934,
+          "voluntary_context_switches": 235,
+          "rss_bytes_start": 165416960,
+          "rss_bytes_end": 223416320
+        },
+        "fixture": {
+          "cpu_percent_one_core": 83.55383592820935,
+          "voluntary_context_switches": 33154,
+          "rss_bytes_start": 58548224,
+          "rss_bytes_end": 70451200
+        }
+      },
+      "daemon_allocated_bytes_delta": 1143823072,
+      "daemon_gc_seconds_delta": 0.035436
+    },
+    {
+      "mode": "paste",
+      "elapsed_seconds": 3.0038109369925223,
+      "terminal_bytes": 0,
+      "input_to_pty": {
+        "count": 6,
+        "p50_ms": 5.159742,
+        "p95_ms": 5.184522
+      },
+      "frame_to_terminal_receipt": {
+        "count": 0,
+        "p50_ms": null,
+        "p95_ms": null
+      },
+      "processes": {
+        "client": {
+          "cpu_percent_one_core": 0.0,
+          "voluntary_context_switches": 30,
+          "rss_bytes_start": 107233280,
+          "rss_bytes_end": 107233280
+        },
+        "daemon": {
+          "cpu_percent_one_core": 0.0,
+          "voluntary_context_switches": 13,
+          "rss_bytes_start": 106975232,
+          "rss_bytes_end": 106975232
+        },
+        "fixture": {
+          "cpu_percent_one_core": 0.0,
+          "voluntary_context_switches": 599,
+          "rss_bytes_start": 42139648,
+          "rss_bytes_end": 42139648
+        }
+      },
+      "daemon_allocated_bytes_delta": 229376,
+      "daemon_gc_seconds_delta": 0.0
+    }
+  ]
+}

@@ -1,0 +1,25 @@
+{
+  "mode": "graphics",
+  "elapsed_seconds": 5.005758921994129,
+  "terminal_bytes": 237423868,
+  "input_to_pty": {
+    "count": 46,
+    "p50_ms": 37.109283,
+    "p95_ms": 40.085629
+  },
+  "frame_to_terminal_receipt": {
+    "count": 92,
+    "p50_ms": 51.795101,
+    "p95_ms": 54.535477
+  },
+  "processes": {
+    "fixture": {
+      "cpu_percent_one_core": 86.30060031494793,
+      "voluntary_context_switches": 55770,
+      "rss_bytes_start": 53018624,
+      "rss_bytes_end": 54558720
+    }
+  },
+  "daemon_allocated_bytes_delta": null,
+  "daemon_gc_seconds_delta": null
+}

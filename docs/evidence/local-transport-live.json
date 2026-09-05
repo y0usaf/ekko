@@ -1,0 +1,83 @@
+{
+  "session": "cookunity-shared",
+  "elapsed_seconds": 5.057573152007535,
+  "before": {
+    "wire_version": 2,
+    "session": "cookunity-shared",
+    "daemon_pid": 23855,
+    "allocated_bytes": 11688189680,
+    "gc_seconds": 0.194311,
+    "snapshot_bytes": 6971328,
+    "attached": true,
+    "panes": [
+      {
+        "id": 1,
+        "pid": 23863,
+        "exit_code": null,
+        "cols": 181,
+        "rows": 72,
+        "images": 0,
+        "frames": 0,
+        "graphics_errors": 1,
+        "image_bytes": 0,
+        "pty_output_bytes": 1036,
+        "local_images": 0
+      },
+      {
+        "id": 2,
+        "pid": 23864,
+        "exit_code": null,
+        "cols": 182,
+        "rows": 72,
+        "images": 1,
+        "frames": 15562,
+        "graphics_errors": 1,
+        "image_bytes": 6971328,
+        "pty_output_bytes": 1346908,
+        "local_images": 1
+      }
+    ]
+  },
+  "after": {
+    "wire_version": 2,
+    "session": "cookunity-shared",
+    "daemon_pid": 23855,
+    "allocated_bytes": 11799895152,
+    "gc_seconds": 0.195992,
+    "snapshot_bytes": 6971328,
+    "attached": true,
+    "panes": [
+      {
+        "id": 1,
+        "pid": 23863,
+        "exit_code": null,
+        "cols": 181,
+        "rows": 72,
+        "images": 0,
+        "frames": 0,
+        "graphics_errors": 1,
+        "image_bytes": 0,
+        "pty_output_bytes": 1036,
+        "local_images": 0
+      },
+      {
+        "id": 2,
+        "pid": 23864,
+        "exit_code": null,
+        "cols": 182,
+        "rows": 72,
+        "images": 1,
+        "frames": 15714,
+        "graphics_errors": 1,
+        "image_bytes": 6971328,
+        "pty_output_bytes": 1359524,
+        "local_images": 1
+      }
+    ]
+  },
+  "cpu_percent_one_core": {
+    "daemon": 10.874780917042834,
+    "client": 1.7795096046070507
+  },
+  "notes": "Live page counters; no scripted input or physical display timing. Initial unsupported file query is included in graphics_errors."
+}
