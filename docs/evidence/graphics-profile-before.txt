@@ -1,0 +1,92 @@
+This is SBCL 2.5.4, an implementation of ANSI Common Lisp.
+More information about SBCL is available at <http://www.sbcl.org/>.
+
+SBCL is free software, provided as is, with absolutely no warranty.
+It is mostly in the public domain; some portions are provided under
+BSD-style licenses.  See the CREDITS and COPYING files in the
+distribution for more information.
+
+Number of samples:   2463
+Sample interval:     0.001 seconds
+Total sampling time: 2.463 seconds
+Graph cycles:        0
+Sampled threads:
+   #<THREAD tid=15878 "main thread" RUNNING {1200438143}> (98664/1048576 bytes, 491 hash buckets)
+
+           Self        Total        Cumul
+  Nr  Count     %  Count     %  Count     %    Calls  Function
+------------------------------------------------------------------------
+   1    313  12.7    799  32.4    313  12.7        -  POSITION
+   2    255  10.4    255  10.4    568  23.1        -  SB-VM::SIMD-POSITION32-AVX2
+   3    245   9.9   1438  58.4    813  33.0        -  Unknown fn 30486
+   4    208   8.4    465  18.9   1021  41.5        -  SB-KERNEL:%FIND-POSITION
+   5    183   7.4   2410  97.8   1204  48.9        -  EKKO/VT:FEED
+   6    117   4.8    133   5.4   1321  53.6        -  (FLET SB-IMPL::F :IN SB-IMPL::VECTOR-MAP-INTO/SIMPLE-CHARACTER-STRING)
+   7    112   4.5    112   4.5   1433  58.2        -  (SB-VM::OPTIMIZED-DATA-VECTOR-REF (UNSIGNED-BYTE 8))
+   8    103   4.2    103   4.2   1536  62.4        -  (SB-VM::OPTIMIZED-DATA-VECTOR-SET (UNSIGNED-BYTE 8))
+   9     98   4.0    200   8.1   1634  66.3        -  EKKO/GRAPHICS:BASE64-ENCODE
+  10     95   3.9     95   3.9   1729  70.2        -  ASH
+  11     72   2.9     72   2.9   1801  73.1        -  SB-KERNEL:VECTOR-HAIRY-DATA-VECTOR-SET/CHECK-BOUNDS
+  12     62   2.5    239   9.7   1863  75.6        -  SB-KERNEL:%MAP-FOR-EFFECT-ARITY-1
+  13     61   2.5     61   2.5   1924  78.1        -  SB-KERNEL:HAIRY-DATA-VECTOR-REF/CHECK-BOUNDS
+  14     60   2.4     60   2.4   1984  80.6        -  LENGTH
+  15     48   1.9     48   1.9   2032  82.5        -  %DATA-VECTOR-AND-INDEX/CHECK-BOUND
+  16     44   1.8     80   3.2   2076  84.3        -  (LABELS EKKO/VT::APPEND-BYTE :IN EKKO/VT:FEED)
+  17     39   1.6     39   1.6   2115  85.9        -  GENERIC-=
+  18     37   1.5     37   1.5   2152  87.4        -  SB-KERNEL:HAIRY-DATA-VECTOR-SET
+  19     36   1.5     36   1.5   2188  88.8        -  SB-KERNEL:%COERCE-CALLABLE-TO-FUN
+  20     33   1.3    130   5.3   2221  90.2        -  VECTOR-PUSH-EXTEND
+  21     29   1.2     29   1.2   2250  91.4        -  GENERIC-+
+  22     26   1.1     26   1.1   2276  92.4        -  SB-VM::SLOW-HAIRY-DATA-VECTOR-SET
+  23     25   1.0     25   1.0   2301  93.4        -  CODE-CHAR
+  24     24   1.0    127   5.2   2325  94.4        -  CONCATENATE
+  25     15   0.6     15   0.6   2340  95.0        -  SB-KERNEL:VECTOR-HAIRY-DATA-VECTOR-REF/CHECK-BOUNDS
+  26     12   0.5     12   0.5   2352  95.5        -  foreign function try_allocate_small
+  27     11   0.4     11   0.4   2363  95.9        -  foreign function pthread_sigmask
+  28      9   0.4      9   0.4   2372  96.3        -  foreign function adler32_z
+  29      7   0.3      7   0.3   2379  96.6        -  FPR-RESTORE
+  30      4   0.2      4   0.2   2383  96.8        -  SB-KERNEL:UB32-BASH-FILL
+  31      3   0.1      3   0.1   2386  96.9        -  foreign function pre_search_for_small_space
+  32      2   0.1      2   0.1   2388  97.0        -  GENERIC--
+  33      1   0.0    247  10.0   2389  97.0        -  SB-IMPL::VECTOR-MAP-INTO/SIMPLE-CHARACTER-STRING
+  34      1   0.0     12   0.5   2390  97.0        -  foreign function try_allocate_small_from_pages
+  35      1   0.0      4   0.2   2391  97.1        -  UIOP/UTILITY:SPLIT-STRING
+  36      1   0.0      1   0.0   2392  97.1        -  FPR-SAVE
+  37      1   0.0      1   0.0   2393  97.2        -  SB-KERNEL:%LAST1
+  38      1   0.0      1   0.0   2394  97.2        -  SB-IMPL::GETHASH/EQL-HASH/FLAT
+  39      1   0.0      1   0.0   2395  97.2        -  foreign function pthread_mutex_lock
+  40      0   0.0   2454  99.6   2395  97.2        -  (LAMBDA NIL :IN "/tmp/ekko-graphics-profile.lisp")
+  41      0   0.0   2454  99.6   2395  97.2        -  SB-INT:SIMPLE-EVAL-IN-LEXENV
+  42      0   0.0   2454  99.6   2395  97.2        -  EVAL-TLF
+  43      0   0.0   2454  99.6   2395  97.2        -  (LABELS SB-FASL::EVAL-FORM :IN SB-INT:LOAD-AS-SOURCE)
+  44      0   0.0   2454  99.6   2395  97.2        -  (LAMBDA (SB-KERNEL:FORM &KEY :CURRENT-INDEX &ALLOW-OTHER-KEYS) :IN SB-INT:LOAD-AS-SOURCE)
+  45      0   0.0   2454  99.6   2395  97.2        -  SB-C::%DO-FORMS-FROM-INFO
+  46      0   0.0   2454  99.6   2395  97.2        -  SB-INT:LOAD-AS-SOURCE
+  47      0   0.0   2454  99.6   2395  97.2        -  (LABELS SB-FASL::LOAD-STREAM-1 :IN LOAD)
+  48      0   0.0   2454  99.6   2395  97.2        -  SB-FASL::CALL-WITH-LOAD-BINDINGS
+  49      0   0.0   2454  99.6   2395  97.2        -  LOAD
+  50      0   0.0   2454  99.6   2395  97.2        -  (FLET SB-IMPL::LOAD-SCRIPT :IN SB-IMPL::PROCESS-SCRIPT)
+  51      0   0.0   2454  99.6   2395  97.2        -  (FLET SB-UNIX::BODY :IN SB-IMPL::PROCESS-SCRIPT)
+  52      0   0.0   2454  99.6   2395  97.2        -  (FLET "WITHOUT-INTERRUPTS-BODY-" :IN SB-IMPL::PROCESS-SCRIPT)
+  53      0   0.0   2454  99.6   2395  97.2        -  SB-IMPL::PROCESS-SCRIPT
+  54      0   0.0   2454  99.6   2395  97.2        -  SB-IMPL::TOPLEVEL-INIT
+  55      0   0.0   2454  99.6   2395  97.2        -  (FLET SB-UNIX::BODY :IN SB-IMPL::START-LISP)
+  56      0   0.0   2454  99.6   2395  97.2        -  (FLET "WITHOUT-INTERRUPTS-BODY-3" :IN SB-IMPL::START-LISP)
+  57      0   0.0   2454  99.6   2395  97.2        -  SB-IMPL::%START-LISP
+  58      0   0.0   2454  99.6   2395  97.2        -  foreign function call_into_lisp_
+  59      0   0.0   1928  78.3   2395  97.2        -  EKKO/GRAPHICS:ACCEPT-COMMAND
+  60      0   0.0    246  10.0   2395  97.2        -  SB-KERNEL:%MAP
+  61      0   0.0    107   4.3   2395  97.2        -  Unknown fn 30564
+  62      0   0.0     79   3.2   2395  97.2        -  ALLOC-TRAMP
+  63      0   0.0     30   1.2   2395  97.2        -  SB-KERNEL:VECTOR-SUBSEQ*
+  64      0   0.0     16   0.6   2395  97.2        -  foreign function lisp_alloc
+  65      0   0.0     11   0.4   2395  97.2        -  foreign function interrupt_handle_pending
+  66      0   0.0      6   0.2   2395  97.2        -  Unknown fn 30555
+  67      0   0.0      4   0.2   2395  97.2        -  SB-VM::%MAKE-SIMPLE-ARRAY
+  68      0   0.0      4   0.2   2395  97.2        -  EKKO/PLATFORM:DECOMPRESS-BYTES
+  69      0   0.0      3   0.1   2395  97.2        -  (FLET SB-IMPL::TRY :IN MAKE-SEQUENCE)
+  70      0   0.0      3   0.1   2395  97.2        -  MAKE-SEQUENCE
+  71      0   0.0      1   0.0   2395  97.2        -  NCONC
+------------------------------------------------------------------------
+         68   2.8                                     elsewhere
+Allocated bytes for 30 frames: 1049170528

@@ -1,0 +1,134 @@
+{
+  "researched_on": "2026-09-04",
+  "build_toolchain": {
+    "nixpkgs": {
+      "repository": "https://github.com/NixOS/nixpkgs",
+      "revision": "ac62194c3917d5f474c1a844b6fd6da2db95077d",
+      "ref": "nixos-25.05"
+    },
+    "sbcl": {
+      "version": "2.5.4",
+      "source": "nixpkgs sbcl attribute",
+      "license": "BSD-2-Clause",
+      "manual": "https://sbcl.org/manual/"
+    },
+    "asdf": {
+      "version": "3.3.1",
+      "source": "SBCL-bundled ASDF",
+      "license": "MIT",
+      "manual": "https://asdf.common-lisp.dev/asdf/"
+    }
+  },
+  "host_test": {
+    "name": "kitty",
+    "version": "0.42.1",
+    "repository": "https://github.com/kovidgoyal/kitty",
+    "revision": "d56721e64dd02e9250800f37aa6a98f2d095da75",
+    "tag": "v0.42.1",
+    "tag_object": "4a5d7b31bc2024922b3fc797c23b842e50768b48",
+    "purpose": "initial real-host graphics and keyboard oracle; no Ekko implementation is claimed"
+  },
+  "protocols": [
+    {
+      "id": "kitty-graphics",
+      "title": "Kitty Graphics Protocol",
+      "url": "https://sw.kovidgoyal.net/kitty/graphics-protocol/",
+      "repository_file": "https://github.com/kovidgoyal/kitty/blob/d56721e64dd02e9250800f37aa6a98f2d095da75/docs/graphics-protocol.rst",
+      "revision": "d56721e64dd02e9250800f37aa6a98f2d095da75",
+      "sections_used": [
+        "The graphics escape code",
+        "Transferring pixel data",
+        "Querying support and available transmission mediums",
+        "Keys for image transmission",
+        "Keys for image display",
+        "Deleting images"
+      ]
+    },
+    {
+      "id": "kitty-keyboard",
+      "title": "Kitty Keyboard Protocol",
+      "url": "https://sw.kovidgoyal.net/kitty/keyboard-protocol/",
+      "repository_file": "https://github.com/kovidgoyal/kitty/blob/d56721e64dd02e9250800f37aa6a98f2d095da75/docs/keyboard-protocol.rst",
+      "revision": "d56721e64dd02e9250800f37aa6a98f2d095da75",
+      "sections_used": [
+        "Quickstart",
+        "An overview",
+        "Progressive enhancement",
+        "Event types"
+      ]
+    },
+    {
+      "id": "xterm-ctlseqs",
+      "title": "Xterm Control Sequences",
+      "url": "https://invisible-island.net/xterm/ctlseqs/ctlseqs.html",
+      "revision": "XTerm patch #411 (2026-08-23)",
+      "content_sha256": "b4c4fbe5738b82c91860b924c8c0ae1afbacf637b4184f98b0382e0e8f033475",
+      "sections_used": [
+        "Controls beginning with ESC",
+        "CSI sequences",
+        "Operating System Controls",
+        "Device Attributes"
+      ]
+    }
+  ],
+  "application_candidates": [
+    {
+      "role": "browser-like",
+      "name": "termweb",
+      "repository": "https://github.com/teamchong/termweb",
+      "revision": "26899a1fd5d3bdfbcbdebd6d2296ac64a87aefab",
+      "license": "MIT",
+      "observed_invocation": [
+        "termweb",
+        "open",
+        "https://example.com"
+      ],
+      "graphics_claim": "repository describes Kitty graphics; untested here",
+      "acceptance": "candidate only"
+    },
+    {
+      "role": "slack-like",
+      "name": "slack-term",
+      "repository": "https://github.com/jpbruinsslot/slack-term",
+      "revision": "c19c20a3e5c597d6d60582fcba1a3523415e8fe4",
+      "license": "MIT",
+      "observed_invocation": [
+        "slack-term"
+      ],
+      "graphics_claim": "no Kitty graphics capability established",
+      "acceptance": "candidate only; authentication and a graphics trace are blockers"
+    }
+  ],
+  "application_targets": [
+    {
+      "role": "browser",
+      "name": "terminal-browser",
+      "repository": "https://github.com/zenbu-labs/terminal-browser",
+      "revision": "cce10b6131d15bf46a3e4b8dc827e0544ff7fc65",
+      "source": "local terminal-slack flake input",
+      "argv": [
+        "terminal-browser",
+        "open",
+        "https://example.com"
+      ],
+      "graphics": "direct native Kitty RGBA, zlib",
+      "acceptance": "live pane rendering observed"
+    },
+    {
+      "role": "slack",
+      "name": "terminal-slack",
+      "repository": "https://github.com/y0usaf/terminal-slack",
+      "revision": "03a8d78273159c7592b5555db36fc5f7da3b91f2",
+      "source": "/home/y0usaf/dev/sandbox/terminal-slack",
+      "preexisting_worktree_changes": [
+        "deleted CONTRIBUTING.md",
+        "deleted SECURITY.md"
+      ],
+      "argv": [
+        "terminal-slack"
+      ],
+      "graphics": "terminal-browser in app mode, direct native Kitty RGBA",
+      "acceptance": "workspace sign-in page rendered; authenticated use not tested"
+    }
+  ]
+}

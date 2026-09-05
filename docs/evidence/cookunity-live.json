@@ -1,0 +1,70 @@
+{
+  "before": {
+    "wire_version": 1,
+    "session": "cookunity-fast",
+    "daemon_pid": 31648,
+    "allocated_bytes": 26604664896,
+    "gc_seconds": 1.08508,
+    "attached": true,
+    "panes": [
+      {
+        "id": 1,
+        "pid": 31653,
+        "exit_code": null,
+        "cols": 181,
+        "rows": 72,
+        "images": 0,
+        "frames": 0,
+        "graphics_errors": 1,
+        "image_bytes": 0,
+        "pty_output_bytes": 1036
+      },
+      {
+        "id": 2,
+        "pid": 31654,
+        "exit_code": null,
+        "cols": 182,
+        "rows": 72,
+        "images": 1,
+        "frames": 1166,
+        "graphics_errors": 0,
+        "image_bytes": 2033214,
+        "pty_output_bytes": 3212771674
+      }
+    ]
+  },
+  "after": {
+    "wire_version": 1,
+    "session": "cookunity-fast",
+    "daemon_pid": 31648,
+    "allocated_bytes": 27175444288,
+    "gc_seconds": 1.109868,
+    "attached": true,
+    "panes": [
+      {
+        "id": 1,
+        "pid": 31653,
+        "exit_code": null,
+        "cols": 181,
+        "rows": 72,
+        "images": 0,
+        "frames": 0,
+        "graphics_errors": 1,
+        "image_bytes": 0,
+        "pty_output_bytes": 1036
+      },
+      {
+        "id": 2,
+        "pid": 31654,
+        "exit_code": null,
+        "cols": 182,
+        "rows": 72,
+        "images": 1,
+        "frames": 1191,
+        "graphics_errors": 0,
+        "image_bytes": 2093159,
+        "pty_output_bytes": 3281392736
+      }
+    ]
+  }
+}

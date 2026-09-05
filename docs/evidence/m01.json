@@ -1,0 +1,90 @@
+{
+  "milestone": "M01",
+  "status": "partial",
+  "date": "2026-09-04",
+  "checks": [
+    {
+      "command": "nix build --print-out-paths",
+      "exit": 0
+    },
+    {
+      "command": "nix flake check",
+      "exit": 0,
+      "scope": [
+        "G06 rational clipping/source-scale properties",
+        "G01/G17 attachment-local allocation and exhaustion",
+        "G04 serialized bounded writer and short-write reconstruction",
+        "G05 decoded presentation reply deadlines/reordering/duplicates/tombstones",
+        "I10 attachment teardown",
+        "packaged red-blue/scaled-checkerboard/native-pixel full-canvas fake-host checks"
+      ]
+    },
+    {
+      "command": "nix run . -- --help",
+      "exit": 0
+    },
+    {
+      "command": "nix run . -- --version",
+      "exit": 0
+    }
+  ],
+  "fake_host": {
+    "red_blue": {
+      "checks": {
+        "gap_untouched": true,
+        "pane_a_red": true,
+        "pane_b_blue": true,
+        "right_border_untouched": true,
+        "status_untouched": true
+      },
+      "fixture": "fake-host-isolation",
+      "status": "pass"
+    },
+    "checkerboard": {
+      "checks": {
+        "checkerboard_crop_overlay": true,
+        "gap_untouched": true,
+        "right_border_untouched": true,
+        "status_untouched": true
+      },
+      "fixture": "checkerboard",
+      "status": "pass"
+    },
+    "native": {
+      "checks": {
+        "gap_untouched": true,
+        "native_partial_overlay": true,
+        "right_border_untouched": true,
+        "status_untouched": true
+      },
+      "fixture": "native",
+      "status": "pass"
+    }
+  },
+  "real_host": {
+    "command": "EKKO_ORACLE_OUTPUT_DIR=/tmp/ekko-final-kitty nix run .#test-kitty",
+    "exit": 77,
+    "result": {
+      "status": "unavailable",
+      "reason": "kitty-glx"
+    },
+    "retained_logs": "docs/evidence/kitty-precursor/"
+  },
+  "open": [
+    "M01/P0 calibrated real-host visible proof",
+    "fractional image resampling",
+    "RGBA and text layers",
+    "UI overlays through actual renderer",
+    "wire reply decoding and child reply isolation",
+    "resize mid-upload and reconstruction",
+    "all M02-M08 milestones"
+  ],
+  "artifact": "/nix/store/s2wkr3i229mi10w7lq06i2ff8jb5x4s4-ekko-fake-host",
+  "fake_host_artifact": "/nix/store/s2wkr3i229mi10w7lq06i2ff8jb5x4s4-ekko-fake-host",
+  "limitations": [
+    "No PTYs, daemon, VT or ingress parser",
+    "Fixture geometry assumes 8x16 pixel cells",
+    "Fixed RGB fixture rows are not a general codec or resampler",
+    "Fake-host scaling uses nearest neighbor and does not establish real Kitty filtering"
+  ]
+}

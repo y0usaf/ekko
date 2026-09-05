@@ -1,0 +1,93 @@
+{
+  "date": "2026-09-04",
+  "stage": "two-pane preview, no release gate claimed",
+  "artifact": "/nix/store/2jy9l6r5vi6rlf2ymxfqhfd1l2zcn2hi-ekko-0.1.0",
+  "verification": [
+    {
+      "command": "nix build --print-out-paths",
+      "exit_code": 0
+    },
+    {
+      "command": "nix flake check -L",
+      "exit_code": 0
+    },
+    {
+      "command": "nix run . -- --help",
+      "exit_code": 0
+    },
+    {
+      "command": "nix run .#workspace -- --help",
+      "exit_code": 0
+    }
+  ],
+  "runtime_checks": [
+    {
+      "status": "pass",
+      "checks": [
+        "controlling-pty",
+        "fragmented-rgba",
+        "id-isolation",
+        "native-clipping",
+        "scoped-delete",
+        "reply-routing",
+        "keyboard-focus",
+        "pixel-mouse",
+        "paste",
+        "client-death",
+        "detached-updates",
+        "reattach",
+        "zoom",
+        "swap",
+        "shutdown"
+      ]
+    },
+    {
+      "status": "pass",
+      "checks": [
+        "shell-beside-graphics",
+        "shell-output",
+        "ctrl-z",
+        "foreground-job",
+        "ctrl-c",
+        "sigterm-restores-terminal"
+      ]
+    }
+  ],
+  "live_host": {
+    "name": "Kitty",
+    "version": "0.42.1",
+    "backend": "Wayland",
+    "cell_pixels": [
+      7,
+      19
+    ],
+    "pane_cells": [
+      [
+        181,
+        72
+      ],
+      [
+        182,
+        72
+      ]
+    ],
+    "benchmark_session": "benchmark",
+    "observed": "browser and Slack workspace sign-in rendered in separate panes; browser updates preserve the other pane",
+    "live_benchmark_artifact": "/nix/store/rigrvvdbnadlaix290kd193c3n21jhl0-ekko-0.1.0",
+    "screenshot": "inspected window-only capture in /tmp; not checked in"
+  },
+  "limitations": [
+    "two panes configured at startup",
+    "basic VT, no scrollback or complete terminfo compatibility",
+    "limited direct native RGB/RGBA graphics",
+    "no extension API",
+    "Slack authentication not tested"
+  ],
+  "live_shell_browser": {
+    "session": "native-panes",
+    "artifact": "/nix/store/2jy9l6r5vi6rlf2ymxfqhfd1l2zcn2hi-ekko-0.1.0",
+    "shell": "rush",
+    "observed": "shell prompt with colors rendered beside terminal-browser; both processes running",
+    "screenshots_saved_to_repository": false
+  }
+}
