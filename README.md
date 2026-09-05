@@ -30,7 +30,7 @@ shell; `TERMINAL_SLACK_URL` selects the Slack URL. Default session names are
 session; use a different name to create another workspace.
 
 Inside an existing terminal, launch arbitrary argument vectors with `:::`
-between the two pane commands. For example, two shells:
+between pane commands (up to 16). For example, two shells:
 
 ```sh
 nix run . -- run --session shells "$SHELL" -i ::: "$SHELL" -i
@@ -41,7 +41,10 @@ explicitly when needed. A single command also works.
 
 | Keys | Action |
 | --- | --- |
-| Ctrl-b, then Tab / 1 / 2 | Switch focus |
+| Ctrl-b, then Tab / 1–9 | Switch focus |
+| Ctrl-b, then % / / | Split into columns / rows |
+| Ctrl-b, then [ / ] | Enter copy mode / paste the Ekko buffer |
+| Ctrl-b, then r / ? | Reload configuration / show bindings |
 | Mouse click | Focus and interact with the clicked application |
 | Ctrl-b, then z | Toggle focused-pane zoom |
 | Ctrl-b, then s | Swap panes |
@@ -61,11 +64,11 @@ nix run . -- doctor --restore-terminal
 Closing the window leaves the session running. `stop` terminates its owned
 process groups. Recovery restores terminal modes after an unclean client exit.
 
-This is a two-pane preview, not a P0/P1/P2 release. Dynamic pane creation,
-arbitrary split trees, scrollback/copy mode, and extensions are not implemented.
-Most runtime policy is Common Lisp, but customization currently means editing
-source and rebuilding. A user init file, public commands/hooks, configurable
-keymaps, and live reload are planned; Emacs-style customization is not yet available.
+Lisp init files now customize commands, keymaps, options, and status hooks, with
+live reload in an isolated worker. Dynamic split trees, bounded scrollback, and
+line-based copy/search are available. See [customization](docs/customization.md)
+and [the example init file](examples/init.lisp). This remains a preview, not a
+P0/P1/P2 release or a complete Emacs-style interactive environment.
 Text emulation covers the tested shell baseline, not complete xterm behavior.
 Graphics currently support direct RGB/RGBA, optional zlib compression, local
 uncompressed RGB/RGBA shared-memory transfers, native
@@ -76,8 +79,8 @@ owned files and negotiates file delivery with the outer terminal; hosts without
 local-file access receive inline frames. No frame-rate or resolution cap is imposed.
 Set `TERMINAL_BROWSER_FRAMES=inline` to compare the older transport.
 
-This changes attachment IPC to version 2. Existing daemons keep their executable;
-start a **new session name** to use the new transport. Incompatible attachments
+This changes attachment IPC to version 3. Existing daemons keep their executable;
+start a **new session name** to use these features. Incompatible attachments
 are rejected explicitly.
 
 Build and verify the packaged executable:
@@ -90,7 +93,8 @@ nix run . -- --help
 
 Checks include independent graphics receivers, real PTYs, reply and input routing,
 clipping, scoped deletion, client death, reconnect, zoom/swap, shell job control,
-and terminal restoration. The original synthetic fixtures remain under
+terminal restoration, configuration rollback, callback termination, dependency hooks,
+bare builds, split trees, and persistent copy buffers. The original synthetic fixtures remain under
 `nix run .#demo-graphics`. The isolated Xvfb precursor is `nix run .#test-kitty`;
 its GLX limitation is separate from the working live Wayland launch.
 

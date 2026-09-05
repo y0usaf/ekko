@@ -122,7 +122,7 @@
 (defun fit-label (text width)
   (let ((safe (remove-if (lambda (c) (or (< (char-code c) 32) (> (char-code c) 126))) text)))
     (format nil "~VA" width (subseq safe 0 (min width (length safe))))))
-(defun scene-text-rows (cols rows focus panes)
+(defun scene-text-rows (cols rows focus panes &optional metadata)
   (let ((output (map 'vector (lambda (ignored) (declare (ignore ignored))
                               (make-string-output-stream)) (make-array rows)))
         (esc (code-char 27)))
@@ -132,7 +132,7 @@
     (dolist (pane panes)
       (destructuring-bind (id x y width height label status cursor-x cursor-y visible lines placements) pane
         (declare (ignore height cursor-x cursor-y visible placements))
-        (format (aref output 0) "~C[1;~DH~C[~Am~A~C[0m" esc (1+ x) esc
+        (format (aref output (1- y)) "~C[~D;~DH~C[~Am~A~C[0m" esc y (1+ x) esc
                 (if (= id focus) "30;46" "37;44")
                 (fit-label (format nil " ~D  ~A~A" id label
                                    (if status (format nil " [exit ~D]" status) "")) width) esc)
@@ -141,13 +141,13 @@
             (destructuring-bind (column text attributes) run
               (format (aref output row) "~C[~D;~DH~C[~{~D~^;~}m~A"
                       esc (1+ row) (+ x column 1) esc attributes text))))))
-    (when (> (length panes) 1)
-      (let ((divider (+ (second (first panes)) (fourth (first panes)))))
-        (loop for row from 1 below (1- rows) do
-          (format (aref output row) "~C[~D;~DH~C[0;36m│" esc (1+ row) (1+ divider) esc))))
-    (format (aref output (1- rows)) "~C[~D;1H~C[0;30;47m~A~C[0m" esc rows esc
-            (fit-label " ekko v2 | Ctrl-b: Tab focus  z zoom  s swap  </> divider  d detach  q quit"
-                       (1- cols)) esc)
+    (dolist (pane panes)
+      (let ((divider (+ (second pane) (fourth pane))))
+        (when (< divider cols)
+          (loop for row from (1- (third pane)) below (+ (third pane) (fifth pane)) do
+            (format (aref output row) "~C[~D;~DH~C[0;36m│" esc (1+ row) (1+ divider) esc)))))
+    (format (aref output (1- rows)) "~C[~D;1H~C[~{~D~^;~}m~A~C[0m" esc rows esc
+            (getf metadata :style '(0 30 47)) (fit-label (getf metadata :status "") (1- cols)) esc)
     (map 'vector #'get-output-stream-string output)))
 
 (defun render-scene (viewer)
@@ -155,7 +155,7 @@
         (wanted (make-hash-table :test 'equal)))
     (unless scene (return-from render-scene))
     (when (probe-local-transport viewer) (return-from render-scene))
-    (destructuring-bind (version cols rows cw ch focus panes) scene
+    (destructuring-bind (version cols rows cw ch focus panes &optional metadata) scene
       (unless (= version +wire-version+) (error "Incompatible scene version"))
       (terminal-write viewer (format nil "~C[?2026h~C[?25l" esc esc))
       (dolist (pane panes)
@@ -172,7 +172,7 @@
                (viewer-drawn viewer))
       ;; Each cached row includes clearing and rendition, so shorter lines
       ;; erase old characters without a full-screen clear that deletes images.
-      (let ((current (scene-text-rows cols rows focus panes)))
+      (let ((current (scene-text-rows cols rows focus panes metadata)))
         (when (or (/= cols (viewer-row-cache-cols viewer))
                   (/= rows (viewer-row-cache-rows viewer)))
           (setf (viewer-row-cache viewer) (make-array 0)))
@@ -368,20 +368,26 @@
         (loop repeat 20 while (wire-queue (viewer-io viewer)) do (flush-wire (viewer-io viewer)) (poll-fds '((1 . 4)) 10)))
       (restore) (close-wire (viewer-connection viewer)) (ekko/client:attachment-teardown (viewer-ids viewer))))
   0)
-(defun control-session (name command)
+(defun control-session (name command &optional arguments)
   (initialize)
   (let* ((wire (make-wire :fd (checked (connect-local (socket-path name)) "connect")))
-         (buffer (octets 65536)) (deadline (+ (now) 5)))
+         (buffer (octets 65536)) (deadline (+ (now) 10)))
     (unwind-protect
          (progn
-           (send-packet wire 3 (text-bytes command))
+           (if arguments
+               (send-packet wire 7
+                 (text-bytes (with-output-to-string (out)
+                               (loop for value in arguments for first = t then nil do
+                                 (unless first (write-char #\Null out)) (write-string value out)))))
+               (send-packet wire 3 (text-bytes command)))
            (loop while (< (now) deadline) do
              (dolist (event (poll-fds (list (cons (wire-fd wire) (wire-events wire))) 100))
                (when (logtest (cdr event) 4) (flush-wire wire))
                (when (logtest (cdr event) 25)
                  (dolist (packet (receive-packets wire buffer))
+                   (when (= (aref packet 0) 21) (error "~A" (bytes-text (subseq packet 1))))
                    (when (= (aref packet 0) 20)
-                     (when (string= command "status") (write-string (bytes-text (subseq packet 1))))
+                     (when (member command '("status" "inspect" "buffer") :test #'equal) (write-string (bytes-text (subseq packet 1))))
                    (return-from control-session 0))))))
            (error "Control request timed out"))
       (close-wire wire))))
@@ -392,8 +398,9 @@
       (unless (member fd '(-2 -111)) (checked fd "connect"))
       (let* ((binary (car sb-ext:*posix-argv*)) (log (concatenate 'string path ".log"))
              (process (sb-ext:run-program binary
-                                          (append (list "--serve" name) (first commands)
-                                                  (when (second commands) (cons ":::" (second commands))))
+                                          (append (list "--serve" name)
+                                                  (loop for argv in commands for first = t then nil
+                                                        append (if first argv (cons ":::" argv))))
                                           :wait nil :input nil :output log :error :output :if-output-exists :append))
              (deadline (+ (now) 10)))
         (loop while (and (minusp fd) (< (now) deadline)) do

@@ -170,6 +170,8 @@ def benchmark(binary, mode, seconds, direct=False, width=512, height=512, fps=5,
             pids = {"fixture": process.pid} if direct else {
                 "client": process.pid, "daemon": initial_status["daemon_pid"],
                 "fixture": initial_status["panes"][0]["pid"]}
+            if initial_status.get("extension_pid"):
+                pids["extensions"] = initial_status["extension_pid"]
             before = {name: process_stats(pid) for name, pid in pids.items()}
             byte_start = receiver.bytes
             receiver.frames.clear()

@@ -22,6 +22,7 @@
   (run-base64-tests)
   (run-graphics-parser-tests)
   (run-asset-tests)
+  (run-customization-tests)
   (ekko-test "version" (string= (ekko:version) "0.1.0"))
   (multiple-value-bind (status out err) (call-ekko nil)
     (ekko-test "no args" (and (null status) (search "Usage: ekko" out) (zerop (length err)))))
