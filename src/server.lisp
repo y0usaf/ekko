@@ -272,6 +272,7 @@
            (setf (session-worker session)
                  (load-worker (config-source (config-path)) (config-path) (concatenate 'string path ".extensions.log")))
            (install-registry session (extension-worker-registry (session-worker session)))
+           (sb-posix:setenv "EKKO_SESSION_NAME" name 1)
            (sb-posix:setenv "TERM" "xterm-256color" 1)
            (sb-posix:unsetenv "TMUX") (sb-posix:unsetenv "STY")
            (loop for argv in commands for id from 1 do
