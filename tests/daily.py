@@ -16,6 +16,7 @@ import tty
 def child(log):
     # Preserve bytes already queued while the new process was starting.
     tty.setraw(0, termios.TCSANOW)
+    Path(log + ".session").write_text(os.environ.get("EKKO_SESSION_NAME", ""))
     os.write(1, b"".join(f"old{i}\r\n".encode() for i in range(100)))
     with open(log, "ab", buffering=0) as out:
         while True:
@@ -133,6 +134,7 @@ def integration(binary, bare=False):
             cli("config", "check")
             eventually(lambda: status()["panes"][0]["history_rows"] > 50)
             original_pid = status()["panes"][0]["pid"]
+            assert Path(str(log) + ".session").read_text() == "daily"
             attached = Attachment(root / "ekko-v2/daily.sock")
             if bare:
                 assert not inspect()["components"], "bare executable loaded builtins"
@@ -166,6 +168,7 @@ def integration(binary, bare=False):
                 attached.send(2, b"FIRST\x01vSECOND")
                 eventually(lambda: len(status()["panes"]) == 2)
                 eventually(lambda: second_log.exists() and b"SECOND" in second_log.read_bytes())
+                assert Path(str(second_log) + ".session").read_text() == "daily"
                 assert b"FIRST" in log.read_bytes() and b"SECOND" not in log.read_bytes()
                 assert status()["panes"][1]["y"] > 1
                 eventually(lambda: "focus=2" in (contribution() or ""))
