@@ -1,0 +1,22 @@
+{
+  "date": "2026-09-06",
+  "scenario": "pane-workflow",
+  "capture_complete": false,
+  "red_flash_observed": false,
+  "restoration_observed": false,
+  "reason": "Cage exited before workflow fixture readiness: XWayland socket ownership/display unavailable and private Wayland socket not created",
+  "harness": {
+    "compositor": "Cage",
+    "backend": "headless",
+    "kitty": true,
+    "dimensions": "1280x720",
+    "font": "DejaVu Sans Mono",
+    "user_desktop_captured": false
+  },
+  "reference_release": "zellij 0.43.1",
+  "reference_pin": "tests/zellij/reference/pin.json",
+  "workflow_comparator": "scripts/oracle/zellij-visual-compare.py",
+  "attempt_artifacts": "attempt-20260906/",
+  "build_note": "Nix build was unavailable because the Nix daemon socket denied access; surviving pinned store binaries were used for the bounded attempt",
+  "core_or_profile_edits": false
+}

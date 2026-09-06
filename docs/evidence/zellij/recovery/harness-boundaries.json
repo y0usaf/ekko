@@ -1,0 +1,44 @@
+{
+  "validation": "native Python AST-isolated helper checks; not Nix or live parity",
+  "script": "tests/zellij/pane_workflow_differential.py",
+  "sha256": "f66da2cab5abd8262e893045f0899b3de6e261a9332fcf0bc46f830c037bb6c1",
+  "cases": [
+    [
+      "new-pane",
+      20,
+      8,
+      3
+    ],
+    [
+      "new-pane-down",
+      20,
+      8,
+      3
+    ],
+    [
+      "new-pane-right",
+      20,
+      8,
+      4
+    ],
+    [
+      "new-pane",
+      80,
+      24,
+      4
+    ],
+    [
+      "new-pane",
+      10,
+      12,
+      4
+    ],
+    [
+      "new-pane",
+      8,
+      30,
+      3
+    ]
+  ],
+  "status": "pass"
+}

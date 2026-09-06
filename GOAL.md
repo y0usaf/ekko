@@ -3,6 +3,26 @@
 Status: implementation specification; no implementation or verification is claimed.
 Prepared: 2026-09-04. Project directory: `~/dev/maintaining/ekko_v2`.
 
+## Active Zellij acceptance requirement (2026-09-05)
+
+In addition to this specification's independent Lisp, graphics-isolation,
+transactional-reload, and ownership requirements, the active user goal requires
+an optional ordinary Lisp profile that matches the complete observable surface
+of pinned Zellij 0.43.1, using its pinned reference configuration. Profile changes
+must not rebuild Ekko or restart pane applications; Ekko must not embed or delegate
+multiplexing to Zellij. Extend reusable public mechanisms wherever needed.
+
+[Reference, harness, and discrepancies](docs/zellij/README.md) and the
+[source-derived surface ledger](docs/zellij/surface.md) track this work. Identical
+inputs must match state, application-visible bytes, terminal cells, and screenshots
+under identical terminal dimensions, capabilities, fonts, theme, and deterministic
+application content. Only documented nondeterminism may be normalized. Modes,
+panes, tabs, layouts, all UI, mouse/copy/search/clipboard, sessions/persistence,
+CLI, bundled plugins, and remaining upstream features are in scope. Completion
+requires full functional and visual parity with no known unexplained differences,
+public API documentation, reproducible references, visual evidence, and passing
+Nix checks. A passing partial check or screenshot does not satisfy this gate.
+
 ## 0. Read this first
 
 Build a new terminal multiplexer in Common Lisp, targeting SBCL. Its defining

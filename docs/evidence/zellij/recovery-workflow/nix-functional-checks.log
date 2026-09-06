@@ -1,0 +1,2 @@
+warning: Git tree '/home/y0usaf/dev/maintaining/ekko_v2' is dirty
+error: cannot connect to socket at '/nix/var/nix/daemon-socket/socket': Operation not permitted

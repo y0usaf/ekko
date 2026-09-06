@@ -1,0 +1,174 @@
+{
+  "status": "pass",
+  "capture_complete": true,
+  "full_parity": false,
+  "coverage_complete": false,
+  "command": "/nix/store/19rpl40fxc5y6vwjg2rspdxbpk6730v6-ekko-zellij-visual/bin/ekko-zellij-visual compare --zellij /nix/store/wxjfyl2ksqkh263zwikp2igqh2a23y8r-zellij-0.43.1/bin/zellij --ekko /nix/store/w31i5slxl8l6n6rgicr6d52wsqrfnr7l-ekko-0.1.0/bin/ekko --profile /home/y0usaf/dev/maintaining/ekko_v2/examples/profiles/zellij.lisp --reference /home/y0usaf/dev/maintaining/ekko_v2/tests/zellij/reference --output /tmp/ekko-visual-startup-final-v5",
+  "candidate_package": "/nix/store/w31i5slxl8l6n6rgicr6d52wsqrfnr7l-ekko-0.1.0",
+  "candidate_deriver": "/nix/store/ylkjdxkrbqpbik1kzb2pbv559p81k97j-ekko-0.1.0.drv",
+  "report": {
+    "capture_complete": true,
+    "full_parity": false,
+    "coverage_complete": false,
+    "normalizations": [],
+    "checkpoints": [
+      {
+        "stage": "startup",
+        "differing_pixels": 77836,
+        "same_pixels": false,
+        "cell_report": {
+          "file": "startup-cell-report.json",
+          "dimensions_equal": true,
+          "cursor_equal": false,
+          "differing_cells": 1424
+        },
+        "zellij": {
+          "sent_hex": "",
+          "fixture": {
+            "winsize_rows_cols_xpixels_ypixels": [
+              24,
+              96,
+              0,
+              0
+            ]
+          },
+          "outer": {
+            "winsize_rows_cols_xpixels_ypixels": [
+              28,
+              98,
+              1274,
+              700
+            ]
+          },
+          "input_hex": ""
+        },
+        "ekko": {
+          "sent_hex": "",
+          "fixture": {
+            "winsize_rows_cols_xpixels_ypixels": [
+              24,
+              96,
+              1248,
+              600
+            ]
+          },
+          "outer": {
+            "winsize_rows_cols_xpixels_ypixels": [
+              28,
+              98,
+              1274,
+              700
+            ]
+          },
+          "input_hex": ""
+        }
+      },
+      {
+        "stage": "escape",
+        "differing_pixels": 33390,
+        "same_pixels": false,
+        "cell_report": {
+          "file": "escape-cell-report.json",
+          "dimensions_equal": true,
+          "cursor_equal": true,
+          "differing_cells": 290
+        },
+        "zellij": {
+          "sent_hex": "1b",
+          "fixture": {
+            "winsize_rows_cols_xpixels_ypixels": [
+              24,
+              96,
+              0,
+              0
+            ]
+          },
+          "outer": {
+            "winsize_rows_cols_xpixels_ypixels": [
+              28,
+              98,
+              1274,
+              700
+            ]
+          },
+          "input_hex": ""
+        },
+        "ekko": {
+          "sent_hex": "1b",
+          "fixture": {
+            "winsize_rows_cols_xpixels_ypixels": [
+              24,
+              96,
+              1248,
+              600
+            ]
+          },
+          "outer": {
+            "winsize_rows_cols_xpixels_ypixels": [
+              28,
+              98,
+              1274,
+              700
+            ]
+          },
+          "input_hex": "1b"
+        }
+      }
+    ],
+    "cell_reports": [
+      {
+        "stage": "startup",
+        "file": "startup-cell-report.json",
+        "dimensions_equal": true,
+        "cursor_equal": false,
+        "differing_cells": 1424
+      },
+      {
+        "stage": "escape",
+        "file": "escape-cell-report.json",
+        "dimensions_equal": true,
+        "cursor_equal": true,
+        "differing_cells": 290
+      }
+    ],
+    "limitations": [
+      "startup and Escape only",
+      "settling interval is one second",
+      "hardware display latency is not measured"
+    ]
+  },
+  "cleanup": {
+    "ekko": {
+      "stop_exit_code": 0,
+      "stop_error": null,
+      "remaining_pids": []
+    },
+    "zellij": {
+      "stop_exit_code": 0,
+      "stop_error": null,
+      "remaining_pids": []
+    }
+  },
+  "private_display": true,
+  "dimensions": {
+    "outer": [
+      28,
+      98,
+      1274,
+      700
+    ],
+    "ekko_fixture": [
+      24,
+      96,
+      1248,
+      600
+    ],
+    "zellij_fixture": [
+      24,
+      96,
+      0,
+      0
+    ]
+  },
+  "artifact_note": "Pyte and cell reports are gzip -9 lossless copies; report.json cell_report.file values intentionally retain original .json names."
+}

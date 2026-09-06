@@ -22,6 +22,14 @@
                       (> (+ (history-bytes history) cost) +history-bytes+)) do (history-drop history))
       (setf (aref (history-rows history) (mod (+ (history-start history) (history-count history)) +history-rows+)) row)
       (incf (history-count history)) (incf (history-bytes history) cost))))
+(defun clear-history (vt)
+  "Discard all rows above the main-screen viewport, as ED3 requires."
+  (when (and (terminal-history vt) (eq (terminal-screen vt) :main))
+    (setf (history-rows (terminal-history vt))
+          (make-array +history-rows+ :initial-element nil)
+          (history-start (terminal-history vt)) 0
+          (history-count (terminal-history vt)) 0
+          (history-bytes (terminal-history vt)) 0)))
 (defun history-text (vt)
   "Detached text for copy mode. No image bytes or host terminal controls."
   (let ((history (terminal-history vt)) (cols (terminal-cols vt)))
@@ -36,4 +44,4 @@
 (defun row-text (row)
   (string-right-trim " " (with-output-to-string (out)
                            (loop for cell across row do (write-string (first cell) out)))))
-(export '(terminal-history history-count history-text))
+(export '(terminal-history history-count history-text clear-history))

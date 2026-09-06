@@ -1,0 +1,69 @@
+{
+  "reference": "0.43.1",
+  "dimensions": [
+    20,
+    8
+  ],
+  "input_slice_passed": true,
+  "application_input_parity": true,
+  "modeled_cell_parity": false,
+  "full_parity": false,
+  "coverage_complete": false,
+  "limitations": [
+    "pyte cell model is incomplete; raw streams retained",
+    "no physical-terminal screenshots yet",
+    "only Normal/Locked routing exercised"
+  ],
+  "normalizations": [],
+  "differences": [
+    {
+      "stage": "startup",
+      "input_equal": true,
+      "input_delta_equal": true,
+      "cursor_equal": false,
+      "cells": 88
+    },
+    {
+      "stage": "dismiss-release-notes",
+      "input_equal": true,
+      "input_delta_equal": true,
+      "cursor_equal": false,
+      "cells": 88
+    },
+    {
+      "stage": "normal",
+      "input_equal": true,
+      "input_delta_equal": true,
+      "cursor_equal": false,
+      "cells": 88
+    },
+    {
+      "stage": "enter-locked",
+      "input_equal": true,
+      "input_delta_equal": true,
+      "cursor_equal": false,
+      "cells": 88
+    },
+    {
+      "stage": "locked-input",
+      "input_equal": true,
+      "input_delta_equal": true,
+      "cursor_equal": false,
+      "cells": 88
+    },
+    {
+      "stage": "leave-locked",
+      "input_equal": true,
+      "input_delta_equal": true,
+      "cursor_equal": false,
+      "cells": 88
+    },
+    {
+      "stage": "normal-again",
+      "input_equal": true,
+      "input_delta_equal": true,
+      "cursor_equal": false,
+      "cells": 88
+    }
+  ]
+}

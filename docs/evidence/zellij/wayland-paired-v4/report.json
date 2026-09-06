@@ -1,0 +1,131 @@
+{
+  "capture_complete": true,
+  "full_parity": false,
+  "coverage_complete": false,
+  "normalizations": [],
+  "checkpoints": [
+    {
+      "stage": "startup",
+      "differing_pixels": 113618,
+      "same_pixels": false,
+      "cell_report": {
+        "file": "startup-cell-report.json",
+        "dimensions_equal": true,
+        "cursor_equal": false,
+        "differing_cells": 1436
+      },
+      "zellij": {
+        "sent_hex": "",
+        "fixture": {
+          "winsize_rows_cols_xpixels_ypixels": [
+            24,
+            96,
+            0,
+            0
+          ]
+        },
+        "outer": {
+          "winsize_rows_cols_xpixels_ypixels": [
+            28,
+            98,
+            1274,
+            700
+          ]
+        },
+        "input_hex": ""
+      },
+      "ekko": {
+        "sent_hex": "",
+        "fixture": {
+          "winsize_rows_cols_xpixels_ypixels": [
+            26,
+            98,
+            1274,
+            650
+          ]
+        },
+        "outer": {
+          "winsize_rows_cols_xpixels_ypixels": [
+            28,
+            98,
+            1274,
+            700
+          ]
+        },
+        "input_hex": ""
+      }
+    },
+    {
+      "stage": "escape",
+      "differing_pixels": 78243,
+      "same_pixels": false,
+      "cell_report": {
+        "file": "escape-cell-report.json",
+        "dimensions_equal": true,
+        "cursor_equal": false,
+        "differing_cells": 452
+      },
+      "zellij": {
+        "sent_hex": "1b",
+        "fixture": {
+          "winsize_rows_cols_xpixels_ypixels": [
+            24,
+            96,
+            0,
+            0
+          ]
+        },
+        "outer": {
+          "winsize_rows_cols_xpixels_ypixels": [
+            28,
+            98,
+            1274,
+            700
+          ]
+        },
+        "input_hex": ""
+      },
+      "ekko": {
+        "sent_hex": "1b",
+        "fixture": {
+          "winsize_rows_cols_xpixels_ypixels": [
+            26,
+            98,
+            1274,
+            650
+          ]
+        },
+        "outer": {
+          "winsize_rows_cols_xpixels_ypixels": [
+            28,
+            98,
+            1274,
+            700
+          ]
+        },
+        "input_hex": "1b"
+      }
+    }
+  ],
+  "cell_reports": [
+    {
+      "stage": "startup",
+      "file": "startup-cell-report.json",
+      "dimensions_equal": true,
+      "cursor_equal": false,
+      "differing_cells": 1436
+    },
+    {
+      "stage": "escape",
+      "file": "escape-cell-report.json",
+      "dimensions_equal": true,
+      "cursor_equal": false,
+      "differing_cells": 452
+    }
+  ],
+  "limitations": [
+    "startup and Escape only",
+    "settling interval is one second",
+    "hardware display latency is not measured"
+  ]
+}

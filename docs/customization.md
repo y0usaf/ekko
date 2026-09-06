@@ -35,10 +35,13 @@ name. Its exports are:
 (register-component :id :name :api-version 1 :reads '(:focus) :handler function)
 (unregister-component :name)
 (register-command :component :name :name "command" :handler function)
+(register-keymap :component :name :name :normal :unbound :forward)
 (bind-key :component :name :key "v" :command "command" :map :prefix)
+(set-option :component :name :name :initial-keymap :value :normal)
 (set-option :component :name :name :prefix :value "C-a")
 (value snapshot :focus)
 (action :rename :text "work")
+(action :set-keymap :name :normal)
 ```
 
 Registration calls belong in init loading. Handlers receive `(snapshot event)`
@@ -52,51 +55,205 @@ cross this boundary.
 | --- | --- |
 | `:session` | Session name |
 | `:focus` | Stable focused pane ID |
-| `:panes` | Plists with `:id`, `:label`, `:pid`, `:cols`, `:rows`, `:exit` |
+| `:mode` | Active custom keymap keyword, or `nil` for built-in routing |
+| `:panes` | Plists with `:id`, raw `:label`, `:display-label`, `:pid`, `:cols`, `:rows`, `:exit`, content `:x`/`:y`, `:outer-rect` `(x y width height)`, `:layout-rect`, `:activation-order`, `:visible`, and `:history-rows` |
+| `:viewport` | Plist with `:cols`, `:rows`, effective pixel `:cell-width`/`:cell-height`, resolved `:insets` and `:gaps` |
+| `:zoom` | Lisp boolean (`t` or `nil`) |
+| `:chrome-status` | Resolved status `:text` and SGR `:style` |
+| `:pane-notes` | Active temporary contributions, each with `:owner`, `:pane`, `:text`, and `:sgr`, ordered by component registration |
 | `:layout` | Pane ID leaves; branches `(axis percentage first second)` |
 
+`:layout-rect` is the pane's outer `(x y width height)` rectangle with zoom
+ignored; it is `nil` for panes hidden by a layout too small to fit. It allows
+navigation policy to inspect the tiled arrangement while one pane is fullscreen.
+`:activation-order` is a daemon-owned increasing integer updated when focus
+moves to a pane. Reload and reattachment preserve it. Cell pixel dimensions are
+the daemon's effective values, including fallback values when host dimensions
+are unavailable.
+
 A change hook runs initially and when one of its declared keys changes; changes
-can coalesce while a handler runs. Stale hook results are discarded. Hooks may
-only return `:status` contributions, preventing reactive action loops. A timed-out
+can coalesce while a handler runs. Hook results are discarded when a declared
+dependency changes before completion; unrelated snapshot changes do not discard
+them. Hooks with no declared reads run once after installation. Hooks may
+only return `:status` or `:decorate` contributions, preventing reactive action loops. A timed-out
 hook is disabled until explicit reload. After worker failure, Ekko reconstructs
 registrations from the accepted init source; worker-local variables reset.
 
-Components own their commands, bindings, options, and status contributions.
+Components own their commands, bindings, keymaps, options, status contributions, and decorations.
 Later components shadow earlier ones. Removal or reload reconstructs those
-contributions, restoring underlying defaults. The preserved state is the session's
+contributions, restoring underlying defaults. A keymap name is a keyword other
+than the built-in `:prefix` and `:copy`; its `:unbound` policy is either
+`:forward` (send an unbound key to the focused pane) or `:ignore` (discard it).
+`register-keymap` records the component as the map's owner. A `bind-key` map may
+be `:prefix`, `:copy`, or a custom registered map; custom map references are
+validated when the complete registry is installed, so an unknown map rejects the
+reload and leaves the previous configuration active.
+
+The preserved state is the session's
 PTYs, labels, layout, history, copy selections, and buffer. User-invoked commands
 change that session state; removing their component does not undo past user actions.
-`inspect` lists registrations with owners, contributions, disabled hooks, and the
-last error. Builtins use the same API in `ekko/builtins`; `ekko-bare` is packaged
+`inspect` reports the active `:mode`, the `:zoom` state as a JSON boolean,
+registered keymaps (including each map's owner and unbound policy), bindings,
+contributions, disabled hooks, and the last error. Builtins use the same API in
+`ekko/builtins`; `ekko-bare` is packaged
 and tested with no builtins and an externally loaded command.
+
+These keymap additions are additive to public API version 1; `(api-version)`
+continues to return `1`. Geometry and decorations use attachment wire
+version `5`, with explicit outer rectangles, geometry metadata, and published
+decoration spans.
 
 | Option | Value |
 | --- | --- |
+| `:pane-insets` | `(top right bottom left)`, each integer 0–16; default `(1 0 0 0)` |
+| `:viewport-insets` | Same order/range; default `(0 0 1 0)` |
+| `:split-gaps` | `(column-gap row-gap)`, each integer 0–16; default `(1 0)` |
+| `:erase-display-history` | Lisp boolean, default `nil`; ED2 transfers materialized main-screen rows into history when true |
+| `:initial-layout` | Optional startup tree, e.g. `(:columns 50 1 (:rows 50 2 3))`; leaves name one-based startup command slots, each exactly once; percentages 1–99, at most 16 leaves |
+| `:initial-keymap` | Registered custom keymap keyword, or `nil` |
 | `:prefix` | `"C-a"` through `"C-z"`, or integer 1–26 |
 | `:shell` | Executable argument list for new panes; defaults to `$SHELL -i` |
 | `:status-text` | Up to 512 characters |
 | `:status-style` | SGR integer list, e.g. `'(0 37 44)` |
 
-Bindings use maps `:prefix` or `:copy`. Keys are single-character strings, integer
-code points, control names, or `Tab`, `Enter`, `Escape`, `Up`, `Down`, `PageUp`,
+The initial layout is consumed before spawning startup applications, so their
+first PTY size reflects the configured tree. Its leaf count must match the
+startup command count. Reloading or removing this option preserves the live tree.
+
+Geometry options belong to their component, just like other options. Reload or
+removal recomputes pane rectangles and PTY dimensions without restarting the
+applications. The layout reserves each pane's requested insets plus at least
+one content cell; when the tree cannot fit, it shows the focused pane. In a tiny
+viewport, top and left insets take priority, followed by bottom and right, with
+all sides capped to leave content within the outer rectangle. Hidden panes keep
+their state. `inspect` exposes resolved geometry options. These primitives reserve
+space; ordinary decoration components supply frame text and style policy.
+
+A command or hook can replace its owner's decoration contribution:
+
+```lisp
+(action :decorate :spans
+        (list (list :x 0 :y 0 :text " work " :sgr '(0 1 38 5 154))
+              (list :x 0 :y 1 :text "│" :sgr '(0) :rows 10)))
+```
+
+Coordinates are zero-based terminal cells: `:x` is 0–499 and `:y` is 0–299.
+Optional `:rows` repeats the horizontal span on 1–300 consecutive rows; it
+is one by default. Text excludes control characters, DEL, and C1 controls.
+SGR lists contain at most 16 integers from 0 through 255. Retained contributions
+across all owners allow at most 1,024 declared spans and 16,000 text characters,
+counting repetitions. Worker message limits also apply. An empty span list
+clears that owner's contribution. Invalid batches preserve previous contributions.
+
+Later registered components paint above earlier components, independent of
+callback completion order. The daemon clips spans to the terminal and excludes
+all visible application content before publication. Wide glyphs crossing a
+boundary are dropped; combining marks stay with an accepted base glyph.
+Reload clears accepted contributions and schedules the new hooks. The default
+titles, split dividers, and status line use this same API in `ekko/builtins`.
+`:history-rows` is the bounded main-screen history count (zero on alternate
+screen); it does not expose a scroll position or history reflow.
+
+When `run` creates a session from a terminal, its initial cell and pixel size
+is handed to the daemon before applications spawn. The loaded geometry options
+therefore determine each application's first PTY size. New split panes likewise
+start at their planned content size; an unsuccessful spawn leaves the current
+layout and applications intact. A server started without a terminal viewport
+uses the default 120×36 session and 8×16 cell size. A pane initially hidden by
+layout collapse starts at 1×1 until it is shown. Later attachments and reloads
+continue to resize existing PTYs without restarting their processes.
+
+Bindings use maps `:prefix`, `:copy`, or a custom map registered with
+`register-keymap`. Keys are single-character strings, integer
+code points, control names, or `Tab`, `Enter`, `Escape`, `Left`, `Right`, `Up`, `Down`, `PageUp`,
 `PageDown`, `Home`, `End`. A `nil` command unbinds a key in that component. Prefix
 followed by itself sends the literal control byte to the application.
 
+When a custom map is active, its bindings and unbound policy receive keys before
+ordinary pane input, and the configured prefix and built-in copy/search key
+handlers are inactive for that mode. Copy/history state is preserved. A
+command can switch maps by returning `(action :set-keymap :name :normal)`; the
+target must be registered in the active registry. Components can therefore keep
+mode switching commands beside the maps they own:
+
+```lisp
+(ekko/extensions:register-component :id :modes :reads '(:mode))
+(dolist (map '(:normal :locked))
+  (ekko/extensions:register-keymap :component :modes :name map :unbound :forward))
+(ekko/extensions:set-option :component :modes :name :initial-keymap :value :normal)
+(ekko/extensions:register-command :component :modes :name "lock"
+  :handler (lambda (snapshot event)
+             (declare (ignore snapshot event))
+             (list (ekko/extensions:action :set-keymap :name :locked))))
+(ekko/extensions:bind-key :component :modes :map :normal :key "C-g" :command "lock")
+```
+
+The active map is available to a component that declares `:mode` in its snapshot
+dependencies. On reload, Ekko keeps the selected mode if the new registry still
+registers it. If it does not, Ekko selects `:initial-keymap` (or no custom mode
+when that option is absent). A failed reload keeps both the old registry and its
+current mode. Map names and bindings are configuration contributions: removing
+the owning component removes them, while the session's prior user actions remain.
+
+The checked-in [Zellij profile](../examples/profiles/zellij.lisp) demonstrates
+Normal/Locked routing plus Pane entry, exits, locking, and fullscreen. It is still
+in progress and provides a partial proof of the
+generic API, not full Zellij keymap parity. Custom maps decode ordinary UTF-8
+scalar keys across client packets and forward unbound keys with their original
+bytes. Incomplete UTF-8 keys are transient input: changing modes or losing the
+writer discards them. Grapheme and modifier handling is not complete Zellij parity.
+
 Actions are plists prefixed by their kind. A batch accepts up to 32 actions,
-with at most **one session action** plus status contributions. Validation happens
-before application; unsupported actions or arguments reject the whole batch.
+with at most **one primary session action**, optionally followed by one
+`:set-keymap` transition, plus status contributions. A map transition must
+follow the primary action when both are present; a map transition by itself is
+also valid. Status contributions may accompany either form. The complete batch
+is validated before application, so an invalid action, map target, order, or
+count produces no effects. Ekko applies the primary action first, then commits
+the trailing mode transition and status contributions. If the primary action
+raises, those trailing mode and status changes are not committed; effects the
+primary action made before raising are not rolled back.
 
 | Action | Arguments |
 | --- | --- |
-| `:split` | `:axis :columns` or `:rows`; optional `:argv` list |
+| `:split` | `:axis :columns` or `:rows`; optional `:pane` target ID and `:argv` list |
 | `:focus` | `:pane` stable ID |
+| `:close` | Optional `:focus` surviving pane ID; otherwise retains the existing fallback policy |
 | `:rename` | `:text`; optional `:pane` |
 | `:resize` | `:delta` percentage points on the nearest split |
+| `:set-keymap` | `:name` registered custom keymap |
 | `:status` | `:text`, owned by the returning component |
+| `:pane-note` | `:pane` ID, printable `:text` up to 512 characters, `:sgr` up to 16 integers 0–255, `:duration` 1–60000 milliseconds |
 | `:copy-move` | `:delta` rows |
 | `:copy-edge` | `:edge :start` or `:end` |
-| `:focus-next`, `:zoom`, `:swap`, `:close`, `:detach`, `:stop`, `:reload`, `:help` | None |
+| `:focus-next`, `:zoom`, `:swap`, `:detach`, `:stop`, `:reload`, `:help` | None |
 | `:copy-mode`, `:copy-mark`, `:copy-selection`, `:copy-exit`, `:copy-search`, `:copy-search-next`, `:paste-buffer` | None |
+
+Pane notes carry temporary presentation data; a decoration hook decides how to
+render them. Each component can retain one note per pane. A new value replaces
+that owner's note, while repeating identical active text and style preserves its
+original deadline. Expiry changes `:pane-notes` and notifies its declared readers;
+notes also disappear on pane close or registry replacement. Snapshot data omits
+timers, and rendering remains ordinary Lisp policy. Commands may return notes
+alongside a primary action and mode transition. Hooks cannot emit notes, avoiding
+self-renewing timer loops. Later registered owners appear later in the snapshot,
+so a renderer can choose its own precedence rule.
+
+For example, a command can zoom the focused pane and return to Normal mode in
+one validated batch:
+
+```lisp
+(ekko/extensions:register-command :component :modes :name "zoom-and-normal"
+  :handler (lambda (snapshot event)
+             (declare (ignore snapshot event))
+             (list (ekko/extensions:action :zoom)
+                   (ekko/extensions:action :set-keymap :name :normal)
+                   (ekko/extensions:action :status :text "Normal mode"))))
+```
+
+The mode and status actions complete only after `:zoom` succeeds. This
+guarantees the transition's observable state without making the primary action
+itself a general transaction.
 
 ## Panes and copy mode
 

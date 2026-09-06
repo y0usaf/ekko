@@ -1,0 +1,20 @@
+{
+  "source_capture": "/nix/store/7sgkrijiqclasdhb492q60x4q8nzg092-ekko-zellij-pane-differential",
+  "candidate_package": "/nix/store/l746zv84mbnbvfgfj3pcah0gisa1i9wb-ekko-0.1.0",
+  "candidate_binary": "/nix/store/l746zv84mbnbvfgfj3pcah0gisa1i9wb-ekko-0.1.0/bin/ekko",
+  "candidate_binary_sha256": "ec5838dd042257e6eea41c0d410665122b0a9a68fce8d6eea2956ca4cef656bf",
+  "reference_binary": "/nix/store/wxjfyl2ksqkh263zwikp2igqh2a23y8r-zellij-0.43.1/bin/zellij",
+  "reference_binary_sha256": "74b8a5da42b75b162685b6a26d13898b6955226d24fb2fe54c86454de805adc0",
+  "source_commit": "53634fb9602c6fa988506e51bcaead0a8d59498e",
+  "source_worktree_diff_sha256": "28dfca0909dc75e76414450fb123c9be58fe20ce0bddafefacdfba66f75b462d",
+  "dimensions": [
+    "80x24",
+    "20x8"
+  ],
+  "report_source_hashes": {
+    "80x24": "122ef6cb1c63499e6bd757c706402d2efc6ba68a99a7b2820a0e3e6a94ea3cd2",
+    "20x8": "214318b0f578eedc6deea16da9dd7a2604b1adb25b3122961f8900e696297f13"
+  },
+  "note": "Final candidate package supplied for archival comparison; full flake status was pending at capture time. Reports are bounded cell/PTY evidence and do not claim parity. No normalization was applied.",
+  "compression": "report.json, ekko.json, and zellij.json are gzip -9 lossless copies; ANSI files remain uncompressed."
+}

@@ -1,0 +1,9 @@
+# Preserve byte-exact upstream configuration and captured diagnostic output.
+# Whitespace is part of the fixture; the differential runner checks its hash.
+tests/zellij/reference/config.kdl -whitespace
+docs/evidence/zellij/kitty-probe/kitty.err -whitespace
+docs/evidence/zellij/wayland-precursor/eglinfo.txt -whitespace
+docs/evidence/zellij/wayland-paired-v3/*/eglinfo.txt -whitespace
+docs/evidence/zellij/wayland-paired-v3/*/output.ansi -whitespace
+docs/evidence/zellij/wayland-paired-v4/*/eglinfo.txt -whitespace
+docs/evidence/zellij/wayland-paired-v4/*/*.ansi -whitespace

@@ -1,0 +1,165 @@
+{
+  "80x24": {
+    "fresh-clear": {
+      "seq_hex": "1b5b324a1b5b48",
+      "lines": [
+        [
+          0,
+          "\u250c A \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500 SCROLL:  0/1 \u2510\u250c B \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500 SCROLL:  0/1 \u2510"
+        ],
+        [
+          1,
+          "\u2502PANE-A READY                          \u2502\u2502PANE-B READY                          \u2502"
+        ]
+      ],
+      "cursor": [
+        0,
+        2
+      ]
+    },
+    "cursor-only": {
+      "seq_hex": "1b5b48",
+      "lines": [
+        [
+          1,
+          "\u2502PANE-A READY                          \u2502\u2502PANE-B READY                          \u2502"
+        ]
+      ],
+      "cursor": [
+        0,
+        2
+      ]
+    },
+    "repeat-clear": {
+      "seq_hex": "1b5b324a1b5b481b5b324a1b5b48",
+      "lines": [
+        [
+          0,
+          "\u250c A \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500 SCROLL:  0/23 \u2510\u250c B \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500 SCROLL:  0/23 \u2510"
+        ],
+        [
+          1,
+          "\u2502PANE-A READY                          \u2502\u2502PANE-B READY                          \u2502"
+        ]
+      ],
+      "cursor": [
+        0,
+        2
+      ]
+    },
+    "nonblank-full": {
+      "seq_hex": "4f4e450d0a54574f0d0a54485245450d0a1b5b324a1b5b48",
+      "lines": [
+        [
+          0,
+          "\u250c A \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500 SCROLL:  0/4 \u2510\u250c B \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500 SCROLL:  0/4 \u2510"
+        ],
+        [
+          1,
+          "\u2502PANE-A READY                          \u2502\u2502PANE-B READY                          \u2502"
+        ]
+      ],
+      "cursor": [
+        0,
+        2
+      ]
+    },
+    "nonblank-below": {
+      "seq_hex": "4f4e450d0a54574f0d0a54485245450d0a1b5b304a1b5b48",
+      "lines": [
+        [
+          1,
+          "\u2502PANE-A READY                          \u2502\u2502PANE-B READY                          \u2502"
+        ]
+      ],
+      "cursor": [
+        0,
+        2
+      ]
+    },
+    "nonblank-above": {
+      "seq_hex": "4f4e450d0a54574f0d0a54485245450d0a1b5b314a1b5b48",
+      "lines": [
+        [
+          1,
+          "\u2502PANE-A READY                          \u2502\u2502PANE-B READY                          \u2502"
+        ]
+      ],
+      "cursor": [
+        0,
+        2
+      ]
+    },
+    "nonblank-saved": {
+      "seq_hex": "4f4e450d0a54574f0d0a54485245450d0a1b5b334a1b5b48",
+      "lines": [
+        [
+          1,
+          "\u2502PANE-A READY                          \u2502\u2502PANE-B READY                          \u2502"
+        ]
+      ],
+      "cursor": [
+        0,
+        2
+      ]
+    }
+  },
+  "20x8": {
+    "fresh-clear": {
+      "seq_hex": "1b5b324a1b5b48",
+      "lines": [],
+      "cursor": [
+        1,
+        1
+      ]
+    },
+    "cursor-only": {
+      "seq_hex": "1b5b48",
+      "lines": [],
+      "cursor": [
+        1,
+        1
+      ]
+    },
+    "repeat-clear": {
+      "seq_hex": "1b5b324a1b5b481b5b324a1b5b48",
+      "lines": [],
+      "cursor": [
+        1,
+        1
+      ]
+    },
+    "nonblank-full": {
+      "seq_hex": "4f4e450d0a54574f0d0a54485245450d0a1b5b324a1b5b48",
+      "lines": [],
+      "cursor": [
+        1,
+        1
+      ]
+    },
+    "nonblank-below": {
+      "seq_hex": "4f4e450d0a54574f0d0a54485245450d0a1b5b304a1b5b48",
+      "lines": [],
+      "cursor": [
+        1,
+        1
+      ]
+    },
+    "nonblank-above": {
+      "seq_hex": "4f4e450d0a54574f0d0a54485245450d0a1b5b314a1b5b48",
+      "lines": [],
+      "cursor": [
+        1,
+        1
+      ]
+    },
+    "nonblank-saved": {
+      "seq_hex": "4f4e450d0a54574f0d0a54485245450d0a1b5b334a1b5b48",
+      "lines": [],
+      "cursor": [
+        1,
+        1
+      ]
+    }
+  }
+}

@@ -1,0 +1,13 @@
+{
+  "release": "0.43.1",
+  "tag": "v0.43.1",
+  "source_url": "https://github.com/zellij-org/zellij/tree/v0.43.1",
+  "source_nar_hash": "sha256-pUExOToThqDBrNNKHh8Z+PFkijx22I7gpYXTAywlSxM=",
+  "package": "nixpkgs.zellij from repository flake.lock",
+  "files": {
+    "config.kdl": "310935808ff8ea32c5dc414ec88572ccab026633b03e05fe2d9360fe99e85e0f",
+    "default.kdl": "ebb187207beb2740dfa146e2ea93de69d4157910149aae50b65120f5998f3a52"
+  },
+  "normalizations": [],
+  "nixpkgs_revision": "ac62194c3917d5f474c1a844b6fd6da2db95077d"
+}

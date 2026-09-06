@@ -1,0 +1,34 @@
+{
+  "reference": {
+    "release": "0.43.1",
+    "binary": "/nix/store/wxjfyl2ksqkh263zwikp2igqh2a23y8r-zellij-0.43.1/bin/zellij",
+    "source_nar_hash": "sha256-pUExOToThqDBrNNKHh8Z+PFkijx22I7gpYXTAywlSxM=",
+    "outer_size": [80, 24],
+    "cell_size_after_discovery": [8, 16]
+  },
+  "status": "reconstruction_from_prior_conversation_not_fresh_trace",
+  "startup_and_explicit_split": {
+    "A": [
+      {"event": "FIRST", "winsize": [22, 38, 0, 0]},
+      {"event": "WINCH_AFTER_EXPLICIT_N_OR_D_SPLIT", "winsize": [10, 38, 304, 160]}
+    ],
+    "B": [
+      {"event": "FIRST", "winsize": [10, 38, 0, 0]},
+      {"event": "WINCH_AFTER_EXPLICIT_N_OR_D_SPLIT", "winsize": [10, 38, 304, 160]}
+    ],
+    "C": [
+      {"event": "FIRST", "winsize": [10, 38, 0, 0]},
+      {"event": "WINCH_AFTER_EXPLICIT_N_OR_D_SPLIT", "winsize": [10, 38, 304, 160]}
+    ]
+  },
+  "derived_rule": "pixel_width = cell_width * content_columns; pixel_height = cell_height * content_rows; absent metrics encode as 0,0",
+  "source_files": {
+    "zellij-client/src/stdin_ansi_parser.rs": {"lines": "63-69", "sha256": "240e3c32a69143000573cd5c57cd962155d36cb6b3401aa03019fd85b63896b9"},
+    "zellij-client/src/input_handler.rs": {"lines": "258-263", "sha256": "1155f517d5df2dbad280c626da3fd3cc943f5d0f5a737547a5b1d1aa7326434a"},
+    "zellij-server/src/screen.rs": {"lines": "1244-1256,4234-4245", "sha256": "99eec5976043ca7f9347f45043b988abf63a344120796f5e62225d26fe8142d4"},
+    "zellij-server/src/tab/mod.rs": {"lines": "97-123", "sha256": "6f9050999d4d0d1e57c51467dddaead9c6369dd6e028397e25bf6ee8f775bf2c"},
+    "zellij-server/src/os_input_output.rs": {"lines": "50-74", "sha256": "6086f42980f2e996f2ffc96ddc45f061d9a746db78440a2d52c277f9e664d16d"},
+    "zellij-client/src/lib.rs": {"lines": "610-614", "sha256": "0f28391f1faa3e3d785f61959107072619cf5d7c20a4563010a7f47b818e95e5"}
+  },
+  "live_rerun": {"status": "blocked", "reason": "reference children did not start; PTY stream empty", "nix_reason": "Nix daemon socket returned EPERM after XDG_CACHE_HOME=/tmp; initial fetcher-cache SQLite access also failed"}
+}

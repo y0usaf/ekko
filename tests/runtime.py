@@ -94,7 +94,7 @@ class Host:
                 self.buffer = b""
                 return
             self.buffer = self.buffer[start:]
-            if len(self.buffer) < 2:
+            if len(self.buffer) < 2 or self.buffer == ESC + b"_":
                 return
             if self.buffer.startswith(ESC + b"_G"):
                 end = self.buffer.find(ESC + b"\\", 3)
@@ -188,7 +188,20 @@ class Host:
                 self.buffer = self.buffer[2:]
 
 
+def host_fragmentation():
+    payload = base64.b64encode(zlib.compress(bytes([255, 0, 0, 255])))
+    frame = (ESC + b"[2;1H" + ESC
+             + b"_Ga=T,t=d,f=32,o=z,s=1,v=1,i=100,p=1,C=1,q=2,x=0,y=0,w=1,h=1,X=0,Y=0,m=0;"
+             + payload + ESC + b"\\")
+    for size in (1, 2, 3, 7):
+        host = Host()
+        for offset in range(0, len(frame), size):
+            host.feed(frame[offset:offset + size])
+        assert host.uploads == 1, f"lost graphics with {size}-byte reads"
+
+
 def integration(binary, shared=False, local=True):
+    host_fragmentation()
     with tempfile.TemporaryDirectory(prefix="ekko-runtime-") as directory:
         root = Path(directory)
         env = dict(os.environ, XDG_RUNTIME_DIR=directory)

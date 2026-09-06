@@ -1,0 +1,10 @@
+{
+  "argv": [
+    "/nix/store/wxjfyl2ksqkh263zwikp2igqh2a23y8r-zellij-0.43.1/bin/zellij",
+    "kill-session",
+    "pane-split-error"
+  ],
+  "returncode": 0,
+  "stdout": "",
+  "stderr": ""
+}

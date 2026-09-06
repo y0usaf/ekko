@@ -1,0 +1,51 @@
+{
+  "date": "2026-09-05",
+  "package": "/nix/store/0ndqn00g6d8qkr6d9nv8i3dlis0p4xx4-ekko-0.1.0",
+  "reference": "Zellij 0.43.1",
+  "routing_check_output": "/nix/store/kzn9k7jk2n0lmfl8m59ic2qwyqiwpq9z-ekko-zellij-routing",
+  "commands": [
+    {
+      "command": "nix build -L",
+      "exit_code": 0
+    },
+    {
+      "command": "nix flake check -L",
+      "exit_code": 0,
+      "scope": "existing checks plus generic keymap normal/bare and settled routing at 80x24 and 20x8; not full parity"
+    },
+    {
+      "command": "nix run . -- --help",
+      "exit_code": 0
+    },
+    {
+      "command": "nix run .#zellij-differential -- --output /tmp/ekko-zellij-verified-strict --require-parity",
+      "exit_code": 1,
+      "reason": "incomplete full acceptance coverage and actual cell/input differences"
+    },
+    {
+      "command": "EKKO_ORACLE_OUTPUT_DIR=/tmp/ekko-zellij-kitty-probe nix run .#test-kitty",
+      "exit_code": 77,
+      "reason": "Kitty GLX framebuffer unavailable"
+    }
+  ],
+  "complete_goal": false,
+  "artifact_sha256": {
+    "20x8/ekko.ansi": "54ea624e1163ed90b0a0770e6d8382a67a2fab14a67f9298ba5468eaeb04c2d9",
+    "20x8/ekko.json.gz": "fe0a670e0c6305fb7615a0d6e6fdfe9b1a19a83d008c8cd8f7d07d7f75030eed",
+    "20x8/report.json.gz": "b7dec8be45eba008e55511e210ac6cae6b30cb4e9196accb958f3a2b49639e64",
+    "20x8/summary.json": "3e5fe78f23ff9fd1ae150f6a446c10061eb405e4c81d8c2a38af6cf7eb2d15cf",
+    "20x8/zellij.ansi": "81c1772ce0d534c7d6b50c84dab0b14226f774bd68746db385ef85dbcefe048a",
+    "20x8/zellij.json.gz": "1e553dfb443bf2641226bfc06da9423097faf0f9dffb0fe84fcf8195ba536126",
+    "80x24/ekko.ansi": "a07fff8d6eeb455f04a109c7267a95ad0505fd9d7c00d369655b46989888f467",
+    "80x24/ekko.json.gz": "5e8d514695d98869fe0e4a2c8ee6a7c741111b511176fa2a6878a21aa905e47f",
+    "80x24/report.json.gz": "506794ea518967b3bc16831741fd4456d3fedb2317dc18a7470f6bb759c771e0",
+    "80x24/summary.json": "78c0e41b36435757ee26e603574da19c12099b2abff4a86b13f3ffc421c3b808",
+    "80x24/zellij.ansi": "b0eea92647836facb403c6015e2fb304e65ed357b1f3d0d097a01ae55fe7d040",
+    "80x24/zellij.json.gz": "c5319d5287c5e529117978772a0b6f948a6ceebc7e34b1f9adce03734b040a90",
+    "kitty-probe/kitty.err": "98c5378ca2a56e16b1f04e67e7a1ec2bf57241447e21eb32fc311022baeecb09",
+    "kitty-probe/report.json": "d1125db0dbb0546be1c685631255ca99d5702db0a47f4f9fe3ed79fe6159178e",
+    "kitty-probe/xvfb.log": "3191112298a044c96c52406a103957cdf768f84a5a8ee36e66f355718232f37f",
+    "nix-checks.log.gz": "d7235f92d1589a894e42c48b15eba286a59383d45c8fc325199b810cfcf066d9",
+    "strict.log.gz": "7141ed1359ec3057af60c488774dff6ec4187284f671ad8fae5c4bfebabd47b2"
+  }
+}

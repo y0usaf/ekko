@@ -1,0 +1,4 @@
+00:00:00.000 [ERROR] [xwayland/sockets.c:64] Failed to bind socket @/tmp/.X11-unix/X0: Address already in use
+[0.129] Could not move child process into a systemd scope: [Errno 113] Failed to call StartTransientUnit: org.freedesktop.DBus.Error.ServiceUnknown: The name org.freedesktop.systemd1 was not provided by any .service files
+[0.276] [glfw error 65544]: process_desktop_settings: failed with error: org.freedesktop.DBus.Error.UnknownMethod: No such interface “org.freedesktop.portal.Settings” on object at path /org/freedesktop/portal/desktop
+[2.291] [glfw error 65544]: Wayland: fatal display error: Broken pipe

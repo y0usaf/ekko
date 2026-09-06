@@ -4,15 +4,16 @@
 (in-package #:ekko/layout)
 
 ;; Leaves are stable pane IDs. Branches are (axis percentage first second).
-;; A leaf includes one header row and at least one application row.
-(defun minimum-size (tree)
-  (if (integerp tree) '(1 2)
+;; A leaf's minimum is supplied by the caller so layout can reserve the
+;; pane's requested frame and still keep one cell for application content.
+(defun minimum-size (tree &key (leaf-min '(1 2)) (column-gap 1) (row-gap 0))
+  (if (integerp tree) (copy-list leaf-min)
       (destructuring-bind (axis ratio a b) tree
         (declare (ignore ratio))
-        (destructuring-bind (aw ah) (minimum-size a)
-          (destructuring-bind (bw bh) (minimum-size b)
-            (if (eq axis :columns) (list (+ aw bw 1) (max ah bh))
-                (list (max aw bw) (+ ah bh))))))))
+        (destructuring-bind (aw ah) (minimum-size a :leaf-min leaf-min :column-gap column-gap :row-gap row-gap)
+          (destructuring-bind (bw bh) (minimum-size b :leaf-min leaf-min :column-gap column-gap :row-gap row-gap)
+            (if (eq axis :columns) (list (+ aw bw column-gap) (max ah bh))
+                (list (max aw bw) (+ ah bh row-gap))))))))
 (defun split-pane (tree target new axis)
   (if (integerp tree)
       (if (= tree target) (list axis 50 tree new) tree)
@@ -36,19 +37,23 @@
 (defun swap-panes (tree a b)
   (if (integerp tree) (cond ((= tree a) b) ((= tree b) a) (t tree))
       (list (first tree) (second tree) (swap-panes (third tree) a b) (swap-panes (fourth tree) a b))))
-(defun rectangles (tree cols rows focus &optional zoom)
-  "Return (id x y width height), including headers. Hide siblings if too small."
-  (destructuring-bind (mw mh) (minimum-size tree)
+(defun rectangles (tree cols rows focus &optional zoom
+                  &key (leaf-min '(1 2)) (column-gap 1) (row-gap 0))
+  "Return (id x y width height) outer rectangles, collapsing when too small."
+  (destructuring-bind (mw mh) (minimum-size tree :leaf-min leaf-min :column-gap column-gap :row-gap row-gap)
     (when (or zoom (< cols mw) (< rows mh)) (setf tree focus)))
   (labels ((walk (node x y w h)
              (if (integerp node) (list (list node x y w h))
                  (destructuring-bind (axis ratio a b) node
                    (let* ((columns (eq axis :columns)) (index (if columns 0 1))
-                          (available (- (if columns w h) (if columns 1 0)))
-                          (cut (max (nth index (minimum-size a))
-                                    (min (- available (nth index (minimum-size b)))
+                          (gap (if columns column-gap row-gap))
+                          (available (- (if columns w h) gap))
+                          (amin (nth index (minimum-size a :leaf-min leaf-min :column-gap column-gap :row-gap row-gap)))
+                          (bmin (nth index (minimum-size b :leaf-min leaf-min :column-gap column-gap :row-gap row-gap)))
+                          (cut (max amin
+                                    (min (- available bmin)
                                          (floor (* available ratio) 100)))))
                      (if columns
-                         (append (walk a x y cut h) (walk b (+ x cut 1) y (- available cut) h))
-                         (append (walk a x y w cut) (walk b x (+ y cut) w (- available cut)))))))))
+                         (append (walk a x y cut h) (walk b (+ x cut gap) y (- available cut) h))
+                         (append (walk a x y w cut) (walk b x (+ y cut gap) w (- available cut)))))))))
     (walk tree 0 0 cols rows)))

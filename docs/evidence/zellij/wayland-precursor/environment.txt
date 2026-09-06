@@ -1,0 +1,8 @@
+wayland_display=wayland-0
+backend=headless
+compositor=cage
+compositor_renderer=pixman
+client_renderer=llvmpipe
+font_family=DejaVu Sans Mono
+fontconfig_file=/nix/store/smcxqmdp8rcc69lipkiqv5jzwmpanhcc-ekko-zellij-visual-fonts.conf
+dimensions=1280x720

@@ -17,18 +17,30 @@
       (error "Provide one to sixteen nonempty pane commands"))
     (nreverse commands)))
 
+(defun parse-startup-viewport (args)
+  (if (equal (first args) "--viewport")
+      (progn
+        (unless (>= (length args) 5) (error "--viewport requires COLS ROWS CELL-WIDTH CELL-HEIGHT"))
+        (values (nthcdr 5 args)
+                (loop for value in (subseq args 1 5)
+                      collect (or (parse-integer value :junk-allowed nil)
+                                  (error "Invalid startup viewport value ~A" value)))))
+      (values args nil)))
+
 (defun runtime-command (arguments)
   (handler-case
       (let ((command (first arguments)) (args (rest arguments)))
         (cond
           ((string= command "--extension-worker") (ekko/runtime::extension-worker-main))
           ((member command '("run" "--serve" "command" "split" "rename") :test #'string=)
-           (let ((name "default"))
+           (let ((name "default") (startup-viewport nil))
              (when (string= command "--serve") (setf name (pop args)))
              (when (equal (first args) "--session") (pop args) (setf name (pop args)))
              (unless name (error "Missing session name"))
+             (when (string= command "--serve")
+               (multiple-value-setq (args startup-viewport) (parse-startup-viewport args)))
              (cond
-               ((string= command "--serve") (ekko/runtime:serve name (pane-commands args)))
+               ((string= command "--serve") (ekko/runtime:serve name (pane-commands args) startup-viewport))
                ((string= command "run") (ekko/runtime:run-session name (pane-commands args)))
                (t
                 (when (string= command "split")

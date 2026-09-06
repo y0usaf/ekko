@@ -1,0 +1,12 @@
+{
+  "command": [
+    "/nix/store/wxjfyl2ksqkh263zwikp2igqh2a23y8r-zellij-0.43.1/bin/zellij",
+    "kill-session",
+    "workflow"
+  ],
+  "exit_code": 1,
+  "stdout": "No session named \"workflow\" found.\n",
+  "stderr": "",
+  "error": "AssertionError('zellij cleanup failed: ')",
+  "primary_error": "AssertionError('condition did not become true')"
+}

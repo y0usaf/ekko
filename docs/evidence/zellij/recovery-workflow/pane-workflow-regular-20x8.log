@@ -1,0 +1,17 @@
+ekko: connect failed (errno 1)
+
+Traceback (most recent call last):
+  File "/home/y0usaf/dev/maintaining/ekko_v2/tests/pane_workflow.py", line 410, in <module>
+    main()
+    ~~~~^^
+  File "/home/y0usaf/dev/maintaining/ekko_v2/tests/pane_workflow.py", line 401, in main
+    integration(args.binary, args.profile, args.mode == "bare", args.cols, args.rows)
+    ~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/y0usaf/dev/maintaining/ekko_v2/tests/pane_workflow.py", line 227, in integration
+    wait_for(lambda: all(path.exists() for path in event_paths.values()), viewer)
+    ~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/y0usaf/dev/maintaining/ekko_v2/tests/pane_workflow.py", line 149, in wait_for
+    return eventually(check, timeout=max(.1, deadline - time.monotonic()))
+  File "/home/y0usaf/dev/maintaining/ekko_v2/tests/daily.py", line 35, in eventually
+    raise AssertionError(f"condition did not become true: {fn}")
+AssertionError: condition did not become true: <function wait_for.<locals>.check at 0x7f74cf817cc0>

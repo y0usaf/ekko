@@ -1,0 +1,1045 @@
+{
+  "scenario": "custom-two-pane-no-bar",
+  "dimensions": [
+    20,
+    8
+  ],
+  "stage_count": 17,
+  "stage_count_equal": true,
+  "stage_names_equal": true,
+  "stage_sequence_equal": true,
+  "input_equal_all": true,
+  "cell_equal_all": false,
+  "cursor_equal_all": false,
+  "dimension_sequence_equal_all": false,
+  "terminal_dimensions_equal_all": true,
+  "normalizations": [],
+  "stages": [
+    {
+      "stage": "startup",
+      "input_equal": true,
+      "input_delta_equal": true,
+      "events_equal": false,
+      "cell_equal": false,
+      "differing_cells": 20,
+      "cursor_equal": false,
+      "dimension_equal": false,
+      "terminal_dimension_equal": true,
+      "pane_dimension_sequence_equal": false,
+      "zellij_pane_dimension_sequence": {
+        "A": [
+          {
+            "event": "READY",
+            "size": "8x6"
+          }
+        ],
+        "B": [
+          {
+            "event": "READY",
+            "size": "8x6"
+          }
+        ]
+      },
+      "ekko_pane_dimension_sequence": {
+        "A": [
+          {
+            "event": "READY",
+            "size": "58x34"
+          },
+          {
+            "event": "WINCH",
+            "size": "8x6"
+          }
+        ],
+        "B": [
+          {
+            "event": "READY",
+            "size": "58x34"
+          },
+          {
+            "event": "WINCH",
+            "size": "8x6"
+          }
+        ]
+      }
+    },
+    {
+      "stage": "dismiss-release-notes",
+      "input_equal": true,
+      "input_delta_equal": true,
+      "events_equal": false,
+      "cell_equal": false,
+      "differing_cells": 20,
+      "cursor_equal": false,
+      "dimension_equal": false,
+      "terminal_dimension_equal": true,
+      "pane_dimension_sequence_equal": false,
+      "zellij_pane_dimension_sequence": {
+        "A": [
+          {
+            "event": "READY",
+            "size": "8x6"
+          }
+        ],
+        "B": [
+          {
+            "event": "READY",
+            "size": "8x6"
+          }
+        ]
+      },
+      "ekko_pane_dimension_sequence": {
+        "A": [
+          {
+            "event": "READY",
+            "size": "58x34"
+          },
+          {
+            "event": "WINCH",
+            "size": "8x6"
+          }
+        ],
+        "B": [
+          {
+            "event": "READY",
+            "size": "58x34"
+          },
+          {
+            "event": "WINCH",
+            "size": "8x6"
+          }
+        ]
+      }
+    },
+    {
+      "stage": "pane-enter",
+      "input_equal": true,
+      "input_delta_equal": true,
+      "events_equal": false,
+      "cell_equal": false,
+      "differing_cells": 20,
+      "cursor_equal": false,
+      "dimension_equal": false,
+      "terminal_dimension_equal": true,
+      "pane_dimension_sequence_equal": false,
+      "zellij_pane_dimension_sequence": {
+        "A": [
+          {
+            "event": "READY",
+            "size": "8x6"
+          }
+        ],
+        "B": [
+          {
+            "event": "READY",
+            "size": "8x6"
+          }
+        ]
+      },
+      "ekko_pane_dimension_sequence": {
+        "A": [
+          {
+            "event": "READY",
+            "size": "58x34"
+          },
+          {
+            "event": "WINCH",
+            "size": "8x6"
+          }
+        ],
+        "B": [
+          {
+            "event": "READY",
+            "size": "58x34"
+          },
+          {
+            "event": "WINCH",
+            "size": "8x6"
+          }
+        ]
+      }
+    },
+    {
+      "stage": "pane-fullscreen-on",
+      "input_equal": true,
+      "input_delta_equal": true,
+      "events_equal": false,
+      "cell_equal": false,
+      "differing_cells": 21,
+      "cursor_equal": false,
+      "dimension_equal": false,
+      "terminal_dimension_equal": true,
+      "pane_dimension_sequence_equal": false,
+      "zellij_pane_dimension_sequence": {
+        "A": [
+          {
+            "event": "READY",
+            "size": "8x6"
+          },
+          {
+            "event": "WINCH",
+            "size": "18x6"
+          }
+        ],
+        "B": [
+          {
+            "event": "READY",
+            "size": "8x6"
+          }
+        ]
+      },
+      "ekko_pane_dimension_sequence": {
+        "A": [
+          {
+            "event": "READY",
+            "size": "58x34"
+          },
+          {
+            "event": "WINCH",
+            "size": "8x6"
+          },
+          {
+            "event": "WINCH",
+            "size": "18x6"
+          }
+        ],
+        "B": [
+          {
+            "event": "READY",
+            "size": "58x34"
+          },
+          {
+            "event": "WINCH",
+            "size": "8x6"
+          }
+        ]
+      }
+    },
+    {
+      "stage": "normal-return-pane",
+      "input_equal": true,
+      "input_delta_equal": true,
+      "events_equal": false,
+      "cell_equal": false,
+      "differing_cells": 21,
+      "cursor_equal": false,
+      "dimension_equal": false,
+      "terminal_dimension_equal": true,
+      "pane_dimension_sequence_equal": false,
+      "zellij_pane_dimension_sequence": {
+        "A": [
+          {
+            "event": "READY",
+            "size": "8x6"
+          },
+          {
+            "event": "WINCH",
+            "size": "18x6"
+          }
+        ],
+        "B": [
+          {
+            "event": "READY",
+            "size": "8x6"
+          }
+        ]
+      },
+      "ekko_pane_dimension_sequence": {
+        "A": [
+          {
+            "event": "READY",
+            "size": "58x34"
+          },
+          {
+            "event": "WINCH",
+            "size": "8x6"
+          },
+          {
+            "event": "WINCH",
+            "size": "18x6"
+          }
+        ],
+        "B": [
+          {
+            "event": "READY",
+            "size": "58x34"
+          },
+          {
+            "event": "WINCH",
+            "size": "8x6"
+          }
+        ]
+      }
+    },
+    {
+      "stage": "pane-fullscreen-off",
+      "input_equal": true,
+      "input_delta_equal": true,
+      "events_equal": false,
+      "cell_equal": false,
+      "differing_cells": 20,
+      "cursor_equal": false,
+      "dimension_equal": false,
+      "terminal_dimension_equal": true,
+      "pane_dimension_sequence_equal": false,
+      "zellij_pane_dimension_sequence": {
+        "A": [
+          {
+            "event": "READY",
+            "size": "8x6"
+          },
+          {
+            "event": "WINCH",
+            "size": "18x6"
+          },
+          {
+            "event": "WINCH",
+            "size": "8x6"
+          }
+        ],
+        "B": [
+          {
+            "event": "READY",
+            "size": "8x6"
+          }
+        ]
+      },
+      "ekko_pane_dimension_sequence": {
+        "A": [
+          {
+            "event": "READY",
+            "size": "58x34"
+          },
+          {
+            "event": "WINCH",
+            "size": "8x6"
+          },
+          {
+            "event": "WINCH",
+            "size": "18x6"
+          },
+          {
+            "event": "WINCH",
+            "size": "8x6"
+          }
+        ],
+        "B": [
+          {
+            "event": "READY",
+            "size": "58x34"
+          },
+          {
+            "event": "WINCH",
+            "size": "8x6"
+          }
+        ]
+      }
+    },
+    {
+      "stage": "pane-enter-for-escape",
+      "input_equal": true,
+      "input_delta_equal": true,
+      "events_equal": false,
+      "cell_equal": false,
+      "differing_cells": 20,
+      "cursor_equal": false,
+      "dimension_equal": false,
+      "terminal_dimension_equal": true,
+      "pane_dimension_sequence_equal": false,
+      "zellij_pane_dimension_sequence": {
+        "A": [
+          {
+            "event": "READY",
+            "size": "8x6"
+          },
+          {
+            "event": "WINCH",
+            "size": "18x6"
+          },
+          {
+            "event": "WINCH",
+            "size": "8x6"
+          }
+        ],
+        "B": [
+          {
+            "event": "READY",
+            "size": "8x6"
+          }
+        ]
+      },
+      "ekko_pane_dimension_sequence": {
+        "A": [
+          {
+            "event": "READY",
+            "size": "58x34"
+          },
+          {
+            "event": "WINCH",
+            "size": "8x6"
+          },
+          {
+            "event": "WINCH",
+            "size": "18x6"
+          },
+          {
+            "event": "WINCH",
+            "size": "8x6"
+          }
+        ],
+        "B": [
+          {
+            "event": "READY",
+            "size": "58x34"
+          },
+          {
+            "event": "WINCH",
+            "size": "8x6"
+          }
+        ]
+      }
+    },
+    {
+      "stage": "pane-escape-return",
+      "input_equal": true,
+      "input_delta_equal": true,
+      "events_equal": false,
+      "cell_equal": false,
+      "differing_cells": 20,
+      "cursor_equal": false,
+      "dimension_equal": false,
+      "terminal_dimension_equal": true,
+      "pane_dimension_sequence_equal": false,
+      "zellij_pane_dimension_sequence": {
+        "A": [
+          {
+            "event": "READY",
+            "size": "8x6"
+          },
+          {
+            "event": "WINCH",
+            "size": "18x6"
+          },
+          {
+            "event": "WINCH",
+            "size": "8x6"
+          }
+        ],
+        "B": [
+          {
+            "event": "READY",
+            "size": "8x6"
+          }
+        ]
+      },
+      "ekko_pane_dimension_sequence": {
+        "A": [
+          {
+            "event": "READY",
+            "size": "58x34"
+          },
+          {
+            "event": "WINCH",
+            "size": "8x6"
+          },
+          {
+            "event": "WINCH",
+            "size": "18x6"
+          },
+          {
+            "event": "WINCH",
+            "size": "8x6"
+          }
+        ],
+        "B": [
+          {
+            "event": "READY",
+            "size": "58x34"
+          },
+          {
+            "event": "WINCH",
+            "size": "8x6"
+          }
+        ]
+      }
+    },
+    {
+      "stage": "pane-enter-for-enter",
+      "input_equal": true,
+      "input_delta_equal": true,
+      "events_equal": false,
+      "cell_equal": false,
+      "differing_cells": 20,
+      "cursor_equal": false,
+      "dimension_equal": false,
+      "terminal_dimension_equal": true,
+      "pane_dimension_sequence_equal": false,
+      "zellij_pane_dimension_sequence": {
+        "A": [
+          {
+            "event": "READY",
+            "size": "8x6"
+          },
+          {
+            "event": "WINCH",
+            "size": "18x6"
+          },
+          {
+            "event": "WINCH",
+            "size": "8x6"
+          }
+        ],
+        "B": [
+          {
+            "event": "READY",
+            "size": "8x6"
+          }
+        ]
+      },
+      "ekko_pane_dimension_sequence": {
+        "A": [
+          {
+            "event": "READY",
+            "size": "58x34"
+          },
+          {
+            "event": "WINCH",
+            "size": "8x6"
+          },
+          {
+            "event": "WINCH",
+            "size": "18x6"
+          },
+          {
+            "event": "WINCH",
+            "size": "8x6"
+          }
+        ],
+        "B": [
+          {
+            "event": "READY",
+            "size": "58x34"
+          },
+          {
+            "event": "WINCH",
+            "size": "8x6"
+          }
+        ]
+      }
+    },
+    {
+      "stage": "pane-enter-return",
+      "input_equal": true,
+      "input_delta_equal": true,
+      "events_equal": false,
+      "cell_equal": false,
+      "differing_cells": 20,
+      "cursor_equal": false,
+      "dimension_equal": false,
+      "terminal_dimension_equal": true,
+      "pane_dimension_sequence_equal": false,
+      "zellij_pane_dimension_sequence": {
+        "A": [
+          {
+            "event": "READY",
+            "size": "8x6"
+          },
+          {
+            "event": "WINCH",
+            "size": "18x6"
+          },
+          {
+            "event": "WINCH",
+            "size": "8x6"
+          }
+        ],
+        "B": [
+          {
+            "event": "READY",
+            "size": "8x6"
+          }
+        ]
+      },
+      "ekko_pane_dimension_sequence": {
+        "A": [
+          {
+            "event": "READY",
+            "size": "58x34"
+          },
+          {
+            "event": "WINCH",
+            "size": "8x6"
+          },
+          {
+            "event": "WINCH",
+            "size": "18x6"
+          },
+          {
+            "event": "WINCH",
+            "size": "8x6"
+          }
+        ],
+        "B": [
+          {
+            "event": "READY",
+            "size": "58x34"
+          },
+          {
+            "event": "WINCH",
+            "size": "8x6"
+          }
+        ]
+      }
+    },
+    {
+      "stage": "pane-enter-for-ctrl-p",
+      "input_equal": true,
+      "input_delta_equal": true,
+      "events_equal": false,
+      "cell_equal": false,
+      "differing_cells": 20,
+      "cursor_equal": false,
+      "dimension_equal": false,
+      "terminal_dimension_equal": true,
+      "pane_dimension_sequence_equal": false,
+      "zellij_pane_dimension_sequence": {
+        "A": [
+          {
+            "event": "READY",
+            "size": "8x6"
+          },
+          {
+            "event": "WINCH",
+            "size": "18x6"
+          },
+          {
+            "event": "WINCH",
+            "size": "8x6"
+          }
+        ],
+        "B": [
+          {
+            "event": "READY",
+            "size": "8x6"
+          }
+        ]
+      },
+      "ekko_pane_dimension_sequence": {
+        "A": [
+          {
+            "event": "READY",
+            "size": "58x34"
+          },
+          {
+            "event": "WINCH",
+            "size": "8x6"
+          },
+          {
+            "event": "WINCH",
+            "size": "18x6"
+          },
+          {
+            "event": "WINCH",
+            "size": "8x6"
+          }
+        ],
+        "B": [
+          {
+            "event": "READY",
+            "size": "58x34"
+          },
+          {
+            "event": "WINCH",
+            "size": "8x6"
+          }
+        ]
+      }
+    },
+    {
+      "stage": "pane-ctrl-p-return",
+      "input_equal": true,
+      "input_delta_equal": true,
+      "events_equal": false,
+      "cell_equal": false,
+      "differing_cells": 20,
+      "cursor_equal": false,
+      "dimension_equal": false,
+      "terminal_dimension_equal": true,
+      "pane_dimension_sequence_equal": false,
+      "zellij_pane_dimension_sequence": {
+        "A": [
+          {
+            "event": "READY",
+            "size": "8x6"
+          },
+          {
+            "event": "WINCH",
+            "size": "18x6"
+          },
+          {
+            "event": "WINCH",
+            "size": "8x6"
+          }
+        ],
+        "B": [
+          {
+            "event": "READY",
+            "size": "8x6"
+          }
+        ]
+      },
+      "ekko_pane_dimension_sequence": {
+        "A": [
+          {
+            "event": "READY",
+            "size": "58x34"
+          },
+          {
+            "event": "WINCH",
+            "size": "8x6"
+          },
+          {
+            "event": "WINCH",
+            "size": "18x6"
+          },
+          {
+            "event": "WINCH",
+            "size": "8x6"
+          }
+        ],
+        "B": [
+          {
+            "event": "READY",
+            "size": "58x34"
+          },
+          {
+            "event": "WINCH",
+            "size": "8x6"
+          }
+        ]
+      }
+    },
+    {
+      "stage": "pane-enter-for-unbound",
+      "input_equal": true,
+      "input_delta_equal": true,
+      "events_equal": false,
+      "cell_equal": false,
+      "differing_cells": 20,
+      "cursor_equal": false,
+      "dimension_equal": false,
+      "terminal_dimension_equal": true,
+      "pane_dimension_sequence_equal": false,
+      "zellij_pane_dimension_sequence": {
+        "A": [
+          {
+            "event": "READY",
+            "size": "8x6"
+          },
+          {
+            "event": "WINCH",
+            "size": "18x6"
+          },
+          {
+            "event": "WINCH",
+            "size": "8x6"
+          }
+        ],
+        "B": [
+          {
+            "event": "READY",
+            "size": "8x6"
+          }
+        ]
+      },
+      "ekko_pane_dimension_sequence": {
+        "A": [
+          {
+            "event": "READY",
+            "size": "58x34"
+          },
+          {
+            "event": "WINCH",
+            "size": "8x6"
+          },
+          {
+            "event": "WINCH",
+            "size": "18x6"
+          },
+          {
+            "event": "WINCH",
+            "size": "8x6"
+          }
+        ],
+        "B": [
+          {
+            "event": "READY",
+            "size": "58x34"
+          },
+          {
+            "event": "WINCH",
+            "size": "8x6"
+          }
+        ]
+      }
+    },
+    {
+      "stage": "pane-unbound-q",
+      "input_equal": true,
+      "input_delta_equal": true,
+      "events_equal": false,
+      "cell_equal": false,
+      "differing_cells": 20,
+      "cursor_equal": false,
+      "dimension_equal": false,
+      "terminal_dimension_equal": true,
+      "pane_dimension_sequence_equal": false,
+      "zellij_pane_dimension_sequence": {
+        "A": [
+          {
+            "event": "READY",
+            "size": "8x6"
+          },
+          {
+            "event": "WINCH",
+            "size": "18x6"
+          },
+          {
+            "event": "WINCH",
+            "size": "8x6"
+          }
+        ],
+        "B": [
+          {
+            "event": "READY",
+            "size": "8x6"
+          }
+        ]
+      },
+      "ekko_pane_dimension_sequence": {
+        "A": [
+          {
+            "event": "READY",
+            "size": "58x34"
+          },
+          {
+            "event": "WINCH",
+            "size": "8x6"
+          },
+          {
+            "event": "WINCH",
+            "size": "18x6"
+          },
+          {
+            "event": "WINCH",
+            "size": "8x6"
+          }
+        ],
+        "B": [
+          {
+            "event": "READY",
+            "size": "58x34"
+          },
+          {
+            "event": "WINCH",
+            "size": "8x6"
+          }
+        ]
+      }
+    },
+    {
+      "stage": "pane-lock",
+      "input_equal": true,
+      "input_delta_equal": true,
+      "events_equal": false,
+      "cell_equal": false,
+      "differing_cells": 20,
+      "cursor_equal": false,
+      "dimension_equal": false,
+      "terminal_dimension_equal": true,
+      "pane_dimension_sequence_equal": false,
+      "zellij_pane_dimension_sequence": {
+        "A": [
+          {
+            "event": "READY",
+            "size": "8x6"
+          },
+          {
+            "event": "WINCH",
+            "size": "18x6"
+          },
+          {
+            "event": "WINCH",
+            "size": "8x6"
+          }
+        ],
+        "B": [
+          {
+            "event": "READY",
+            "size": "8x6"
+          }
+        ]
+      },
+      "ekko_pane_dimension_sequence": {
+        "A": [
+          {
+            "event": "READY",
+            "size": "58x34"
+          },
+          {
+            "event": "WINCH",
+            "size": "8x6"
+          },
+          {
+            "event": "WINCH",
+            "size": "18x6"
+          },
+          {
+            "event": "WINCH",
+            "size": "8x6"
+          }
+        ],
+        "B": [
+          {
+            "event": "READY",
+            "size": "58x34"
+          },
+          {
+            "event": "WINCH",
+            "size": "8x6"
+          }
+        ]
+      }
+    },
+    {
+      "stage": "locked-write-q",
+      "input_equal": true,
+      "input_delta_equal": true,
+      "events_equal": false,
+      "cell_equal": false,
+      "differing_cells": 20,
+      "cursor_equal": false,
+      "dimension_equal": false,
+      "terminal_dimension_equal": true,
+      "pane_dimension_sequence_equal": false,
+      "zellij_pane_dimension_sequence": {
+        "A": [
+          {
+            "event": "READY",
+            "size": "8x6"
+          },
+          {
+            "event": "WINCH",
+            "size": "18x6"
+          },
+          {
+            "event": "WINCH",
+            "size": "8x6"
+          }
+        ],
+        "B": [
+          {
+            "event": "READY",
+            "size": "8x6"
+          }
+        ]
+      },
+      "ekko_pane_dimension_sequence": {
+        "A": [
+          {
+            "event": "READY",
+            "size": "58x34"
+          },
+          {
+            "event": "WINCH",
+            "size": "8x6"
+          },
+          {
+            "event": "WINCH",
+            "size": "18x6"
+          },
+          {
+            "event": "WINCH",
+            "size": "8x6"
+          }
+        ],
+        "B": [
+          {
+            "event": "READY",
+            "size": "58x34"
+          },
+          {
+            "event": "WINCH",
+            "size": "8x6"
+          }
+        ]
+      }
+    },
+    {
+      "stage": "locked-return",
+      "input_equal": true,
+      "input_delta_equal": true,
+      "events_equal": false,
+      "cell_equal": false,
+      "differing_cells": 20,
+      "cursor_equal": false,
+      "dimension_equal": false,
+      "terminal_dimension_equal": true,
+      "pane_dimension_sequence_equal": false,
+      "zellij_pane_dimension_sequence": {
+        "A": [
+          {
+            "event": "READY",
+            "size": "8x6"
+          },
+          {
+            "event": "WINCH",
+            "size": "18x6"
+          },
+          {
+            "event": "WINCH",
+            "size": "8x6"
+          }
+        ],
+        "B": [
+          {
+            "event": "READY",
+            "size": "8x6"
+          }
+        ]
+      },
+      "ekko_pane_dimension_sequence": {
+        "A": [
+          {
+            "event": "READY",
+            "size": "58x34"
+          },
+          {
+            "event": "WINCH",
+            "size": "8x6"
+          },
+          {
+            "event": "WINCH",
+            "size": "18x6"
+          },
+          {
+            "event": "WINCH",
+            "size": "8x6"
+          }
+        ],
+        "B": [
+          {
+            "event": "READY",
+            "size": "58x34"
+          },
+          {
+            "event": "WINCH",
+            "size": "8x6"
+          }
+        ]
+      }
+    }
+  ],
+  "full_parity": false,
+  "coverage_complete": false
+}
