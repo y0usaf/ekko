@@ -17,6 +17,7 @@
   (row-cache (make-array 0)) (row-cache-cols 0) (row-cache-rows 0)
   (ids (ekko/client:make-attachment :max-mappings 4096 :max-id 4294967294))
   (input-state :ground) (input (make-array 0 :element-type '(unsigned-byte 8) :adjustable t :fill-pointer 0))
+  (input-read-bytes (octets 0))
   (input-at 0) (paste nil) (done nil) size reported-cell-size (cw 8) (ch 16))
 (defun terminal-write (viewer text) (queue-bytes (viewer-io viewer) (text-bytes text)))
 (defun terminal-viewport ()
@@ -253,20 +254,27 @@
     (21 (error "~A" (bytes-text (subseq packet 1))))
     (22 (setf (viewer-done viewer) t))
     (otherwise (error "Unexpected server message"))))
+(defun send-input-packet (viewer kind bytes)
+  ;; Read context precedes the first parsed event, including events completed
+  ;; after an escape sequence spans more than one stdin read.
+  (when (plusp (length (viewer-input-read-bytes viewer)))
+    (send-packet (viewer-connection viewer) 16 (viewer-input-read-bytes viewer))
+    (setf (viewer-input-read-bytes viewer) (octets 0)))
+  (send-packet (viewer-connection viewer) kind bytes))
 (defun input-complete (viewer)
   (let* ((bytes (copy-seq (viewer-input viewer))) (text (map 'string #'code-char bytes))
-         (connection (viewer-connection viewer)) (length (length text))
+         (length (length text))
          (final (when (plusp length) (char text (1- length)))))
     (cond
       ((and (> length 3) (string= text (format nil "~C[<" (code-char 27)) :end1 3) (find final "Mm"))
-       (send-packet connection 4 bytes))
+       (send-input-packet viewer 4 bytes))
       ((member text (list (format nil "~C[I" (code-char 27)) (format nil "~C[O" (code-char 27))) :test #'string=)
-       (send-packet connection 6 bytes))
+       (send-input-packet viewer 6 bytes))
       ((string= text (format nil "~C[200~~" (code-char 27)))
-       (setf (viewer-paste viewer) t) (send-packet connection 5 bytes))
+       (setf (viewer-paste viewer) t) (send-input-packet viewer 5 bytes))
       ((string= text (format nil "~C[201~~" (code-char 27)))
-       (setf (viewer-paste viewer) nil) (send-packet connection 5 bytes))
-      ((viewer-paste viewer) (send-packet connection 5 bytes))
+       (setf (viewer-paste viewer) nil) (send-input-packet viewer 5 bytes))
+      ((viewer-paste viewer) (send-input-packet viewer 5 bytes))
       ((and (> length 3) (char= final #\t))
        (let ((args (parameters (subseq text 2 (1- length)))))
          (when (= (length args) 3)
@@ -277,9 +285,14 @@
                     (report-cell-size viewer (floor (third args) (first size))
                                       (floor (second args) (second size)) :area))))))))
       ((and (> length 2) (find final "cnyR")) nil)
-      (t (send-packet connection 2 bytes))))
+      (t (send-input-packet viewer 2 bytes))))
   (setf (fill-pointer (viewer-input viewer)) 0 (viewer-input-state viewer) :ground))
 (defun input-feed (viewer bytes count)
+  (when (> (+ (length (viewer-input-read-bytes viewer)) count) 65536)
+    (error "Pending original input read exceeds 64 KiB"))
+  (setf (viewer-input-read-bytes viewer)
+        (concatenate '(vector (unsigned-byte 8))
+                     (viewer-input-read-bytes viewer) (subseq bytes 0 count)))
   (let ((index 0))
     (loop while (< index count) do
       (let ((byte (aref bytes index)))
@@ -297,7 +310,7 @@
              ((and (= byte 2) (not (viewer-paste viewer)))
               ;; Keep Ctrl-b separate so the server can recognize it as the
               ;; local prefix key.
-              (send-packet (viewer-connection viewer) 2
+              (send-input-packet viewer 2
                            (subseq bytes index (1+ index)))
               (incf index))
              (t
@@ -307,7 +320,7 @@
                                (position 2 bytes :start index :end count))))
                 (when esc (setf end (min end esc)))
                 (when ctrl (setf end (min end ctrl)))
-                (send-packet (viewer-connection viewer)
+                (send-input-packet viewer
                              (if (viewer-paste viewer) 5 2)
                              (subseq bytes index end))
                 (setf index end)))))
@@ -340,7 +353,10 @@
            (when (or (= byte 7) (= byte 92))
              (setf (viewer-input-state viewer) :ground
                    (fill-pointer (viewer-input viewer)) 0))
-           (incf index)))))))
+           (incf index))))))
+  ;; A completely filtered terminal reply must not become a later key's read.
+  (when (eq (viewer-input-state viewer) :ground)
+    (setf (viewer-input-read-bytes viewer) (octets 0))))
 (defun restore-terminal ()
   (initialize)
   (write-fd 1 (text-bytes *terminal-leave*))

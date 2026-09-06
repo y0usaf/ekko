@@ -29,6 +29,52 @@
 (defparameter *zellij-frame-selected-color* 154)
 (defparameter *zellij-frame-highlight-color* 166)
 
+(defun zellij-frame-hidden-p (snapshot)
+  (let ((state (cdr (assoc "zellij-frames" (getf snapshot :component-state)
+                           :test #'equal))))
+    (and (listp state) (getf state :hidden))))
+
+(defun zellij-frame-boundary-sgr (panes x y)
+  (if (some (lambda (pane)
+              (let ((rect (getf pane :outer-rect)))
+                (and (getf pane :focus)
+                     (<= (first rect) x (+ (first rect) (third rect) -1))
+                     (<= (second rect) y (+ (second rect) (fourth rect) -1)))))
+            panes)
+      (zellij-frame-sgr t :normal)
+      '(0 1 39 49)))
+
+(defun zellij-frame-boundary-spans (snapshot)
+  "Render shared ordinary tiled boundaries when the profile hides frames.
+
+The pinned renderer reserves boundaries on pane interior/right and
+interior/bottom edges. Stacked and floating pane rules require additional
+state and remain outside this profile helper."
+  (let* ((viewport (getf snapshot :viewport))
+         (right (getf viewport :cols))
+         (bottom (getf viewport :rows))
+         (panes (remove-if-not (lambda (pane) (getf pane :visible t))
+                               (getf snapshot :panes)))
+         (cells (make-hash-table :test #'equal)))
+    (labels ((mark (x y horizontal vertical)
+               (let* ((key (list x y)) (old (gethash key cells '(nil nil))))
+                 (setf (gethash key cells)
+                       (list (or (first old) horizontal) (or (second old) vertical)))))
+             (line-char (horizontal vertical)
+               (cond ((and horizontal vertical) #\┼)
+                     (horizontal #\─) (vertical #\│))))
+      (dolist (pane panes)
+        (destructuring-bind (x y width height) (getf pane :outer-rect)
+          (when (< (+ x width) right)
+            (loop for row from y below (+ y height) do (mark (+ x width -1) row nil t)))
+          (when (< (+ y height) bottom)
+            (loop for column from x below (+ x width) do (mark column (+ y height -1) t nil)))))
+      (loop for key being the hash-keys of cells
+            for flags = (gethash key cells)
+            for x = (first key) for y = (second key)
+            collect (zellij-frame-span x y (string (line-char (first flags) (second flags)))
+                                       (zellij-frame-boundary-sgr panes x y))))))
+
 (defun zellij-title-whitespace-p (character)
   (let ((code (char-code character)))
     (or (<= #x9 code #xd) (= code #x20) (= code #x85) (= code #xa0)

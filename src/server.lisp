@@ -11,7 +11,8 @@
   mode zoom (revision 0) (activation-sequence 0) writer (prefix nil) drag paste-target (started (now))
   paste-fallback paste-buffer (paste-overflow nil)
   tree (next-pane-id 1) retired worker candidate registry (config-generation 0) config-error
-  (contributions nil) (decorations nil) (pane-notes nil) hook-context (hooks nil) (input-queue nil) (input-bytes 0)
+  (geometry-contributions nil) (contributions nil) (decorations nil) (pane-notes nil) hook-context (hooks nil) (input-queue nil) (input-bytes 0)
+  (input-read-framed nil) (input-read-bytes nil)
   command-queue disabled-hooks reload-peer (clipboard "") stopping (notice "")
   key-fragment key-fragment-mode component-state)
 (defun pty-cell-size (session)
@@ -65,8 +66,16 @@
 (defun focused-pane (session) (nth (session-focus session) (session-panes session)))
 (defun pane-by-id (session id)
   (find id (session-panes session) :key #'pane-id))
+(defun geometry-value (session key default)
+  "Resolve runtime owner geometry in registry order, then static options."
+  (loop for component in (reverse (getf (session-registry session) :components))
+        for owner = (getf component :id)
+        for entry = (assoc owner (session-geometry-contributions session) :test #'equal)
+        when (and entry (member key (cdr entry)))
+          do (return-from geometry-value (copy-tree (getf (cdr entry) key))))
+  (copy-tree (option session key default)))
 (defun geometry-option (session key default length)
-  (let ((value (option session key default)))
+  (let ((value (geometry-value session key default)))
     (unless (and (listp value) (= (length value) length)
                  (every (lambda (n) (and (integerp n) (<= 0 n 16))) value))
       (error "Invalid geometry option ~S: ~S" key value))
@@ -78,12 +87,38 @@
          (bottom (min (third requested) (max 0 (- height top 1))))
          (right (min (second requested) (max 0 (- width left 1)))))
     (list top right bottom left)))
-(defun content-size (session width height)
-  (let* ((insets (effective-insets width height
-                                  (geometry-option session :pane-insets '(1 0 0 0) 4)))
-         (cols (max 1 (- width (second insets) (fourth insets))))
-         (rows (max 1 (- height (first insets) (third insets)))))
-    (values cols rows)))
+(defun requested-pane-insets (session x y width height)
+  (let ((pane (geometry-option session :pane-insets '(1 0 0 0) 4))
+        (boundary (geometry-value session :boundary-insets nil)))
+    (when (and boundary x y)
+      (multiple-value-bind (viewport ignored gaps vw vh) (session-geometry session)
+        (declare (ignore ignored gaps))
+        (loop for outside in (list (= y (first viewport))
+                                   (= (+ x width) (+ (fourth viewport) vw))
+                                   (= (+ y height) (+ (first viewport) vh))
+                                   (= x (fourth viewport)))
+              for offset from 0
+              when outside do (setf (nth offset pane) (nth offset boundary)))))
+    pane))
+(defun content-size (session width height &optional x y)
+  (let ((insets (effective-insets width height
+                                (requested-pane-insets session x y width height))))
+    (values (max 1 (- width (second insets) (fourth insets)))
+            (max 1 (- height (first insets) (third insets))))))
+(defun pane-minimums (tree pane boundary)
+  ;; Tree topology identifies viewport edges before allocating rectangles.
+  (labels ((walk (node edges)
+             (if (integerp node)
+                 (let ((insets (loop for inside in pane for outside in (or boundary pane)
+                                     for edge in edges collect (if edge outside inside))))
+                   (list (cons node (list (+ 1 (second insets) (fourth insets))
+                                          (+ 1 (first insets) (third insets))))))
+                 (let ((a (copy-list edges)) (b (copy-list edges)))
+                   (if (eq (first node) :columns)
+                       (setf (second a) nil (fourth b) nil)
+                       (setf (third a) nil (first b) nil))
+                   (append (walk (third node) a) (walk (fourth node) b))))))
+    (walk tree '(t t t t))))
 (defun session-geometry (session)
   (let* ((viewport (effective-insets
                    (session-cols session) (session-rows session)
@@ -95,14 +130,15 @@
     (values viewport pane gaps width height)))
 (defun session-rectangles (session &optional (zoom (session-zoom session)))
   (multiple-value-bind (viewport pane gaps width height) (session-geometry session)
-    (let ((left (fourth viewport)) (top (first viewport)))
+    (let* ((left (fourth viewport)) (top (first viewport))
+           (minimums (pane-minimums (session-tree session) pane
+                                    (geometry-value session :boundary-insets nil))))
       (mapcar (lambda (rect)
                 (list (first rect) (+ left (second rect)) (+ top (third rect))
                       (fourth rect) (fifth rect)))
               (ekko/layout:rectangles
                (session-tree session) width height (pane-id (focused-pane session)) zoom
-               :leaf-min (list (+ 1 (second pane) (fourth pane))
-                               (+ 1 (first pane) (third pane)))
+               :leaf-min (lambda (id) (cdr (assoc id minimums)))
                :column-gap (first gaps) :row-gap (second gaps))))))
 (defun visible-panes (session)
   (mapcar (lambda (rect) (pane-by-id session (first rect))) (session-rectangles session)))
@@ -123,9 +159,9 @@
       (destructuring-bind (id x y width height) rect
         (let* ((pane (pane-by-id session id)) (vt (pane-vt pane))
              (insets (effective-insets width height
-                                       (geometry-option session :pane-insets '(1 0 0 0) 4)))
+                                       (requested-pane-insets session x y width height)))
              (top (first insets)) (left (fourth insets)))
-        (multiple-value-bind (cols rows) (content-size session width height)
+        (multiple-value-bind (cols rows) (content-size session width height x y)
         (setf (pane-outer-x pane) x (pane-outer-y pane) y
               (pane-outer-cols pane) width (pane-outer-rows pane) height
               (pane-x pane) (+ x left) (pane-y pane) (+ y top))
@@ -192,6 +228,8 @@
     (when (eql (session-mode session) (session-key-fragment-mode session))
       (setf bytes (concatenate '(vector (unsigned-byte 8)) (session-key-fragment session) bytes)))
     (setf (session-key-fragment session) nil (session-key-fragment-mode session) nil))
+  ;; A framed read is consumed by its first complete semantic key.  Keep the
+  ;; framing bit so later keys explicitly carry NIL read metadata.
   (when (command-pending-p session)
     (defer-input session 2 bytes) (return-from input-key))
   (when (and (null (session-mode session)) (> (length bytes) 1) (/= (aref bytes 0) 27))
@@ -225,7 +263,10 @@
         (when (> (length bytes) 1) (defer-input session 2 (subseq bytes 1)))
         (return-from input-key action))
       (return-from input-key (input-key session (subseq bytes 1)))))
-  (let* ((text (map 'string #'code-char bytes)) (esc (code-char 27))
+  (let* ((read-bytes (when (session-input-read-framed session)
+                       (prog1 (session-input-read-bytes session)
+                         (setf (session-input-read-bytes session) nil))))
+         (text (map 'string #'code-char bytes)) (esc (code-char 27))
          (kitty (and (> (length text) 3) (char= (char text 0) esc) (char= (char text 1) #\[)
                      (char= (char text (1- (length text))) #\u)))
          (params (when kitty (parameters (subseq text 2 (1- (length text))))))
@@ -242,7 +283,7 @@
         (cond ((and binding (getf binding :command))
                (dispatch-binding session map (semantic-key bytes key))
                (return-from input-key))
-              ((dispatch-keymap-fallback session map (semantic-key bytes key) bytes)
+              ((dispatch-keymap-fallback session map (semantic-key bytes key) bytes read-bytes)
                (return-from input-key))
               ((eq (getf policy :unbound) :ignore) (return-from input-key)))))
     (cond
@@ -423,7 +464,9 @@
                               (local-asset-p (image-data image)))
                      (push (retain-asset (image-data image)) (wire-leases wire))))
                  (store-images (pane-graphics pane))))
-      (send-packet wire 12 (encode-scene (scene-data session)))
+      (let ((scene (scene-data session)))
+        (setf (first scene) (wire-version wire))
+        (send-packet wire 12 (encode-scene scene)))
       (setf (wire-awaiting-scene wire) (now))
       (setf (wire-revision wire) stamp))))
 (defun status-json (session)
@@ -449,17 +492,21 @@
                                             count (local-asset-p (image-data image))))))))
 (defun server-packet (session wire packet)
   (let ((kind (aref packet 0)) (data (subseq packet 1)))
-    (when (and (member kind '(2 4 5 6)) (eq (session-writer session) wire) (command-pending-p session))
+    (when (and (member kind '(2 4 5 6 16)) (eq (session-writer session) wire) (command-pending-p session))
       (defer-input session kind data) (return-from server-packet))
     (case kind
       (1
-       (unless (and (= (length data) 20) (= (u32 data 0) +wire-version+))
+       (unless (and (= (length data) 20) (member (u32 data 0) (list 6 +wire-version+)))
          (send-packet wire 21 (text-bytes "Incompatible Ekko wire version")) (return-from server-packet))
        (when (and (session-writer session) (not (eq wire (session-writer session))))
          (send-packet wire 21 (text-bytes "This session already has an attached client")) (return-from server-packet))
        (let ((cols (u32 data 4)) (rows (u32 data 8)) (cw (u32 data 12)) (ch (u32 data 16)))
          (unless (and (<= 5 cols 500) (<= 4 rows 300) (<= 1 cw 128) (<= 1 ch 256)) (error "Invalid viewport"))
-         (setf (session-cols session) cols (session-rows session) rows (session-cw session) cw (session-ch session) ch
+         (unless (eq (session-writer session) wire)
+           (setf (session-input-read-framed session) nil
+                 (session-input-read-bytes session) nil))
+         (setf (wire-version wire) (u32 data 0)
+               (session-cols session) cols (session-rows session) rows (session-cw session) cw (session-ch session) ch
                (session-writer session) wire (wire-attached wire) t)
          (layout session)))
       (15
@@ -477,8 +524,20 @@
       (2 (when (eq (session-writer session) wire)
            (let ((action (input-key session data)))
              (case action (:detach (send-packet wire 22)) (:stop :stop)))))
-      (4 (when (eq (session-writer session) wire) (input-mouse session (bytes-text data))))
+      (4 (when (eq (session-writer session) wire)
+           (setf (session-input-read-bytes session) nil)
+           (input-mouse session (bytes-text data))))
+      (16 (when (eq (session-writer session) wire)
+            (unless (wire-attached wire) (error "Input read frame requires an attached writer"))
+            (unless (<= 1 (length data) 65536) (error "Invalid input read frame"))
+            (when (> (+ (length (session-input-read-bytes session)) (length data)) 65536)
+              (error "Input read frame exceeds 64 KiB"))
+            (setf (session-input-read-framed session) t
+                  (session-input-read-bytes session)
+                  (concatenate '(vector (unsigned-byte 8))
+                               (or (session-input-read-bytes session) (octets 0)) data))))
       (5 (when (eq (session-writer session) wire)
+           (setf (session-input-read-bytes session) nil)
            (let* ((begin (equalp data (text-bytes (format nil "~C[200~~" (code-char 27)))))
                   (end (equalp data (text-bytes (format nil "~C[201~~" (code-char 27)))))
                   (pane (or (session-paste-target session) (nth (session-focus session) (session-panes session))))
@@ -513,6 +572,7 @@
                   (pane-input pane data))
                 (when end (setf (session-paste-target session) nil)))))))
       (6 (when (eq (session-writer session) wire)
+           (setf (session-input-read-bytes session) nil)
            (let ((pane (nth (session-focus session) (session-panes session))))
              (when (gethash 1004 (terminal-modes (pane-vt pane))) (pane-input pane data)))))
       (7 (handler-case
@@ -591,7 +651,9 @@
                               (session-paste-buffer session) nil
                               (session-paste-overflow session) nil
                               (session-key-fragment session) nil
-                              (session-key-fragment-mode session) nil))
+                              (session-key-fragment-mode session) nil
+                              (session-input-read-framed session) nil
+                              (session-input-read-bytes session) nil))
                       (close-wire peer) (setf peers (remove peer peers))))
              (loop while (and running (not (session-stopping session))) do
                (expire-pane-notes session)

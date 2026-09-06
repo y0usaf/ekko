@@ -9,7 +9,7 @@
   (ekko/text:display-width value))
 
 (defun api-version () 1)
-(defparameter *context-keys* '(:session :focus :panes :layout :mode :zoom :viewport :chrome-status :pane-notes :component-state))
+(defparameter *context-keys* '(:session :focus :panes :layout :mode :zoom :viewport :chrome-status :pane-notes :component-state :geometry))
 (defstruct component id reads handler commands bindings options keymaps)
 (defvar *components* nil)
 (defvar *reads* nil)
@@ -103,6 +103,7 @@
                                 (every (lambda (n) (and (integerp n) (<= 0 n 255))) value)))
             (:erase-display-history (or (eq value t) (null value)))
             (:pane-insets (bounded-geometry-p value 4))
+            (:boundary-insets (or (null value) (bounded-geometry-p value 4)))
             (:viewport-insets (bounded-geometry-p value 4))
             (:split-gaps (bounded-geometry-p value 2))
             (:pty-pixel-source (member value '(:effective :reported))))

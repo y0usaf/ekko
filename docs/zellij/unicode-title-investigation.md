@@ -1,8 +1,10 @@
 # Unicode pane-title width investigation
 
 This note records the current public-profile gap against the pinned Zellij
-source at `/nix/store/2q437kxp07ki50dkh6a4nmmcc4nlylqw-source` (0.43.1). No
-implementation or acceptance result is claimed here.
+source at `/nix/store/2q437kxp07ki50dkh6a4nmmcc4nlylqw-source` (0.43.1). The investigation below preceded implementation; the current result is recorded
+in [Unicode evidence](../evidence/zellij/unicode-titles/README.md). The profile
+now uses public `display-width`; its previous ASCII rejection described below
+is historical.
 
 ## Observed in the current profile
 
@@ -127,3 +129,25 @@ ZWJ grouping: the pinned 0.1.10 source supplies no such behavior. A tiny
 standalone Rust oracle compiled against the archived 0.1.10 crate can emit
 `codepoint,width` and string totals for fixtures; checked-in Lisp tests can
 then use those fixed vectors without a runtime Zellij process.
+
+The checked-in table is regenerated with:
+
+```
+python3 scripts/generate-text-width.py /path/to/unicode-width-0.1.10 \
+  --rustc /path/to/rustc --output src/text-width.lisp
+```
+
+The generator verifies the SHA-256 of `src/lib.rs`, `src/tables.rs`, and
+`LICENSE-MIT` in addition to the archive hash recorded above. The Nix check
+regenerates into a temporary file, compares it with the checked-in table, and
+then compares all scalar outputs with the Rust oracle.
+
+## Implemented boundary
+
+The pure shared CL implementation now reproduces all scalar widths against an
+exhaustive pinned Rust oracle. Frame titles retain combining scalars; reference
+frame ANSI bypasses `Grid::add_character`, whose zero-width drop applies to
+application output. Twenty per-key CJK-font screenshot checkpoints match.
+That does not establish emoji shaping or application-content combining parity.
+Batched DEL remains a separate observed mismatch; see the evidence and
+[batch investigation](rename-batched-input.md).

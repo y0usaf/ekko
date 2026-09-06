@@ -5,6 +5,58 @@ through an optional, replaceable public Lisp profile, while preserving Ekko's
 independent daemon, transactional reload, reversible ownership, and graphics
 isolation. The full acceptance gate is in GOAL.md; it remains open.
 
+Original-read input context (2026-09-06): public fallback events now expose
+optional `:read-bytes` separately from decoded-key bytes. The first semantic
+event consumes the original read; later events explicitly carry nil. The
+ordinary rename profile now matches pinned batched DEL and mixed Unicode
+appending. Wire 7 carries read context, while wire-6 viewers remain accepted
+and receive negotiated version-6 scenes. Deferred input belongs to its original
+writer, preventing old input from crossing into a replacement attachment.
+Regular/bare framed-input, legacy-input, UTF-8 fragmentation, command deferral,
+and lifecycle contracts pass. All 20 checks other than `zellij-pane-workflow`
+passed through Nix. A fresh full workflow check also passed its 12 named
+scenarios, including complete PTY pixel histories in this sample. Every
+scenario still reports full input/cell parity false; startup ordering remains
+a known variable and coverage remains incomplete. A subsequent full flake
+check failed because Zellij produced FIRST 0×0 then WINCH; the harness
+incorrectly required exactly one startup event. Its readiness assertion now
+allows that observed history while preserving every event for comparison;
+the corrected full workflow then passed all 12 scenarios. The final
+`nix flake check -L path:.` exited 0. This is the current check baseline,
+not complete reference parity.
+Fifteen settled CJK-font batched-title screenshots match at zero pixels/cells;
+startup differs by 50,714 pixels and 1,159 cells. Paired 80×24 batched input and
+20×8 batched/per-key runs match settled input deltas, focus, and complete PTY
+histories. They retain startup/content and cursor differences (14 cells at
+80×24, 43 at 20×8 after startup). See
+[read-context evidence](docs/evidence/zellij/read-context/README.md).
+Mixed mode-switch read ordering, parser errors, input limits, startup, and the
+entire unimplemented reference surface remain required. Full parity is open.
+The next frame-toggle mechanism is investigated in
+[frame-toggle findings](docs/zellij/frame-toggle-investigation.md); it must use
+generic runtime geometry contributions with ordinary Lisp policy.
+
+Unicode title slice (2026-09-06): added pure public `display-width` and shared
+licensed Unicode tables for profile fitting, VT, copy, and decoration clipping.
+The Nix `text-width` oracle matches all 1,112,064 Unicode scalars against the
+checksum-pinned `unicode-width` 0.1.10 crate. The profile now accepts printable
+Unicode titles and shows `Enter name...` after deleting a rename to empty.
+Regular/bare Unicode rename/OSC lifecycle and clipping contracts pass. All 20
+checks other than the still-failing `zellij-pane-workflow` passed through Nix;
+the exact argv and results are archived. Twenty settled visual checkpoints
+match at zero differing pixels/cells, including wide glyphs, combining marks,
+per-key deletion, and mixed-title truncation with pinned DejaVu/CJK fonts.
+Startup differs by 50,654 pixels and 1,159 cells. At 20×8, per-key title stages
+match application input/focus and PTY histories, but retain 43 differing cells
+and cursor differences (startup 29 cells). Batched DEL still differs: the
+reference retains the name while Ekko deletes it. Initial failed/batched and
+missing-CJK-font captures remain archived; no differences are normalized.
+See [Unicode evidence](docs/evidence/zellij/unicode-titles/README.md) and
+[batched input investigation](docs/zellij/rename-batched-input.md).
+Application-content combining behavior, emoji shaping against the actual
+terminal, remaining title variants, input bounds, startup, and the entire
+unimplemented reference surface remain required. Full parity remains open.
+
 RenamePane and public input/state slice (2026-09-06): ordinary Lisp now implements
 rename entry, incremental input, delete, filtered paste, commit, and undo.
 Public named keymap fallbacks receive original input through the isolated worker;

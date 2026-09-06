@@ -3,9 +3,9 @@
   (:export #:run-session #:serve #:attach-session #:control-session #:restore-terminal))
 (in-package #:ekko/runtime)
 
-(defconstant +wire-version+ 6)
+(defconstant +wire-version+ 7)
 (defconstant +queue-limit+ (* 8 1024 1024))
-(defstruct wire fd (packet-limit +queue-limit+) (queue nil) (queue-tail nil) (queued 0) (offset 0) (prefix (octets 4))
+(defstruct wire fd (version +wire-version+) (packet-limit +queue-limit+) (queue nil) (queue-tail nil) (queued 0) (offset 0) (prefix (octets 4))
   (prefix-used 0) body (body-used 0) (known (make-hash-table :test 'equal))
   attached revision awaiting-scene (leases nil) (at (now)))
 (defun u32 (bytes offset)

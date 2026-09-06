@@ -36,12 +36,13 @@ def eventually(fn, timeout=4):
 
 
 class Attachment:
-    def __init__(self, path):
+    def __init__(self, path, version=6):
         self.sock = socket.socket(socket.AF_UNIX)
         self.sock.connect(str(path))
         self.buffer = b""
         self.scenes = []
-        self.send(1, struct.pack(">IIIII", 6, 120, 40, 8, 16))
+        self.version = version
+        self.send(1, struct.pack(">IIIII", version, 120, 40, 8, 16))
         self.pump(.05)
 
     def send(self, kind, data=b""):
@@ -61,7 +62,9 @@ class Attachment:
                         break
                     body, self.buffer = self.buffer[4:4+size], self.buffer[4+size:]
                     if body[0] == 12:
-                        self.scenes.append(body[1:].decode())
+                        scene = body[1:].decode()
+                        assert scene.startswith(f"({self.version} "), scene[:80]
+                        self.scenes.append(scene)
                         self.send(14)
                     elif body[0] == 21:
                         raise AssertionError(body[1:])

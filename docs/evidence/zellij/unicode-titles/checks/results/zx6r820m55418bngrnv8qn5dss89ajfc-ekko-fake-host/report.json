@@ -1,0 +1,1 @@
+{"checks": {"gap_untouched": true, "pane_a_red": true, "pane_b_blue": true, "right_border_untouched": true, "status_untouched": true}, "fixture": "fake-host-isolation", "status": "pass"}

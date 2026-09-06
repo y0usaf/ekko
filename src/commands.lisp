@@ -58,7 +58,7 @@
       (if (stringp value) (copy-seq value) value)))
 (defun context-data (session)
   (multiple-value-bind (insets pane gaps width height) (session-geometry session)
-    (declare (ignore pane width height))
+    (declare (ignore width height))
     (let ((visible (visible-panes session))
           (tiled (session-rectangles session nil)))
       (list :session (session-name session) :mode (session-mode session)
@@ -68,6 +68,9 @@
                             :reported-cell-width (session-reported-cw session)
                             :reported-cell-height (session-reported-ch session)
                             :insets insets :gaps gaps)
+            :geometry (list :pane-insets pane
+                            :boundary-insets (geometry-value session :boundary-insets nil)
+                            :viewport-insets insets :split-gaps gaps)
             :chrome-status (list :text (status-text session)
                                  :style (option session :status-style '(0 30 47)))
             :pane-notes (pane-note-data session)
@@ -127,12 +130,17 @@
   (unless (find (session-mode session) (getf registry :keymaps) :key (lambda (m) (getf m :name)))
     (setf (session-mode session) (getf (getf registry :options) :initial-keymap)
           (session-prefix session) nil (session-key-fragment session) nil
-          (session-key-fragment-mode session) nil))
+          (session-key-fragment-mode session) nil
+          (session-input-read-bytes session) nil))
   (let ((owners (getf registry :components)))
     (setf (session-component-state session)
           (remove-if-not (lambda (entry)
                            (find (car entry) owners :key (lambda (c) (getf c :id)) :test #'equal))
-                         (session-component-state session))))
+                         (session-component-state session)))
+    (setf (session-geometry-contributions session)
+          (remove-if-not (lambda (entry)
+                          (find (car entry) owners :key (lambda (c) (getf c :id)) :test #'equal))
+                        (session-geometry-contributions session))))
   (setf (session-registry session) registry (session-config-error session) nil
         (session-contributions session) nil (session-decorations session) nil
         (session-pane-notes session) nil
@@ -147,14 +155,15 @@
       (and (null (session-worker session)) (session-candidate session))))
 (defun defer-input (session kind data)
   (when (> (+ (session-input-bytes session) (length data)) 65536) (error "Pending command input exceeds 64 KiB"))
-  (push (cons kind data) (session-input-queue session)) (incf (session-input-bytes session) (length data)))
+  (push (list (session-writer session) kind data) (session-input-queue session)) (incf (session-input-bytes session) (length data)))
 (defun replay-input (session)
   (let ((pending (nreverse (session-input-queue session))))
     (setf (session-input-queue session) nil (session-input-bytes session) 0)
     (dolist (item pending)
-      (when (session-writer session)
-        (server-packet session (session-writer session)
-          (concatenate '(vector (unsigned-byte 8)) (octets-from-list (list (car item))) (cdr item)))))))
+      (destructuring-bind (writer kind data) item
+        (when (and writer (eq writer (session-writer session)))
+          (server-packet session writer
+            (concatenate '(vector (unsigned-byte 8)) (octets-from-list (list kind)) data)))))))
 (defun semantic-key (bytes key)
   (or (cdr (assoc (map 'string #'code-char bytes)
                  (loop for (suffix . value) in '(("[A" . :up) ("[B" . :down) ("[C" . :right) ("[D" . :left)
@@ -172,7 +181,7 @@
     (when (and binding (getf binding :command))
       (handler-case (request-command session (getf binding :command) (list :arguments nil) nil)
         (error (e) (note-error session e))))))
-(defun dispatch-keymap-fallback (session map key bytes)
+(defun dispatch-keymap-fallback (session map key bytes &optional read-bytes)
   "Dispatch a named keymap fallback through the ordinary worker command path."
   (let* ((policy (find map (reverse (getf (session-registry session) :keymaps))
                        :key (lambda (m) (getf m :name))))
@@ -180,8 +189,10 @@
     (when (stringp fallback)
       (handler-case
           (request-command session fallback
-                           (list :key (semantic-key bytes key)
-                                 :bytes (coerce bytes 'list)) nil)
+                           (append (list :key (semantic-key bytes key)
+                                         :bytes (coerce bytes 'list))
+                                   (when (session-input-read-framed session)
+                                     (list :read-bytes (and read-bytes (coerce read-bytes 'list))))) nil)
         (error (e) (note-error session e)))
       t)))
 (defun request-command (session name event peer)
@@ -340,6 +351,23 @@
           (incf total (* rows (length text))))))
     (when (> total 16000) (error "Decoration text exceeds 16000 characters")))
   t)
+(defun bounded-geometry-p (value length)
+  (and (listp value) (= (length value) length)
+       (every (lambda (n) (and (integerp n) (<= 0 n 16))) value)))
+(defun validate-geometry-value (value)
+  (unless (or (null value) (and (listp value) (evenp (length value))
+                                (<= (length value) 8)))
+    (error "Geometry value must be a proper property list"))
+  (loop for (key item) on value by #'cddr do
+    (unless (member key '(:pane-insets :boundary-insets :viewport-insets :split-gaps))
+      (error "Unknown geometry field: ~S" key))
+    (when (member key (loop for (k v) on (subseq value 0 (- (length value) 2)) by #'cddr collect k))
+      (error "Duplicate geometry field: ~S" key))
+    (unless (or (and (member key '(:pane-insets :boundary-insets :viewport-insets))
+                     (bounded-geometry-p item 4))
+                (and (eq key :split-gaps) (bounded-geometry-p item 2)))
+      (error "Invalid geometry field: ~S" key)))
+  (copy-tree value))
 (defun validate-actions (session actions hook &optional owner)
   (unless (and (listp actions) (<= (length actions) 32)) (error "At most 32 actions are allowed"))
   (let ((primary-count 0) (mode-count 0) (state-count 0) (mode-before-primary nil) (primary-seen nil))
@@ -348,7 +376,7 @@
       (let* ((op (first a)) (args (rest a)) (pane (getf args :pane))
              (keys (case op
                      (:pane-note '(:pane :text :sgr :duration))
-                     (:set-keymap '(:name)) (:set-layout '(:tree)) (:set-state '(:value)) (:decorate '(:spans)) (:split '(:pane :axis :argv)) (:focus '(:pane)) (:rename '(:pane :text)) (:resize '(:delta))
+                     (:set-keymap '(:name)) (:set-layout '(:tree)) (:set-state '(:value)) (:set-geometry '(:value)) (:decorate '(:spans)) (:split '(:pane :axis :argv)) (:focus '(:pane)) (:rename '(:pane :text)) (:resize '(:delta))
                      (:close '(:focus)) (:copy-move '(:delta)) (:copy-edge '(:edge)) (:status '(:text))
                      ((:focus-next :zoom :swap :detach :stop :copy-mode :copy-mark :copy-selection
                        :copy-exit :copy-search :copy-search-next :paste-buffer :reload :help) nil)
@@ -376,6 +404,12 @@
                            :key (lambda (component) (getf component :id)) :test #'equal)
                (error "State needs a registered component owner"))
              (validate-component-state (getf args :value))))
+          (:set-geometry
+           (incf primary-count) (setf primary-seen t)
+           (unless (find owner (getf (session-registry session) :components)
+                         :key (lambda (component) (getf component :id)) :test #'equal)
+             (error "Geometry needs a registered component owner"))
+           (validate-geometry-value (getf args :value)))
           (otherwise (incf primary-count) (setf primary-seen t)))
         (case op
           (:focus (unless pane (error "Focus needs a pane ID")))
@@ -409,7 +443,7 @@
       (error "A batch may contain one session action plus status contributions"))
     (when (and (plusp primary-count) mode-before-primary)
       (error "A keymap transition must follow the session action"))
-    (let ((state-action (find :set-state actions :key #'first)))
+      (let ((state-action (find :set-state actions :key #'first)))
       (when state-action
         (let* ((value (getf (rest state-action) :value))
                (entries (remove owner (session-component-state session)
@@ -478,7 +512,14 @@
                (remove owner (session-component-state session) :key #'car :test #'equal))
          (when value
            (push (cons owner (copy-component-state value))
-                 (session-component-state session)))))))
+                 (session-component-state session)))))
+      (:set-geometry
+       (let ((value (validate-geometry-value (getf (rest a) :value))))
+         (setf (session-geometry-contributions session)
+               (remove owner (session-geometry-contributions session) :key #'car :test #'equal))
+         (when value
+           (push (cons owner value) (session-geometry-contributions session)))
+         (layout session)))))
   (when actions (incf (session-revision session))))
 (defun apply-session-action (session op args peer)
   (let* ((pane (or (and (getf args :pane) (pane-by-id session (getf args :pane))) (focused-pane session)))
@@ -508,8 +549,9 @@
                                      :focus (length (session-panes session)) :zoom nil
                                      :registry (session-registry session) :tree new-tree))
               (rect (find new-id (session-rectangles planned) :key #'first))
+              (x (if rect (second rect) 0)) (y (if rect (third rect) 0))
               (width (if rect (fourth rect) 1)) (height (if rect (fifth rect) 1)))
-         (multiple-value-bind (cols rows) (content-size planned width height)
+         (multiple-value-bind (cols rows) (content-size planned width height x y)
            ;; Acquire the only fallible resource before changing live logical
            ;; state. Existing panes are resized by set-focus after this spawn.
            (multiple-value-bind (fd pid)
@@ -713,7 +755,11 @@
                                                  (history-count (terminal-history vt)) 0)
                                :exit (pane-status p)))
                 :pane-notes (mapcar (lambda (note) (cons :object note)) (pane-note-data session))
-                :geometry (list :object :pane-insets pane :viewport-insets viewport :split-gaps gaps)
+                :geometry (list :object :pane-insets pane
+                                 :boundary-insets (geometry-value session :boundary-insets nil)
+                                 :viewport-insets viewport :split-gaps gaps
+                                 :contributions (loop for (owner . value) in (session-geometry-contributions session)
+                                                      collect (list :object :owner owner :value (copy-tree value))))
                 :keymaps (mapcar (lambda (m) (cons :object m)) (getf registry :keymaps))
                 :disabled-hooks (session-disabled-hooks session)
                 :decorations (loop for (owner . spans) in (session-decorations session)

@@ -483,7 +483,7 @@ def focus_probe(terminal, paths, kind, binary, env, resume, marker=b"Q",
 
 
 def assert_initial_geometry(kind, paths, inspect, cols, rows):
-    """Require the 50/50 L first ioctl to equal its final pane geometry."""
+    """Require settled fixture geometry while retaining every startup ioctl."""
     left = cols // 2
     right = cols - left
     top = rows // 2
@@ -498,8 +498,12 @@ def assert_initial_geometry(kind, paths, inspect, cols, rows):
     for label, (pane_cols, pane_rows) in zip(("A", "B", "C"), expected):
         events = fixtures["events"].get(label, [])
         assert events and events[0]["event"] == "FIRST", (kind, label, events)
-        assert len(events) == 1, (kind, label, events)
-        assert events[0]["winsize"][:2] == [pane_rows, pane_cols], (kind, label, events)
+        # The pinned reference can expose FIRST 0x0 followed by WINCH. This
+        # is an observed startup history, not a broken fixture. Keep it in
+        # snapshots and the full FIRST/WINCH comparison below; only require
+        # that the configured geometry has settled before interaction begins.
+        assert all(event["event"] == "WINCH" for event in events[1:]), (kind, label, events)
+        assert events[-1]["winsize"][:2] == [pane_rows, pane_cols], (kind, label, events)
 
 
 def assert_candidate_geometry(state):
@@ -703,6 +707,15 @@ def run_side(kind, binary, profile, reference, root, output, shell,
                         "rename-delete-combining-5": "",
                         "rename-clear-combining": "", "rename-clear-long": "",
                     }.get(stage)
+                    if stage_plan is UNICODE_TITLE_STAGES:
+                        expected_name = {
+                            "rename-clear-combining": "界面",
+                            "rename-combining": "界面Cafe\u0301",
+                            "rename-commit-combining": "界面Cafe\u0301",
+                            "rename-clear-long": "界面Cafe\u0301",
+                            "rename-long": "界面Cafe\u0301" + "界Cafe\u0301-" * 12,
+                            "rename-commit-long": "界面Cafe\u0301" + "界Cafe\u0301-" * 12,
+                        }.get(stage, expected_name)
                     if expected_name is not None and next(
                             pane["name"] for pane in state["panes"]
                             if pane["id"] == status["focus"]) != expected_name:
