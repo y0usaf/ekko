@@ -102,5 +102,37 @@
                         (bytes 65 66)
                         (bytes 27 91 50 48 49 126)))
            "paste boundaries"))
+  ;; Host metric reports are separate observations, not application input.
+  ;; Fragmented text-area answers and direct cell answers share one framing
+  ;; path; a later area estimate must not replace the direct measurement.
+  (let ((original (symbol-function 'ekko/platform:terminal-size)))
+    (unwind-protect
+         (progn
+           (setf (symbol-function 'ekko/platform:terminal-size)
+                 (lambda (fd) (declare (ignore fd)) '(120 40 960 640)))
+           (multiple-value-bind (viewer wire) (make-input-viewer)
+             (flet ((feed-text (text)
+                      (let ((data (ekko/platform:text-bytes text)))
+                        (ekko/runtime::input-feed viewer data (length data)))))
+               (feed-text (format nil "~C[4;640;" #\Esc))
+               (check (null (packet-types wire)) "partial metric response stays buffered")
+               (feed-text "960t")
+               (check (equal (packet-types wire) '(1 15)) "area metrics use distinct packet")
+               (check (equalp (second (packet-payloads wire))
+                              (ekko/runtime::integers '(8 16))) "area pixels convert to cells")
+               (setf (ekko/runtime::wire-queue wire) nil
+                     (ekko/runtime::wire-queue-tail wire) nil
+                     (ekko/runtime::wire-queued wire) 0)
+               (feed-text (format nil "~C[6;18;9t" #\Esc))
+               (check (equal (packet-types wire) '(1 15)) "physical size precedes metric observation")
+               (check (equalp (second (packet-payloads wire))
+                              (ekko/runtime::integers '(9 18))) "direct cell report payload")
+               (setf (ekko/runtime::wire-queue wire) nil
+                     (ekko/runtime::wire-queue-tail wire) nil
+                     (ekko/runtime::wire-queued wire) 0)
+               (feed-text (format nil "~C[4;640;960t~C[6;18;9t~C[6;0;0t" #\Esc #\Esc #\Esc))
+               (ekko/runtime::send-size viewer)
+               (check (null (packet-types wire)) "direct metrics outrank area; duplicates and invalid values ignored"))))
+      (setf (symbol-function 'ekko/platform:terminal-size) original)))
   (format t "input batching tests passed~%")
   t)

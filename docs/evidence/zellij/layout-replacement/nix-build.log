@@ -1,0 +1,672 @@
+these 4 derivations will be built:
+  /nix/store/s8qmc1wky57mmn3dh60iipndvdmk483v-ekko-0.1.0.drv
+  /nix/store/825adsd9agwr48zgjli43x27qcha7a09-ekko-pane-pixels.drv
+  /nix/store/hp0s5n9g867nv001spxv7nyq9c6sgjcb-ekko-pane-workflow.drv
+  /nix/store/l8pl894xqrw4nsn1c5wp3266899mrl0b-ekko-pane-layouts.drv
+building '/nix/store/s8qmc1wky57mmn3dh60iipndvdmk483v-ekko-0.1.0.drv'...
+ekko> Running phase: unpackPhase
+ekko> unpacking source archive /nix/store/l84yb87wyaclr66gss5qg36a5vkybw1a-source
+ekko> source root is source
+ekko> Running phase: patchPhase
+ekko> Running phase: updateAutotoolsGnuConfigScriptsPhase
+ekko> Running phase: buildPhase
+ekko> This is SBCL 2.5.4, an implementation of ANSI Common Lisp.
+ekko> More information about SBCL is available at <http://www.sbcl.org/>.
+ekko> 
+ekko> SBCL is free software, provided as is, with absolutely no warranty.
+ekko> It is mostly in the public domain; some portions are provided under
+ekko> BSD-style licenses.  See the CREDITS and COPYING files in the
+ekko> distribution for more information.
+ekko> ; compiling file "/build/source/src/geometry.lisp" (written 01 JAN 1970 12:00:01 AM):
+ekko> 
+ekko> ; file: /build/source/src/geometry.lisp
+ekko> ; in: DEFUN CLIP-PLACEMENT
+ekko> ;     (DEFUN EKKO/SCENE:CLIP-PLACEMENT
+ekko> ;            (EKKO/SCENE::DESTINATION EKKO/SCENE::SOURCE EKKO/SCENE::PANE
+ekko> ;             EKKO/SCENE::CLIENT EKKO/SCENE::VISIBLE
+ekko> ;             &OPTIONAL EKKO/SCENE::OVERLAYS
+ekko> ;             &KEY (EKKO/SCENE::MAX-FRAGMENTS EKKO/SCENE::+FRAGMENT-LIMIT+))
+ekko> ;       "Clip DESTINATION against bounds and opaque OVERLAYS, mapping SOURCE exactly."
+ekko> ;       (EKKO/SCENE::REQUIRE-RECT EKKO/SCENE::DESTINATION)
+ekko> ;       (EKKO/SCENE::REQUIRE-RECT EKKO/SCENE::SOURCE)
+ekko> ;       (EKKO/SCENE::REQUIRE-RECT EKKO/SCENE::PANE)
+ekko> ;       (EKKO/SCENE::REQUIRE-RECT EKKO/SCENE::CLIENT)
+ekko> ;       (EKKO/SCENE::REQUIRE-RECT EKKO/SCENE::VISIBLE)
+ekko> ;       (UNLESS
+ekko> ;           (AND (INTEGERP EKKO/SCENE::MAX-FRAGMENTS)
+ekko> ;                (PLUSP EKKO/SCENE::MAX-FRAGMENTS)
+ekko> ;                (<= EKKO/SCENE::MAX-FRAGMENTS EKKO/SCENE::+FRAGMENT-LIMIT+))
+ekko> ;         (ERROR "Invalid fragment limit: ~S" EKKO/SCENE::MAX-FRAGMENTS))
+ekko> ;       (UNLESS
+ekko> ;           (AND (LISTP EKKO/SCENE::OVERLAYS)
+ekko> ;                (<= (LENGTH EKKO/SCENE::OVERLAYS) EKKO/SCENE::+FRAGMENT-LIMIT+))
+ekko> ;         (ERROR "Invalid overlay list or overlay limit"))
+ekko> ;       (LET ((EKKO/SCENE::REGION
+ekko> ;              (EKKO/SCENE:RECT-INTERSECTION EKKO/SCENE::DESTINATION
+ekko> ;               EKKO/SCENE::PANE)))
+ekko> ;         (SETF EKKO/SCENE::REGION (AND EKKO/SCENE::REGION #))
+ekko> ;         (SETF EKKO/SCENE::REGION (AND EKKO/SCENE::REGION #))
+ekko> ;         (LET ((EKKO/SCENE::PIECES #))
+ekko> ;           (DOLIST (EKKO/SCENE::OVERLAY EKKO/SCENE::OVERLAYS)
+ekko> ;             (EKKO/SCENE::REQUIRE-RECT EKKO/SCENE::OVERLAY)
+ekko> ;             (SETF #)
+ekko> ;             (WHEN # #))
+ekko> ;           (MAPCAR (LAMBDA # #) EKKO/SCENE::PIECES))))
+ekko> ; --> SB-IMPL::%DEFUN SB-IMPL::%DEFUN SB-INT:NAMED-LAMBDA
+ekko> ; ==>
+ekko> ;   #'(SB-INT:NAMED-LAMBDA EKKO/SCENE:CLIP-PLACEMENT
+ekko> ;         (EKKO/SCENE::DESTINATION EKKO/SCENE::SOURCE EKKO/SCENE::PANE
+ekko> ;          EKKO/SCENE::CLIENT EKKO/SCENE::VISIBLE &OPTIONAL EKKO/SCENE::OVERLAYS
+ekko> ;          &KEY (EKKO/SCENE::MAX-FRAGMENTS EKKO/SCENE::+FRAGMENT-LIMIT+))
+ekko> ;       (DECLARE (SB-C::TOP-LEVEL-FORM))
+ekko> ;       "Clip DESTINATION against bounds and opaque OVERLAYS, mapping SOURCE exactly."
+ekko> ;       (BLOCK EKKO/SCENE:CLIP-PLACEMENT
+ekko> ;         (EKKO/SCENE::REQUIRE-RECT EKKO/SCENE::DESTINATION)
+ekko> ;         (EKKO/SCENE::REQUIRE-RECT EKKO/SCENE::SOURCE)
+ekko> ;         (EKKO/SCENE::REQUIRE-RECT EKKO/SCENE::PANE)
+ekko> ;         (EKKO/SCENE::REQUIRE-RECT EKKO/SCENE::CLIENT)
+ekko> ;         (EKKO/SCENE::REQUIRE-RECT EKKO/SCENE::VISIBLE)
+ekko> ;         (UNLESS
+ekko> ;             (AND (INTEGERP EKKO/SCENE::MAX-FRAGMENTS)
+ekko> ;                  (PLUSP EKKO/SCENE::MAX-FRAGMENTS)
+ekko> ;                  (<= EKKO/SCENE::MAX-FRAGMENTS EKKO/SCENE::+FRAGMENT-LIMIT+))
+ekko> ;           (ERROR "Invalid fragment limit: ~S" EKKO/SCENE::MAX-FRAGMENTS))
+ekko> ;         (UNLESS
+ekko> ;             (AND (LISTP EKKO/SCENE::OVERLAYS)
+ekko> ;                  (<= # EKKO/SCENE::+FRAGMENT-LIMIT+))
+ekko> ;           (ERROR "Invalid overlay list or overlay limit"))
+ekko> ;         (LET ((EKKO/SCENE::REGION #))
+ekko> ;           (SETF EKKO/SCENE::REGION #)
+ekko> ;           (SETF EKKO/SCENE::REGION #)
+ekko> ;           (LET (#)
+ekko> ;             (DOLIST # # # #)
+ekko> ;             (MAPCAR # EKKO/SCENE::PIECES)))))
+ekko> ;
+ekko> ; caught STYLE-WARNING:
+ekko> ;   &OPTIONAL and &KEY found in the same lambda list: (DESTINATION SOURCE PANE
+ekko> ;                                                      CLIENT VISIBLE &OPTIONAL
+ekko> ;                                                      OVERLAYS &KEY
+ekko> ;                                                      (MAX-FRAGMENTS
+ekko> ;                                                       +FRAGMENT-LIMIT+))
+ekko> 
+ekko> 
+ekko> ; wrote /build/ekko-build-cache/common-lisp/sbcl-2.5.4-linux-x64/build/source/src/geometry-tmpGHU3ALSV.fasl
+ekko> ; compilation finished in 0:00:00.013
+ekko> WARNING:
+ekko>    Lisp compilation had style-warnings while
+ekko>    compiling #<CL-SOURCE-FILE "ekko/scene" "src/geometry">
+ekko> ; compiling file "/build/source/src/presentation.lisp" (written 01 JAN 1970 12:00:01 AM):
+ekko> 
+ekko> ; wrote /build/ekko-build-cache/common-lisp/sbcl-2.5.4-linux-x64/build/source/src/presentation-tmpAAURSO1.fasl
+ekko> ; compilation finished in 0:00:00.036
+ekko> ; compiling file "/build/source/src/extensions.lisp" (written 01 JAN 1970 12:00:01 AM):
+ekko> 
+ekko> ; wrote /build/ekko-build-cache/common-lisp/sbcl-2.5.4-linux-x64/build/source/src/extensions-tmp5GEXGEG5.fasl
+ekko> ; compilation finished in 0:00:00.052
+ekko> ; compiling file "/build/source/src/platform.lisp" (written 01 JAN 1970 12:00:01 AM):
+ekko> 
+ekko> ; wrote /build/ekko-build-cache/common-lisp/sbcl-2.5.4-linux-x64/build/source/src/platform-tmpAR3FSGEY.fasl
+ekko> ; compilation finished in 0:00:00.032
+ekko> ; compiling file "/build/source/src/assets.lisp" (written 01 JAN 1970 12:00:01 AM):
+ekko> 
+ekko> ; wrote /build/ekko-build-cache/common-lisp/sbcl-2.5.4-linux-x64/build/source/src/assets-tmpJAIDFZTC.fasl
+ekko> ; compilation finished in 0:00:00.017
+ekko> ; compiling file "/build/source/src/vt.lisp" (written 01 JAN 1970 12:00:01 AM):
+ekko> 
+ekko> ; file: /build/source/src/vt.lisp
+ekko> ; in: DEFUN FEED
+ekko> ;     (FUNCALL EKKO/VT::EMIT :GRAPHICS
+ekko> ;              (COPY-SEQ (EKKO/VT:TERMINAL-BUFFER EKKO/VT::VT)))
+ekko> ;
+ekko> ; note: unable to
+ekko> ;   optimize away possible call to FDEFINITION at runtime
+ekko> ; because:
+ekko> ;   EMIT is not known to be a function
+ekko> 
+ekko> ;     (COPY-SEQ (EKKO/VT:TERMINAL-BUFFER EKKO/VT::VT))
+ekko> ;
+ekko> ; note: unable to
+ekko> ;   optimize
+ekko> ; due to type uncertainty:
+ekko> ;   The first argument is a SEQUENCE, not a VECTOR.
+ekko> ;
+ekko> ; note: unable to
+ekko> ;   optimize
+ekko> ; due to type uncertainty:
+ekko> ;   The first argument is a SEQUENCE, not a LIST.
+ekko> ;
+ekko> ; note: unable to
+ekko> ;   optimize
+ekko> ; due to type uncertainty:
+ekko> ;   The first argument is a SEQUENCE, not a SB-KERNEL:EXTENDED-SEQUENCE.
+ekko> 
+ekko> ;     (LENGTH (EKKO/VT:TERMINAL-BUFFER EKKO/VT::VT))
+ekko> ;
+ekko> ; note: unable to
+ekko> ;   optimize
+ekko> ; due to type uncertainty:
+ekko> ;   The first argument is a SEQUENCE, not a VECTOR.
+ekko> 
+ekko> ;     (VECTOR-PUSH-EXTEND EKKO/VT::B (EKKO/VT:TERMINAL-BUFFER EKKO/VT::VT))
+ekko> ;
+ekko> ; note: unable to
+ekko> ;   optimize
+ekko> ; because:
+ekko> ;   Upgraded element type of array is not known at compile time.
+ekko> 
+ekko> ;     (AREF EKKO/VT::BYTES EKKO/VT::INDEX)
+ekko> ;
+ekko> ; note: unable to
+ekko> ;   optimize
+ekko> ; due to type uncertainty:
+ekko> ;   The first argument is a (VECTOR (UNSIGNED-BYTE 8)), not a SIMPLE-ARRAY.
+ekko> 
+ekko> ;     (MAX 0 (1- (EKKO/VT:TERMINAL-X EKKO/VT::VT)))
+ekko> ;
+ekko> ; note: unable to
+ekko> ;   open-code FLOAT to RATIONAL comparison
+ekko> ; due to type uncertainty:
+ekko> ;   The first argument is a REAL, not a SINGLE-FLOAT.
+ekko> ;
+ekko> ; note: unable to
+ekko> ;   open-code FLOAT to RATIONAL comparison
+ekko> ; due to type uncertainty:
+ekko> ;   The first argument is a REAL, not a DOUBLE-FLOAT.
+ekko> 
+ekko> ;     (FLOOR (EKKO/VT:TERMINAL-X EKKO/VT::VT) 8)
+ekko> ;
+ekko> ; note: unable to
+ekko> ;   optimize
+ekko> ; due to type uncertainty:
+ekko> ;   The first argument is a REAL, not a SINGLE-FLOAT.
+ekko> ;
+ekko> ; note: unable to
+ekko> ;   optimize
+ekko> ; due to type uncertainty:
+ekko> ;   The first argument is a REAL, not a DOUBLE-FLOAT.
+ekko> ;
+ekko> ; note: unable to
+ekko> ;   optimize
+ekko> ; due to type uncertainty:
+ekko> ;   The first argument is a REAL, not a INTEGER.
+ekko> ;
+ekko> ; note: unable to
+ekko> ;   convert division by 2^k to shift
+ekko> ; due to type uncertainty:
+ekko> ;   The first argument is a REAL, not a INTEGER.
+ekko> 
+ekko> ;     (= (EKKO/VT:TERMINAL-Y EKKO/VT::VT) (EKKO/VT::TERMINAL-TOP EKKO/VT::VT))
+ekko> ;
+ekko> ; note: unable to
+ekko> ;   open-code FLOAT to RATIONAL comparison
+ekko> ; due to type uncertainty:
+ekko> ;   The first argument is a NUMBER, not a SINGLE-FLOAT.
+ekko> ;   The second argument is a NUMBER, not a RATIONAL.
+ekko> ;
+ekko> ; note: unable to
+ekko> ;   open-code FLOAT to RATIONAL comparison
+ekko> ; due to type uncertainty:
+ekko> ;   The first argument is a NUMBER, not a DOUBLE-FLOAT.
+ekko> ;   The second argument is a NUMBER, not a RATIONAL.
+ekko> ;
+ekko> ; note: unable to
+ekko> ;   open-code FLOAT to RATIONAL comparison
+ekko> ; due to type uncertainty:
+ekko> ;   The first argument is a NUMBER, not a (COMPLEX SINGLE-FLOAT).
+ekko> ;   The second argument is a NUMBER, not a RATIONAL.
+ekko> ;
+ekko> ; note: unable to
+ekko> ;   open-code FLOAT to RATIONAL comparison
+ekko> ; due to type uncertainty:
+ekko> ;   The first argument is a NUMBER, not a (COMPLEX DOUBLE-FLOAT).
+ekko> ;   The second argument is a NUMBER, not a RATIONAL.
+ekko> ;
+ekko> ; note: unable to open code because: The operands might not be the same type.
+ekko> 
+ekko> ;     (MAX 0 (1- (EKKO/VT:TERMINAL-Y EKKO/VT::VT)))
+ekko> ;
+ekko> ; note: unable to
+ekko> ;   open-code FLOAT to RATIONAL comparison
+ekko> ; due to type uncertainty:
+ekko> ;   The first argument is a REAL, not a SINGLE-FLOAT.
+ekko> ;
+ekko> ; note: unable to
+ekko> ;   open-code FLOAT to RATIONAL comparison
+ekko> ; due to type uncertainty:
+ekko> ;   The first argument is a REAL, not a DOUBLE-FLOAT.
+ekko> 
+ekko> ;     (LENGTH (EKKO/VT:TERMINAL-CELLS EKKO/VT::VT))
+ekko> ;
+ekko> ; note: unable to
+ekko> ;   optimize
+ekko> ; due to type uncertainty:
+ekko> ;   The first argument is a SEQUENCE, not a VECTOR.
+ekko> 
+ekko> ;     (FUNCALL EKKO/VT::EMIT :RESET NIL)
+ekko> ;
+ekko> ; note: unable to
+ekko> ;   optimize away possible call to FDEFINITION at runtime
+ekko> ; because:
+ekko> ;   EMIT is not known to be a function
+ekko> 
+ekko> ;     (MAP 'STRING #'CODE-CHAR (EKKO/VT:TERMINAL-BUFFER EKKO/VT::VT))
+ekko> ;
+ekko> ; note: unable to
+ekko> ;   optimize
+ekko> ; due to type uncertainty:
+ekko> ;   The first argument is a SEQUENCE, not a VECTOR.
+ekko> 
+ekko> ;     (LENGTH EKKO/VT::BUFFER)
+ekko> ;
+ekko> ; note: unable to
+ekko> ;   optimize
+ekko> ; due to type uncertainty:
+ekko> ;   The first argument is a SEQUENCE, not a VECTOR.
+ekko> 
+ekko> ;     (1- (EKKO/VT:TERMINAL-X EKKO/VT::VT))
+ekko> ;
+ekko> ; note: forced to do GENERIC-- (cost 10)
+ekko> ;       unable to do inline fixnum arithmetic (cost 1) because:
+ekko> ;       The first argument is a T, not a FIXNUM.
+ekko> ;       The result is a (VALUES NUMBER &OPTIONAL), not a (VALUES FIXNUM &OPTIONAL).
+ekko> ;       unable to do inline fixnum arithmetic (cost 2) because:
+ekko> ;       The first argument is a T, not a FIXNUM.
+ekko> ;       The result is a (VALUES NUMBER &OPTIONAL), not a (VALUES FIXNUM &OPTIONAL).
+ekko> ;       etc.
+ekko> 
+ekko> ;     (MAX 0 (1- (EKKO/VT:TERMINAL-X EKKO/VT::VT)))
+ekko> ;
+ekko> ; note: forced to do GENERIC-> (cost 10)
+ekko> ;       unable to do inline fixnum comparison (cost 3) because:
+ekko> ;       The first argument is a NUMBER, not a FIXNUM.
+ekko> ;       unable to do inline fixnum comparison (cost 4) because:
+ekko> ;       The first argument is a NUMBER, not a FIXNUM.
+ekko> ;       etc.
+ekko> 
+ekko> ;     (1- (EKKO/VT:TERMINAL-COLS EKKO/VT::VT))
+ekko> ;
+ekko> ; note: forced to do GENERIC-- (cost 10)
+ekko> ;       unable to do inline fixnum arithmetic (cost 1) because:
+ekko> ;       The first argument is a T, not a FIXNUM.
+ekko> ;       The result is a (VALUES NUMBER &OPTIONAL), not a (VALUES FIXNUM &OPTIONAL).
+ekko> ;       unable to do inline fixnum arithmetic (cost 2) because:
+ekko> ;       The first argument is a T, not a FIXNUM.
+ekko> ;       The result is a (VALUES NUMBER &OPTIONAL), not a (VALUES FIXNUM &OPTIONAL).
+ekko> ;       etc.
+ekko> 
+ekko> ;     (1+ (FLOOR (EKKO/VT:TERMINAL-X EKKO/VT::VT) 8))
+ekko> ;
+ekko> ; note: forced to do GENERIC-+ (cost 10)
+ekko> ;       unable to do inline fixnum arithmetic (cost 1) because:
+ekko> ;       The first argument is a INTEGER, not a FIXNUM.
+ekko> ;       The result is a (VALUES INTEGER &OPTIONAL), not a (VALUES FIXNUM
+ekko> ;                                                                 &OPTIONAL).
+ekko> ;       unable to do inline fixnum arithmetic (cost 2) because:
+ekko> ;       The first argument is a INTEGER, not a FIXNUM.
+ekko> ;       The result is a (VALUES INTEGER &OPTIONAL), not a (VALUES FIXNUM
+ekko> ;                                                                 &OPTIONAL).
+ekko> ;       etc.
+ekko> 
+ekko> ;     (* 8 (1+ (FLOOR (EKKO/VT:TERMINAL-X EKKO/VT::VT) 8)))
+ekko> ;
+ekko> ; note: forced to do full call
+ekko> ;       unable to do inline ASH (cost 2) because:
+ekko> ;       The first argument is a INTEGER, not a FIXNUM.
+ekko> ;       The result is a (VALUES (OR (INTEGER * -8) (INTEGER 0 0) (INTEGER 8))
+ekko> ;                               &OPTIONAL), not a (VALUES FIXNUM &OPTIONAL).
+ekko> ;       unable to do inline ASH (cost 3) because:
+ekko> ;       The first argument is a INTEGER, not a FIXNUM.
+ekko> ;       The result is a (VALUES (OR (INTEGER * -8) (INTEGER 0 0) (INTEGER 8))
+ekko> ;                               &OPTIONAL), not a (VALUES FIXNUM &OPTIONAL).
+ekko> ;       etc.
+ekko> 
+ekko> ;     (MIN (1- (EKKO/VT:TERMINAL-COLS EKKO/VT::VT))
+ekko> ;          (* 8 (1+ (FLOOR (EKKO/VT:TERMINAL-X EKKO/VT::VT) 8))))
+ekko> ;
+ekko> ; note: forced to do GENERIC-< (cost 10)
+ekko> ;       unable to do inline fixnum comparison (cost 4) because:
+ekko> ;       The first argument is a (OR (INTEGER * -8) (INTEGER 0 0) (INTEGER 8)), not a FIXNUM.
+ekko> ;       The second argument is a NUMBER, not a FIXNUM.
+ekko> 
+ekko> ;     (= (EKKO/VT:TERMINAL-Y EKKO/VT::VT) (EKKO/VT::TERMINAL-TOP EKKO/VT::VT))
+ekko> ;
+ekko> ; note: forced to do GENERIC-= (cost 10)
+ekko> ;       unable to do inline float comparison (cost 3) because:
+ekko> ;       The first argument is a T, not a SINGLE-FLOAT.
+ekko> ;       The second argument is a T, not a SINGLE-FLOAT.
+ekko> ;       unable to do inline float comparison (cost 3) because:
+ekko> ;       The first argument is a T, not a SINGLE-FLOAT.
+ekko> ;       The second argument is a T, not a (COMPLEX SINGLE-FLOAT).
+ekko> ;       etc.
+ekko> 
+ekko> ;     (1- (EKKO/VT:TERMINAL-Y EKKO/VT::VT))
+ekko> ;
+ekko> ; note: forced to do GENERIC-- (cost 10)
+ekko> ;       unable to do inline fixnum arithmetic (cost 1) because:
+ekko> ;       The first argument is a T, not a FIXNUM.
+ekko> ;       The result is a (VALUES NUMBER &OPTIONAL), not a (VALUES FIXNUM &OPTIONAL).
+ekko> ;       unable to do inline fixnum arithmetic (cost 2) because:
+ekko> ;       The first argument is a T, not a FIXNUM.
+ekko> ;       The result is a (VALUES NUMBER &OPTIONAL), not a (VALUES FIXNUM &OPTIONAL).
+ekko> ;       etc.
+ekko> 
+ekko> ;     (MAX 0 (1- (EKKO/VT:TERMINAL-Y EKKO/VT::VT)))
+ekko> ;
+ekko> ; note: forced to do GENERIC-> (cost 10)
+ekko> ;       unable to do inline fixnum comparison (cost 3) because:
+ekko> ;       The first argument is a NUMBER, not a FIXNUM.
+ekko> ;       unable to do inline fixnum comparison (cost 4) because:
+ekko> ;       The first argument is a NUMBER, not a FIXNUM.
+ekko> ;       etc.
+ekko> 
+ekko> 
+ekko> ; wrote /build/ekko-build-cache/common-lisp/sbcl-2.5.4-linux-x64/build/source/src/vt-tmp8V3J6PE9.fasl
+ekko> ; compilation finished in 0:00:00.100
+ekko> ; compiling file "/build/source/src/history.lisp" (written 01 JAN 1970 12:00:01 AM):
+ekko> 
+ekko> ; wrote /build/ekko-build-cache/common-lisp/sbcl-2.5.4-linux-x64/build/source/src/history-tmp9V47YWQF.fasl
+ekko> ; compilation finished in 0:00:00.016
+ekko> ; compiling file "/build/source/src/layout.lisp" (written 01 JAN 1970 12:00:01 AM):
+ekko> 
+ekko> ; file: /build/source/src/layout.lisp
+ekko> ; in: DEFUN RECTANGLES
+ekko> ;     (DEFUN EKKO/LAYOUT:RECTANGLES
+ekko> ;            (EKKO/LAYOUT::TREE EKKO/LAYOUT::COLS EKKO/LAYOUT::ROWS
+ekko> ;             EKKO/LAYOUT::FOCUS
+ekko> ;             &OPTIONAL EKKO/LAYOUT::ZOOM
+ekko> ;             &KEY (EKKO/LAYOUT::LEAF-MIN '(1 2)) (EKKO/LAYOUT::COLUMN-GAP 1)
+ekko> ;             (EKKO/LAYOUT::ROW-GAP 0))
+ekko> ;       "Return (id x y width height) outer rectangles, collapsing when too small."
+ekko> ;       (DESTRUCTURING-BIND
+ekko> ;           (EKKO/LAYOUT::MW EKKO/LAYOUT::MH)
+ekko> ;           (EKKO/LAYOUT:MINIMUM-SIZE EKKO/LAYOUT::TREE :LEAF-MIN
+ekko> ;            EKKO/LAYOUT::LEAF-MIN :COLUMN-GAP EKKO/LAYOUT::COLUMN-GAP :ROW-GAP
+ekko> ;            EKKO/LAYOUT::ROW-GAP)
+ekko> ;         (WHEN
+ekko> ;             (OR EKKO/LAYOUT::ZOOM (< EKKO/LAYOUT::COLS EKKO/LAYOUT::MW)
+ekko> ;                 (< EKKO/LAYOUT::ROWS EKKO/LAYOUT::MH))
+ekko> ;           (SETF EKKO/LAYOUT::TREE EKKO/LAYOUT::FOCUS)))
+ekko> ;       (LABELS ((EKKO/LAYOUT::WALK
+ekko> ;                    (EKKO/LAYOUT::NODE EKKO/LAYOUT::X EKKO/LAYOUT::Y
+ekko> ;                     EKKO/LAYOUT::W EKKO/LAYOUT::H)
+ekko> ;                  (IF #
+ekko> ;                      #
+ekko> ;                      #)))
+ekko> ;         (EKKO/LAYOUT::WALK EKKO/LAYOUT::TREE 0 0 EKKO/LAYOUT::COLS
+ekko> ;          EKKO/LAYOUT::ROWS)))
+ekko> ; --> SB-IMPL::%DEFUN SB-IMPL::%DEFUN SB-INT:NAMED-LAMBDA
+ekko> ; ==>
+ekko> ;   #'(SB-INT:NAMED-LAMBDA EKKO/LAYOUT:RECTANGLES
+ekko> ;         (EKKO/LAYOUT::TREE EKKO/LAYOUT::COLS EKKO/LAYOUT::ROWS
+ekko> ;          EKKO/LAYOUT::FOCUS &OPTIONAL EKKO/LAYOUT::ZOOM &KEY
+ekko> ;          (EKKO/LAYOUT::LEAF-MIN '(1 2)) (EKKO/LAYOUT::COLUMN-GAP 1)
+ekko> ;          (EKKO/LAYOUT::ROW-GAP 0))
+ekko> ;       (DECLARE (SB-C::TOP-LEVEL-FORM))
+ekko> ;       "Return (id x y width height) outer rectangles, collapsing when too small."
+ekko> ;       (BLOCK EKKO/LAYOUT:RECTANGLES
+ekko> ;         (DESTRUCTURING-BIND
+ekko> ;             (EKKO/LAYOUT::MW EKKO/LAYOUT::MH)
+ekko> ;             (EKKO/LAYOUT:MINIMUM-SIZE EKKO/LAYOUT::TREE :LEAF-MIN
+ekko> ;              EKKO/LAYOUT::LEAF-MIN :COLUMN-GAP EKKO/LAYOUT::COLUMN-GAP :ROW-GAP
+ekko> ;              EKKO/LAYOUT::ROW-GAP)
+ekko> ;           (WHEN (OR EKKO/LAYOUT::ZOOM # #) (SETF #)))
+ekko> ;         (LABELS ((EKKO/LAYOUT::WALK #
+ekko> ;                    #))
+ekko> ;           (EKKO/LAYOUT::WALK EKKO/LAYOUT::TREE 0 0 EKKO/LAYOUT::COLS
+ekko> ;            EKKO/LAYOUT::ROWS))))
+ekko> ;
+ekko> ; caught STYLE-WARNING:
+ekko> ;   &OPTIONAL and &KEY found in the same lambda list: (TREE COLS ROWS FOCUS
+ekko> ;                                                      &OPTIONAL ZOOM &KEY
+ekko> ;                                                      (LEAF-MIN (QUOTE (1 2)))
+ekko> ;                                                      (COLUMN-GAP 1) (ROW-GAP 0))
+ekko> 
+ekko> 
+ekko> ; wrote /build/ekko-build-cache/common-lisp/sbcl-2.5.4-linux-x64/build/source/src/layout-tmp9BN22RMA.fasl
+ekko> ; compilation finished in 0:00:00.012
+ekko> WARNING:
+ekko>    Lisp compilation had style-warnings while
+ekko>    compiling #<CL-SOURCE-FILE "ekko/runtime" "src/layout">
+ekko> ; compiling file "/build/source/src/graphics.lisp" (written 01 JAN 1970 12:00:01 AM):
+ekko> 
+ekko> ; file: /build/source/src/graphics.lisp
+ekko> ; in: DEFUN BASE64-ENCODE
+ekko> ;     (CHAR EKKO/GRAPHICS::*ALPHABET* (LDB (BYTE 6 18) EKKO/GRAPHICS::BITS))
+ekko> ;
+ekko> ; note: unable to
+ekko> ;   optimize
+ekko> ; due to type uncertainty:
+ekko> ;   The first argument is a STRING, not a SIMPLE-ARRAY.
+ekko> 
+ekko> ;     (CHAR EKKO/GRAPHICS::*ALPHABET* (LDB (BYTE 6 12) EKKO/GRAPHICS::BITS))
+ekko> ;
+ekko> ; note: unable to
+ekko> ;   optimize
+ekko> ; due to type uncertainty:
+ekko> ;   The first argument is a STRING, not a SIMPLE-ARRAY.
+ekko> 
+ekko> ;     (CHAR EKKO/GRAPHICS::*ALPHABET* (LDB (BYTE 6 6) EKKO/GRAPHICS::BITS))
+ekko> ;
+ekko> ; note: unable to
+ekko> ;   optimize
+ekko> ; due to type uncertainty:
+ekko> ;   The first argument is a STRING, not a SIMPLE-ARRAY.
+ekko> 
+ekko> ;     (CHAR EKKO/GRAPHICS::*ALPHABET* (LDB (BYTE 6 0) EKKO/GRAPHICS::BITS))
+ekko> ;
+ekko> ; note: unable to
+ekko> ;   optimize
+ekko> ; due to type uncertainty:
+ekko> ;   The first argument is a STRING, not a SIMPLE-ARRAY.
+ekko> 
+ekko> ; in: DEFUN BASE64-DECODE
+ekko> ;     (LENGTH EKKO/GRAPHICS::INPUT)
+ekko> ;
+ekko> ; note: unable to
+ekko> ;   optimize
+ekko> ; due to type uncertainty:
+ekko> ;   The first argument is a SEQUENCE, not a VECTOR.
+ekko> ;
+ekko> ; note: unable to
+ekko> ;   optimize
+ekko> ; due to type uncertainty:
+ekko> ;   The first argument is a SEQUENCE, not a VECTOR.
+ekko> 
+ekko> ;     (<= 0 EKKO/GRAPHICS::START EKKO/GRAPHICS::END (LENGTH EKKO/GRAPHICS::INPUT))
+ekko> ;
+ekko> ; note: forced to do <-INTEGER-FIXNUM (cost 8)
+ekko> ;       unable to do inline fixnum comparison (cost 3) because:
+ekko> ;       The first argument is a INTEGER, not a FIXNUM.
+ekko> ;
+ekko> ; note: forced to do GENERIC-> (cost 10)
+ekko> ;       unable to do inline fixnum comparison (cost 4) because:
+ekko> ;       The first argument is a UNSIGNED-BYTE, not a FIXNUM.
+ekko> ;       The second argument is a INTEGER, not a FIXNUM.
+ekko> 
+ekko> 
+ekko> ; wrote /build/ekko-build-cache/common-lisp/sbcl-2.5.4-linux-x64/build/source/src/graphics-tmp1CXFJSK9.fasl
+ekko> ; compilation finished in 0:00:00.109
+ekko> ; compiling file "/build/source/src/wire.lisp" (written 01 JAN 1970 12:00:01 AM):
+ekko> 
+ekko> ; wrote /build/ekko-build-cache/common-lisp/sbcl-2.5.4-linux-x64/build/source/src/wire-tmpX4BRKI0R.fasl
+ekko> ; compilation finished in 0:00:00.037
+ekko> ; compiling file "/build/source/src/worker.lisp" (written 01 JAN 1970 12:00:01 AM):
+ekko> 
+ekko> ; wrote /build/ekko-build-cache/common-lisp/sbcl-2.5.4-linux-x64/build/source/src/worker-tmpQ371UGST.fasl
+ekko> ; compilation finished in 0:00:00.018
+ekko> ; compiling file "/build/source/src/server.lisp" (written 01 JAN 1970 12:00:01 AM):
+ekko> 
+ekko> ; wrote /build/ekko-build-cache/common-lisp/sbcl-2.5.4-linux-x64/build/source/src/server-tmp2OWI3Q7U.fasl
+ekko> ; compilation finished in 0:00:00.152
+ekko> ; compiling file "/build/source/src/commands.lisp" (written 01 JAN 1970 12:00:01 AM):
+ekko> 
+ekko> ; wrote /build/ekko-build-cache/common-lisp/sbcl-2.5.4-linux-x64/build/source/src/commands-tmp9KKTJMYV.fasl
+ekko> ; compilation finished in 0:00:00.108
+ekko> ; compiling file "/build/source/src/client.lisp" (written 01 JAN 1970 12:00:01 AM):
+ekko> 
+ekko> ; wrote /build/ekko-build-cache/common-lisp/sbcl-2.5.4-linux-x64/build/source/src/client-tmpJU0JWO19.fasl
+ekko> ; compilation finished in 0:00:00.117
+ekko> ; compiling file "/build/source/src/package.lisp" (written 01 JAN 1970 12:00:01 AM):
+ekko> 
+ekko> ; wrote /build/ekko-build-cache/common-lisp/sbcl-2.5.4-linux-x64/build/source/src/package-tmpZX2WN8N4.fasl
+ekko> ; compilation finished in 0:00:00.001
+ekko> ; compiling file "/build/source/src/cli.lisp" (written 01 JAN 1970 12:00:01 AM):
+ekko> 
+ekko> ; wrote /build/ekko-build-cache/common-lisp/sbcl-2.5.4-linux-x64/build/source/src/cli-tmpOU81XRV0.fasl
+ekko> ; compilation finished in 0:00:00.024
+ekko> ; compiling file "/build/source/src/builtins.lisp" (written 01 JAN 1970 12:00:01 AM):
+ekko> 
+ekko> ; wrote /build/ekko-build-cache/common-lisp/sbcl-2.5.4-linux-x64/build/source/src/builtins-tmpY2ML9CFA.fasl
+ekko> ; compilation finished in 0:00:00.010
+ekko> ;
+ekko> ; compilation unit finished
+ekko> ;   caught 2 STYLE-WARNING conditions
+ekko> ;   printed 41 notes
+ekko> [undoing binding stack and other enclosing state... done]
+ekko> Forced compaction moved 1235 pages
+ekko> [performing final GC...Forced compaction moved 1092 pages
+ekko>  done]
+ekko> [saving current Lisp image into /build/source/ekko:
+ekko> writing 65536 bytes from the linkage space at 0x51ffffb00000
+ekko> writing 15200 bytes from the static space at 0x520000000000
+ekko> compressed 32768 bytes into 4836 at level 9
+ekko> writing 99418112 bytes from the dynamic space at 0x1200000000
+ekko> compressed 99418112 bytes into 5704977 at level 9
+ekko> writing 8814720 bytes from the read-only space at 0x11ff790000
+ekko> compressed 8847360 bytes into 4673464 at level 9
+ekko> writing 0 bytes from the text space at (nil)
+ekko> compressed 0 bytes into 9 at level 9
+ekko> done]
+ekko> This is SBCL 2.5.4, an implementation of ANSI Common Lisp.
+ekko> More information about SBCL is available at <http://www.sbcl.org/>.
+ekko> 
+ekko> SBCL is free software, provided as is, with absolutely no warranty.
+ekko> It is mostly in the public domain; some portions are provided under
+ekko> BSD-style licenses.  See the CREDITS and COPYING files in the
+ekko> distribution for more information.
+ekko> [undoing binding stack and other enclosing state... done]
+ekko> Forced compaction moved 1176 pages
+ekko> [performing final GC...Forced compaction moved 1087 pages
+ekko>  done]
+ekko> [saving current Lisp image into /build/source/ekko-bare:
+ekko> writing 65536 bytes from the linkage space at 0x51ffffb00000
+ekko> writing 15200 bytes from the static space at 0x520000000000
+ekko> compressed 32768 bytes into 4831 at level 9
+ekko> writing 87818240 bytes from the dynamic space at 0x1200000000
+ekko> compressed 87818240 bytes into 5666296 at level 9
+ekko> writing 8806736 bytes from the read-only space at 0x11ff798000
+ekko> compressed 8814592 bytes into 4671587 at level 9
+ekko> writing 0 bytes from the text space at (nil)
+ekko> compressed 0 bytes into 9 at level 9
+ekko> done]
+ekko> This is SBCL 2.5.4, an implementation of ANSI Common Lisp.
+ekko> More information about SBCL is available at <http://www.sbcl.org/>.
+ekko> 
+ekko> SBCL is free software, provided as is, with absolutely no warranty.
+ekko> It is mostly in the public domain; some portions are provided under
+ekko> BSD-style licenses.  See the CREDITS and COPYING files in the
+ekko> distribution for more information.
+ekko> ; compiling file "/build/source/src/graphics-demo.lisp" (written 01 JAN 1970 12:00:01 AM):
+ekko> 
+ekko> ; wrote /build/ekko-build-cache/common-lisp/sbcl-2.5.4-linux-x64/build/source/src/graphics-demo-tmpGHU3ALSV.fasl
+ekko> ; compilation finished in 0:00:00.033
+ekko> [undoing binding stack and other enclosing state... done]
+ekko> Forced compaction moved 1109 pages
+ekko> [performing final GC...Forced compaction moved 1037 pages
+ekko>  done]
+ekko> [saving current Lisp image into /build/source/ekko-graphics-demo:
+ekko> writing 65536 bytes from the linkage space at 0x51ffffb00000
+ekko> writing 15200 bytes from the static space at 0x520000000000
+ekko> compressed 32768 bytes into 4838 at level 9
+ekko> writing 87818240 bytes from the dynamic space at 0x1200000000
+ekko> compressed 87818240 bytes into 5394177 at level 9
+ekko> writing 8547360 bytes from the read-only space at 0x11ff7d8000
+ekko> compressed 8552448 bytes into 4538368 at level 9
+ekko> writing 0 bytes from the text space at (nil)
+ekko> compressed 0 bytes into 9 at level 9
+ekko> done]
+ekko> Running phase: checkPhase
+ekko> This is SBCL 2.5.4, an implementation of ANSI Common Lisp.
+ekko> More information about SBCL is available at <http://www.sbcl.org/>.
+ekko> 
+ekko> SBCL is free software, provided as is, with absolutely no warranty.
+ekko> It is mostly in the public domain; some portions are provided under
+ekko> BSD-style licenses.  See the CREDITS and COPYING files in the
+ekko> distribution for more information.
+ekko> ; compiling file "/build/source/examples/profiles/zellij-frames.lisp" (written 01 JAN 1970 12:00:01 AM):
+ekko> 
+ekko> ; wrote /build/ekko-build-cache/common-lisp/sbcl-2.5.4-linux-x64/build/source/examples/profiles/zellij-frames-tmpGHU3ALSV.fasl
+ekko> ; compilation finished in 0:00:00.018
+ekko> ; compiling file "/build/source/examples/profiles/zellij-pane.lisp" (written 01 JAN 1970 12:00:01 AM):
+ekko> 
+ekko> ; wrote /build/ekko-build-cache/common-lisp/sbcl-2.5.4-linux-x64/build/source/examples/profiles/zellij-pane-tmpAAURSO1.fasl
+ekko> ; compilation finished in 0:00:00.014
+ekko> ; compiling file "/build/source/tests/zellij-frames.lisp" (written 01 JAN 1970 12:00:01 AM):
+ekko> 
+ekko> ; wrote /build/ekko-build-cache/common-lisp/sbcl-2.5.4-linux-x64/build/source/tests/zellij-frames-tmp5GEXGEG5.fasl
+ekko> ; compilation finished in 0:00:00.013
+ekko> ; compiling file "/build/source/tests/erase-history.lisp" (written 01 JAN 1970 12:00:01 AM):
+ekko> 
+ekko> ; wrote /build/ekko-build-cache/common-lisp/sbcl-2.5.4-linux-x64/build/source/tests/erase-history-tmpAR3FSGEY.fasl
+ekko> ; compilation finished in 0:00:00.010
+ekko> ; compiling file "/build/source/tests/geometry.lisp" (written 01 JAN 1970 12:00:01 AM):
+ekko> 
+ekko> ; wrote /build/ekko-build-cache/common-lisp/sbcl-2.5.4-linux-x64/build/source/tests/geometry-tmpJAIDFZTC.fasl
+ekko> ; compilation finished in 0:00:00.009
+ekko> ; compiling file "/build/source/tests/presentation.lisp" (written 01 JAN 1970 12:00:01 AM):
+ekko> 
+ekko> ; wrote /build/ekko-build-cache/common-lisp/sbcl-2.5.4-linux-x64/build/source/tests/presentation-tmp8V3J6PE9.fasl
+ekko> ; compilation finished in 0:00:00.007
+ekko> ; compiling file "/build/source/tests/graphics-demo.lisp" (written 01 JAN 1970 12:00:01 AM):
+ekko> 
+ekko> ; wrote /build/ekko-build-cache/common-lisp/sbcl-2.5.4-linux-x64/build/source/tests/graphics-demo-tmp9V47YWQF.fasl
+ekko> ; compilation finished in 0:00:00.009
+ekko> ; compiling file "/build/source/tests/input.lisp" (written 01 JAN 1970 12:00:01 AM):
+ekko> 
+ekko> ; wrote /build/ekko-build-cache/common-lisp/sbcl-2.5.4-linux-x64/build/source/tests/input-tmp9BN22RMA.fasl
+ekko> ; compilation finished in 0:00:00.011
+ekko> ; compiling file "/build/source/tests/render.lisp" (written 01 JAN 1970 12:00:01 AM):
+ekko> 
+ekko> ; wrote /build/ekko-build-cache/common-lisp/sbcl-2.5.4-linux-x64/build/source/tests/render-tmp1CXFJSK9.fasl
+ekko> ; compilation finished in 0:00:00.004
+ekko> ; compiling file "/build/source/tests/base64.lisp" (written 01 JAN 1970 12:00:01 AM):
+ekko> 
+ekko> ; wrote /build/ekko-build-cache/common-lisp/sbcl-2.5.4-linux-x64/build/source/tests/base64-tmpX4BRKI0R.fasl
+ekko> ; compilation finished in 0:00:00.015
+ekko> ; compiling file "/build/source/tests/graphics-parser.lisp" (written 01 JAN 1970 12:00:01 AM):
+ekko> 
+ekko> ; wrote /build/ekko-build-cache/common-lisp/sbcl-2.5.4-linux-x64/build/source/tests/graphics-parser-tmpQ371UGST.fasl
+ekko> ; compilation finished in 0:00:00.006
+ekko> ; compiling file "/build/source/tests/assets.lisp" (written 01 JAN 1970 12:00:01 AM):
+ekko> 
+ekko> ; wrote /build/ekko-build-cache/common-lisp/sbcl-2.5.4-linux-x64/build/source/tests/assets-tmp2OWI3Q7U.fasl
+ekko> ; compilation finished in 0:00:00.010
+ekko> ; compiling file "/build/source/tests/customization.lisp" (written 01 JAN 1970 12:00:01 AM):
+ekko> 
+ekko> ; wrote /build/ekko-build-cache/common-lisp/sbcl-2.5.4-linux-x64/build/source/tests/customization-tmp9KKTJMYV.fasl
+ekko> ; compilation finished in 0:00:00.187
+ekko> ; compiling file "/build/source/tests/runner.lisp" (written 01 JAN 1970 12:00:01 AM):
+ekko> 
+ekko> ; wrote /build/ekko-build-cache/common-lisp/sbcl-2.5.4-linux-x64/build/source/tests/runner-tmpJU0JWO19.fasl
+ekko> ; compilation finished in 0:00:00.003
+ekko> M01 synthetic graphics demo tests passed
+ekko> Zellij Pane helper tests passed
+ekko> Zellij frame decoration tests passed
+ekko> ED2 history tests passed
+ekko> G06 geometry tests passed
+ekko> G01/G04/G05/G17 presentation contract tests passed
+ekko> input batching tests passed
+ekko> render cache tests passed
+ekko> Base64 codec tests passed
+ekko> Customization, split layout and scrollback tests passed
+ekko> M00 tests passed
+ekko> Running phase: installPhase
+ekko> Running phase: fixupPhase
+ekko> checking for references to /build/ in /nix/store/z8hwiia1mp59lgcyda7ivhw8h3r35axf-ekko-0.1.0...
+ekko> patching script interpreter paths in /nix/store/z8hwiia1mp59lgcyda7ivhw8h3r35axf-ekko-0.1.0
+building '/nix/store/l8pl894xqrw4nsn1c5wp3266899mrl0b-ekko-pane-layouts.drv'...
+building '/nix/store/825adsd9agwr48zgjli43x27qcha7a09-ekko-pane-pixels.drv'...
+building '/nix/store/hp0s5n9g867nv001spxv7nyq9c6sgjcb-ekko-pane-workflow.drv'...
+/nix/store/j89q8nwkcs8ljg8iffr9yfyvaynnnscd-ekko-pane-layouts
+/nix/store/b915zjbdai0dc6f6xsmda7x7vsbn5cqh-ekko-pane-pixels
+/nix/store/54d5ij8vz59mpp2y4h9ksf7f0hl2rkn7-ekko-pane-workflow

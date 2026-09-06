@@ -115,6 +115,11 @@ def integration(binary, profile, bare=False):
         def notes():
             return inspect().get("pane-notes") or []
 
+        def single_note(key, value):
+            # Expiry can occur between separate inspect requests.
+            current = notes()
+            return len(current) == 1 and current[0][key] == value
+
         def owner_decorations():
             entries = inspect().get("decorations") or []
             return next((e for e in entries if e.get("owner") == "pane-note-test"), None)
@@ -146,7 +151,7 @@ def integration(binary, profile, bare=False):
             # A note is state in the public snapshot and is displayed through
             # the ordinary decoration contribution.
             command("note-one")
-            eventually(lambda: len(notes()) == 1 and notes()[0]["text"] == "NOTE-ONE")
+            eventually(lambda: single_note("text", "NOTE-ONE"))
             eventually(lambda: scene_has("NOTE-ONE"))
             first_note = notes()[0]
             assert first_note == {
@@ -156,17 +161,17 @@ def integration(binary, profile, bare=False):
 
             # Changed text/style replaces the same owner's note for that pane.
             command("note-changed")
-            eventually(lambda: len(notes()) == 1 and notes()[0]["text"] == "NOTE-CHANGED")
+            eventually(lambda: single_note("text", "NOTE-CHANGED"))
             eventually(lambda: decoration_has("NOTE-CHANGED"))
             assert notes()[0]["sgr"] == [0, 34]
 
             # Repeating an identical active note does not extend its deadline.
             command("note-short")
-            eventually(lambda: len(notes()) == 1 and notes()[0]["text"] == "NOTE-SHORT")
+            eventually(lambda: single_note("text", "NOTE-SHORT"))
             started = time.monotonic()
             time.sleep(.55)
             command("note-short")
-            eventually(lambda: len(notes()) == 1 and notes()[0]["text"] == "NOTE-SHORT")
+            eventually(lambda: single_note("text", "NOTE-SHORT"))
             eventually(lambda: notes() == [] and not latest_scene_has("NOTE-SHORT"), timeout=1.4)
             assert time.monotonic() - started < 1.3, "duplicate note extended deadline"
 
@@ -174,7 +179,7 @@ def integration(binary, profile, bare=False):
             # attached, and a new viewer must receive the restored scene
             # without the expired decoration.
             command("note-short")
-            eventually(lambda: notes() and notes()[0]["text"] == "NOTE-SHORT")
+            eventually(lambda: single_note("text", "NOTE-SHORT"))
             attached.close()
             attached = None
             eventually(lambda: not status()["attached"])
@@ -185,7 +190,7 @@ def integration(binary, profile, bare=False):
             # A second pane note follows the target pane's current content
             # origin after a client resize.
             command("note-two")
-            eventually(lambda: len(notes()) == 1 and notes()[0]["pane"] == 2)
+            eventually(lambda: single_note("pane", 2))
             before_resize = inspect()
             pane2_before = next(p for p in before_resize["panes"] if p["id"] == 2)
             rect_before = pane2_before["outer_rect"]
@@ -195,7 +200,7 @@ def integration(binary, profile, bare=False):
             assert (span_before["x"], span_before["y"]) == (rect_before[0] + 2, rect_before[1])
             # Use the same minimum valid attachment size as the other real
             # daemon contracts; this exercises clipping as well as movement.
-            attached.send(1, struct.pack(">IIIII", 5, 5, 4, 8, 16))
+            attached.send(1, struct.pack(">IIIII", 6, 5, 4, 8, 16))
             eventually(lambda: inspect()["viewport"]["cols"] == 5
                        and inspect()["viewport"]["rows"] == 4)
             after_resize = inspect()

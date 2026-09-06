@@ -3,6 +3,7 @@
 This is a source inventory for the pinned Zellij release, followed by the
 current Ekko status. It is a discrepancy ledger, not a compatibility claim.
 `Observed` means the checked-in differential harness exercised that behavior;
+`Partial` means a bounded part is implemented and verified, with required gaps recorded;
 `Implemented` means the Ekko sources or product documentation describe it;
 `Unimplemented` means the pinned surface has no corresponding Ekko surface;
 `Inventory` means the source was catalogued but Ekko behavior has not been
@@ -78,13 +79,13 @@ input is handled by the mode fallback.
 | Locked | `C-g` → Normal | `Observed` (`C-g` unlock); profile has the same binding |
 | Resize | `C-n` → Normal; `h/Left`, `j/Down`, `k/Up`, `l/Right` → Increase Left/Down/Up/Right; `H/J/K/L` → Decrease Left/Down/Up/Right; `=/+` → Increase; `-` → Decrease | `Unimplemented` as a Zellij mode; Ekko has a separate percentage `:resize` action |
 | Pane | `C-p` → Normal; `h/Left`, `l/Right`, `j/Down`, `k/Up` → MoveFocus; `p` → SwitchFocus; `n` → NewPane; `d` → NewPane Down; `r` → NewPane Right; `s` → NewPane stacked; `x` → CloseFocus; `f` → ToggleFocusFullscreen; `z` → TogglePaneFrames; `w` → ToggleFloatingPanes; `e` → TogglePaneEmbedOrFloating; `c` → RenamePane input; `i` → TogglePanePinned | Partial: entry/exits/locking/fullscreen `Implemented`; directional/cyclic focus, n/d/r/x and failed-split frames are in integration. Other Pane controls remain `Unimplemented`; complete rendering and behavioral parity remain unproven |
-| Move | `C-h` → Normal; `n/Tab` → MovePane; `p` → MovePaneBackwards; `h/Left`, `j/Down`, `k/Up`, `l/Right` → MovePane direction | `Unimplemented` as a Zellij mode |
+| Move | `C-h` → Normal; `n/Tab` → MovePane; `p` → MovePaneBackwards; `h/Left`, `j/Down`, `k/Up`, `l/Right` → MovePane direction | `Partial`: tiled swaps and mode bindings through public `:set-layout`; regular/bare lifecycle and private Move screenshots verified. Fullscreen no-op and tiled PTY histories are paired; startup, small-terminal output, floating/stacked movement, and shared-mode coverage remain subject to the [paired evidence](../evidence/zellij/move-mode/README.md). |
 | Tab | `C-t` → Normal; `r` → RenameTab input; `h/Left/Up/k` → previous tab; `l/Right/Down/j` → next tab; `n` → NewTab; `x` → CloseTab; `s` → ToggleActiveSyncTab; `b` → BreakPane; `]` → BreakPaneRight; `[` → BreakPaneLeft; `1`…`9` → GoToTab; `Tab` → ToggleTab | `Unimplemented` as a Zellij mode; Ekko has basic tabless session focus |
 | Scroll | `C-s` → Normal; `e` → EditScrollback then Normal; `s` → EnterSearch plus SearchInput; `C-c` → ScrollToBottom then Normal; `j/Down` → ScrollDown; `k/Up` → ScrollUp; `C-f/PageDown/Right/l` → PageScrollDown; `C-b/PageUp/Left/h` → PageScrollUp; `d` → HalfPageScrollDown; `u` → HalfPageScrollUp; optional `Alt-c` → Copy | `Unimplemented` as a Zellij mode; Ekko copy mode has similar movement/search controls |
 | Search | `C-s` → Normal; `C-c` → ScrollToBottom then Normal; `j/Down` → ScrollDown; `k/Up` → ScrollUp; `C-f/PageDown/Right/l` → PageScrollDown; `C-b/PageUp/Left/h` → PageScrollUp; `d/u` → half-page down/up; `n/p` → Search down/up; `c/w/o` → toggle CaseSensitivity/Wrap/WholeWord | `Unimplemented` as a Zellij mode |
 | EnterSearch | `C-c/Esc` → Scroll; `Enter` → Search | `Unimplemented` as a Zellij mode |
 | RenameTab | `C-c` → Normal; `Esc` → UndoRenameTab then Tab | `Unimplemented` |
-| RenamePane | `C-c` → Normal; `Esc` → UndoRenamePane then Pane | `Unimplemented` |
+| RenamePane | `C-c` → Normal; `Esc` → UndoRenamePane then Pane | `Partial`: entry, incremental input, DEL, filtered paste, commit/cancel and reload-safe undo through public fallback commands/state. ASCII paired and visual evidence; Unicode frame width, input limits, remaining shared transitions and errors are still open. |
 | Session | `C-o` → Normal; `C-s` → Scroll; `d` → Detach; `w` → floating session-manager; `c` → floating configuration; `p` → floating plugin-manager; `a` → floating `zellij:about`; `s` → floating `zellij:share` | `Unimplemented` as a mode; Ekko has `:detach`, `:reload`, `:help` actions |
 | Tmux | `[` → Scroll; `C-b` → Write 2 then Normal; `"` → NewPane Down; `%` → NewPane Right; `z` → fullscreen; `c` → NewTab; `,` → RenameTab; `p/n` → previous/next tab; arrows and `h/j/k/l` → MoveFocus; `o` → FocusNextPane; `d` → Detach; Space → NextSwapLayout; `x` → CloseFocus | `Unimplemented` |
 | Prompt | no default block in the pinned config; prompt handling is an internal input mode | `Unimplemented` |

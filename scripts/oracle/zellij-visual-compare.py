@@ -303,6 +303,67 @@ WORKFLOW_STAGES = (
     ("failed-split-restored", b"", 1.2),
 )
 
+MOVE_STAGES = WORKFLOW_STAGES[:2] + (
+    ("move-enter", b"\x08", .4),
+    ("move-next", b"n", .5),
+    ("move-back", b"p", .5),
+    ("move-right", b"l", .5),
+    ("move-down", b"j", .5),
+    ("move-left", b"h", .5),
+    ("move-up", b"k", .5),
+    ("move-exit", b"\x1b", .5),
+)
+
+RENAME_STAGES = WORKFLOW_STAGES[:2] + (
+    ("pane-enter", b"\x10", .4), ("rename-enter", b"c", .4),
+    ("rename-first", b"ABC", .5), ("rename-commit", b"\r", .4),
+    ("rename-pane", b"\x10", .4), ("rename-reenter", b"c", .4),
+    ("rename-append", b"X", .5), ("rename-cancel", b"\x1b", .5),
+)
+
+UNICODE_TITLE_STAGES = WORKFLOW_STAGES[:2] + (
+    ("pane-enter", b"\x10", .4), ("rename-enter-wide", b"c", .4),
+    ("rename-wide", "界面".encode("utf-8"), .5),
+    ("rename-commit-wide", b"\r", .5),
+    ("rename-reenter-combining", b"\x10", .4),
+    ("rename-enter-combining", b"c", .4),
+    ("rename-clear-combining", b"\x7f" * 2, .4),
+    ("rename-combining", "Cafe\u0301".encode("utf-8"), .5),
+    ("rename-commit-combining", b"\r", .5),
+    ("rename-reenter-long", b"\x10", .4), ("rename-enter-long", b"c", .4),
+    ("rename-clear-long", b"\x7f" * 5, .4),
+    ("rename-long", ("界Cafe\u0301-" * 12).encode("utf-8"), .7),
+    ("rename-commit-long", b"\r", .5),
+)
+UNICODE_TITLE_PER_KEY_STAGES = WORKFLOW_STAGES[:2] + (
+    ('pane-enter', b'\x10', .5),
+    ('rename-enter-wide', b'c', .5),
+    ('rename-wide', b'\xe7\x95\x8c\xe9\x9d\xa2', .5),
+    ('rename-commit-wide', b'\r', .5),
+    ('rename-reenter-combining', b'\x10', .5),
+    ('rename-enter-combining', b'c', .5),
+    ('rename-delete-wide-1', b'\x7f', .5),
+    ('rename-delete-wide-2', b'\x7f', .5),
+    ('rename-combining', b'Cafe\xcc\x81', .5),
+    ('rename-commit-combining', b'\r', .5),
+    ('rename-reenter-long', b'\x10', .5),
+    ('rename-enter-long', b'c', .5),
+    ('rename-delete-combining-1', b'\x7f', .5),
+    ('rename-delete-combining-2', b'\x7f', .5),
+    ('rename-delete-combining-3', b'\x7f', .5),
+    ('rename-delete-combining-4', b'\x7f', .5),
+    ('rename-delete-combining-5', b'\x7f', .5),
+    ('rename-long', b'\xe7\x95\x8cCafe\xcc\x81-\xe7\x95\x8cCafe\xcc\x81-\xe7\x95\x8cCafe\xcc\x81-\xe7\x95\x8cCafe\xcc\x81-\xe7\x95\x8cCafe\xcc\x81-\xe7\x95\x8cCafe\xcc\x81-\xe7\x95\x8cCafe\xcc\x81-\xe7\x95\x8cCafe\xcc\x81-\xe7\x95\x8cCafe\xcc\x81-\xe7\x95\x8cCafe\xcc\x81-\xe7\x95\x8cCafe\xcc\x81-\xe7\x95\x8cCafe\xcc\x81-', .5),
+    ('rename-commit-long', b'\r', .5),
+)
+
+def workflow_stages(args):
+    return {"move-workflow": MOVE_STAGES, "rename-workflow": RENAME_STAGES,
+            "unicode-title-batched-workflow": UNICODE_TITLE_STAGES,
+            "unicode-title-workflow": UNICODE_TITLE_PER_KEY_STAGES}.get(
+        args.scenario, WORKFLOW_STAGES)
+
+
 
 def workflow_paths(work):
     return {label: (work / (label + ".input"), work / (label + ".events"))
@@ -470,7 +531,7 @@ def run_workflow_side(kind, args, root):
             (dest / "eglinfo.txt").write_bytes(renderer.stdout)
             if b"OpenGL core profile renderer: llvmpipe" not in renderer.stdout:
                 raise RuntimeError("private EGL renderer is not llvmpipe")
-            for name, keys, delay in WORKFLOW_STAGES:
+            for name, keys, delay in workflow_stages(args):
                 flash_ansi_offset = ((work / "output.ansi").stat().st_size
                                      if name == "failed-split-flash" and
                                      (work / "output.ansi").exists() else 0)
@@ -632,7 +693,7 @@ def workflow_report(args, root):
     if zellij_environment != ekko_environment:
         raise RuntimeError("workflow fixture environment differs between Zellij and Ekko")
     checkpoints = []
-    for name, _, _ in WORKFLOW_STAGES:
+    for name, _, _ in workflow_stages(args):
         z = Image.open(args.output / "zellij" / (name + ".png")).convert("RGB")
         e = Image.open(args.output / "ekko" / (name + ".png")).convert("RGB")
         if z.size != (1280, 720) or e.size != z.size:
@@ -660,8 +721,9 @@ def workflow_report(args, root):
                                             "cursor_equal": cells["cursor_equal"],
                                             "differing_cells": cells["differing_cells"]},
                             "zellij": zs, "ekko": es})
-    report = {"scenario": "pane-workflow", "capture_complete": True,
-              "full_parity": False, "coverage_complete": True,
+    report = {"scenario": args.scenario, "capture_complete": True,
+              "full_parity": False, "coverage_complete": False,
+              "workflow_coverage_complete": True,
               "normalizations": [], "checkpoints": checkpoints,
               "limitations": ["workflow checkpoints settle at fixed delays",
                               "hardware display latency is not measured"],
@@ -681,7 +743,7 @@ def main():
     parser.add_argument("--profile", type=Path, required=True)
     parser.add_argument("--reference", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
-    parser.add_argument("--scenario", choices=("startup", "pane-workflow"), default="startup")
+    parser.add_argument("--scenario", choices=("startup", "pane-workflow", "move-workflow", "rename-workflow", "unicode-title-workflow", "unicode-title-batched-workflow"), default="startup")
     parser.add_argument("--require-parity", action="store_true")
     args = parser.parse_args()
     args.output = args.output.resolve()
@@ -701,7 +763,7 @@ def main():
         raise RuntimeError("font mismatch")
     root = Path(tempfile.mkdtemp(prefix="ekko-zellij-visual-"))
     # Retain runtime state on failure so cleanup can be diagnosed/retried.
-    if args.scenario == "pane-workflow":
+    if args.scenario in ("pane-workflow", "move-workflow", "rename-workflow", "unicode-title-workflow", "unicode-title-batched-workflow"):
         for kind in ("zellij", "ekko"):
             run_workflow_side(kind, args, root)
         workflow_report(args, root)

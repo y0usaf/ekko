@@ -241,7 +241,7 @@ def integration(binary, profile, bare=False):
 
             # The same decoration remains clipped after a tiny resize and the
             # focused content cannot expand beyond the outer viewport.
-            attached.send(1, struct.pack(">IIIII", 5, 5, 4, 8, 16))
+            attached.send(1, struct.pack(">IIIII", 6, 5, 4, 8, 16))
             settle(lambda: field(inspect(), "viewport")["cols"] == 5
                    and field(inspect(), "viewport")["rows"] == 4)
             tiny = snapshot_contract()
@@ -253,7 +253,7 @@ def integration(binary, profile, bare=False):
             # beyond the reserved chrome row may spill into PTY cells.
             assert "HOOK-1" not in attached.scenes[-1]
             assert "OFFSCREEN" not in attached.scenes[-1]
-            attached.send(1, struct.pack(">IIIII", 5, 120, 40, 8, 16))
+            attached.send(1, struct.pack(">IIIII", 6, 120, 40, 8, 16))
             settle(lambda: field(inspect(), "viewport")["cols"] == 120)
             assert [pane["pid"] for pane in status()["panes"]] == pids
 

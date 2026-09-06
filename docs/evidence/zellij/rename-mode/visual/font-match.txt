@@ -1,0 +1,1 @@
+DejaVu Sans Mono|Book|/nix/store/jcbr45kh59bcfdsily0kyjhrqfqm493l-dejavu-fonts-2.37/share/fonts/truetype/DejaVuSansMono.ttf

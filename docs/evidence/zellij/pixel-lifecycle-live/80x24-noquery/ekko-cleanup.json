@@ -1,0 +1,12 @@
+{
+  "command": [
+    "/nix/store/k2kv8fzqnrplwcx2gi5yl8kpr13qb2ml-ekko-0.1.0/bin/ekko",
+    "stop",
+    "workflow"
+  ],
+  "exit_code": 0,
+  "stdout": "",
+  "stderr": "",
+  "error": null,
+  "primary_error": null
+}

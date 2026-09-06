@@ -1,0 +1,11 @@
+{
+  "command": "nix run path:.#zellij-visual -- compare --zellij /nix/store/wxjfyl2ksqkh263zwikp2igqh2a23y8r-zellij-0.43.1/bin/zellij --ekko /nix/store/p281nhg42z1mf68krj971zigdc1rczzz-ekko-0.1.0/bin/ekko --profile examples/profiles/zellij.lisp --reference tests/zellij/reference --output /tmp/ekko-title-visual-live --scenario pane-workflow",
+  "exit_code": 0,
+  "scope": "named visual workflow only; strict full parity still false",
+  "binaries": {
+    "/nix/store/wxjfyl2ksqkh263zwikp2igqh2a23y8r-zellij-0.43.1/bin/zellij": "74b8a5da42b75b162685b6a26d13898b6955226d24fb2fe54c86454de805adc0",
+    "/nix/store/p281nhg42z1mf68krj971zigdc1rczzz-ekko-0.1.0/bin/ekko": "d5c0aeddbf76e91b38f7fd572a5320ce1192c4aacd6aaa1631e2d4ba07bdc85e"
+  },
+  "comparator_sha256": "f09357221dd2c370956d05e7e243eed82b22ad4ec1290cb5dc543c1a6aca2349",
+  "report_replay": "Recomputed same PNG/ANSI captures after correcting coverage_complete to full-surface false and workflow_coverage_complete to true."
+}

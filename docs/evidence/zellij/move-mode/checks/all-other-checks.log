@@ -1,0 +1,59 @@
+error (ignored): SQLite database '/home/y0usaf/.cache/nix/eval-cache-v6/274d5806ca4d64da35f820b7f6c1e53df49d838ce5807907346a2dfa999187c9.sqlite' is busy
+these 19 derivations will be built:
+  /nix/store/zrxrh2853bzhmrss2k31fc8wj33d9viq-ekko-0.1.0.drv
+  /nix/store/4hrsyxil8rdzmr5h0bpawh09p4l56cm8-ekko-runtime.drv
+  /nix/store/7blcjaf8b6wdnx59q2my43s5fh4g6jwl-ekko-pane-workflow.drv
+  /nix/store/81ngwgll1hr9bima25xrh4vb1fx56n0d-ekko-pane-moves.drv
+  /nix/store/9g62yjk1ypfbms4wbffx501vhamb3in4-ekko-pane-layouts.drv
+  /nix/store/bpjj5icdq0pycsrgp4c1bjprn34ih23y-ekko-fake-host.drv
+  /nix/store/bv774a4as98z0k6wypffch7vq9z2kd95-ekko-keymaps.drv
+  /nix/store/chxggl7ls60w0dc9n2c2vh1hs8m3r48w-ekko-pane-notes.drv
+  /nix/store/fkg4cdyf30n3n0w06l8k5f7di9kkcn12-ekko-pane-modes.drv
+  /nix/store/p3r9gglalnfirjq615wfi05iv1a0w5hm-ekko-zellij-differential.drv
+  /nix/store/ibcl50i57s58jcgk8jb1hvjn1ydyhbz9-ekko-zellij-routing.drv
+  /nix/store/lvmygkw74kjzklyp2yynhg6jz0sj89kb-ekko-startup-geometry.drv
+  /nix/store/nyixfvslkiv4cxfkmrpibdaqp32drrl1-ekko-zellij-pane-differential.drv
+  /nix/store/r0lp4gxl3byklygw7036aywmqmwam7pi-ekko-pane-titles.drv
+  /nix/store/sm43pziq7jz5jj4qkfqwm3f722j8apsw-ekko-daily.drv
+  /nix/store/w0k870a67x2l65v87cix14sd9jk2hkm3-ekko-decorations.drv
+  /nix/store/xcbahnnz41055d9sya5gylvxmr8il6xa-ekko-zellij-pane-differential.drv
+  /nix/store/xdlxg21j0j9hmabr2binchkli6v90kp4-ekko-packaged-smoke.drv
+  /nix/store/zp3972yi4hk3z7s1mm56sg3n00spkifz-ekko-pane-pixels.drv
+building '/nix/store/sm43pziq7jz5jj4qkfqwm3f722j8apsw-ekko-daily.drv'...
+building '/nix/store/w0k870a67x2l65v87cix14sd9jk2hkm3-ekko-decorations.drv'...
+building '/nix/store/bpjj5icdq0pycsrgp4c1bjprn34ih23y-ekko-fake-host.drv'...
+building '/nix/store/bv774a4as98z0k6wypffch7vq9z2kd95-ekko-keymaps.drv'...
+building '/nix/store/xdlxg21j0j9hmabr2binchkli6v90kp4-ekko-packaged-smoke.drv'...
+building '/nix/store/9g62yjk1ypfbms4wbffx501vhamb3in4-ekko-pane-layouts.drv'...
+building '/nix/store/fkg4cdyf30n3n0w06l8k5f7di9kkcn12-ekko-pane-modes.drv'...
+building '/nix/store/81ngwgll1hr9bima25xrh4vb1fx56n0d-ekko-pane-moves.drv'...
+ekko-fake-host> {"cases": 15, "checks": ["cropped-checkerboard", "overlay"], "fixture": "fake-host-isolation", "status": "self-test-pass"}
+building '/nix/store/chxggl7ls60w0dc9n2c2vh1hs8m3r48w-ekko-pane-notes.drv'...
+building '/nix/store/zp3972yi4hk3z7s1mm56sg3n00spkifz-ekko-pane-pixels.drv'...
+building '/nix/store/r0lp4gxl3byklygw7036aywmqmwam7pi-ekko-pane-titles.drv'...
+building '/nix/store/7blcjaf8b6wdnx59q2my43s5fh4g6jwl-ekko-pane-workflow.drv'...
+building '/nix/store/4hrsyxil8rdzmr5h0bpawh09p4l56cm8-ekko-runtime.drv'...
+building '/nix/store/lvmygkw74kjzklyp2yynhg6jz0sj89kb-ekko-startup-geometry.drv'...
+building '/nix/store/p3r9gglalnfirjq615wfi05iv1a0w5hm-ekko-zellij-differential.drv'...
+building '/nix/store/nyixfvslkiv4cxfkmrpibdaqp32drrl1-ekko-zellij-pane-differential.drv'...
+building '/nix/store/ibcl50i57s58jcgk8jb1hvjn1ydyhbz9-ekko-zellij-routing.drv'...
+building '/nix/store/xcbahnnz41055d9sya5gylvxmr8il6xa-ekko-zellij-pane-differential.drv'...
+ekko-zellij-pane-differential> {"scenario": "custom-two-pane-no-bar", "settled_input_slice_passed": true, "application_geometry_slice_passed": true, "output": "/nix/store/i642bq3l3mz6myis10yan5iyn6fkyf2f-ekko-zellij-pane-differential/80x24"}
+ekko-zellij-pane-differential> {"scenario": "custom-two-pane-no-bar", "settled_input_slice_passed": true, "application_geometry_slice_passed": true, "output": "/nix/store/i642bq3l3mz6myis10yan5iyn6fkyf2f-ekko-zellij-pane-differential/20x8"}
+/nix/store/78bwc1bfs5n8c0hw6w33khwlays2k08l-ekko-0.1.0
+/nix/store/bnh6i4bdadbkai60gbsc23kv9ad84kys-ekko-daily
+/nix/store/1f3mi7qyihkh39ldhnmi08l9smx5bijc-ekko-decorations
+/nix/store/dmxzs476wh6a07y4xzffhxx20py21zp8-ekko-fake-host
+/nix/store/lz8pzkyns6zp2izrli1g8q7r0a1zzxl0-ekko-keymaps
+/nix/store/6841ks4zn91c2rx8gmfq7w6kz888wb9f-ekko-packaged-smoke
+/nix/store/f8cj6rllpwiflnw7vrlv5wl30s96j1l6-ekko-pane-layouts
+/nix/store/2ahy69vbm0wa9hxz01kbibl6nfy0hi4b-ekko-pane-modes
+/nix/store/lb6d6wwy7yiwybscz9i9bnkx1nshb6ij-ekko-pane-moves
+/nix/store/z11pq4srn27iv4nkyxfb8dnhzq44f0li-ekko-pane-notes
+/nix/store/7pi55gi0kl5fqp5f01ppcyfqzn2vc4mf-ekko-pane-pixels
+/nix/store/5xcpl3vk7w2m8c4wpp8s5wbqwhccpqnn-ekko-pane-titles
+/nix/store/yh4f2m7f98p72swbhlr8zw83418jb23y-ekko-pane-workflow
+/nix/store/balgd8hy2a7nl0w1if96q2cskpm8jjv4-ekko-runtime
+/nix/store/61vyxjk6pk2vjn22plvgzgr1mff2j1dk-ekko-startup-geometry
+/nix/store/i642bq3l3mz6myis10yan5iyn6fkyf2f-ekko-zellij-pane-differential
+/nix/store/5kxsqgkn3rjcs43wgnyk5m966h0jrqkk-ekko-zellij-routing

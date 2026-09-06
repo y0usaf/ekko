@@ -1,0 +1,14 @@
+{
+  "date": "2026-09-06",
+  "commands": [
+    "nix run 'path:.#zellij-pane-workflow' -- --output /tmp/ekko-reported-pixels-80b --cols 80 --rows 24",
+    "nix run 'path:.#zellij-pane-workflow' -- --output /tmp/ekko-reported-pixels-20 --cols 20 --rows 8",
+    "nix run 'path:.#zellij-pane-workflow' -- --output /tmp/ekko-reported-pixels-120-query --cols 120 --rows 24 --only new-n",
+    "nix run 'path:.#zellij-pane-workflow' -- --output /tmp/ekko-reported-pixels-120-noquery --cols 120 --rows 24 --only new-n --no-query-response"
+  ],
+  "exit_codes": {"80x24": 1, "20x8": 1, "120x24_query": 1, "120x24_noquery": 0},
+  "workflow_package": "/nix/store/sgfblhil078jcdxlb6rldg99q0nc2hpj-ekko-zellij-pane-workflow",
+  "reference": "/nix/store/2q437kxp07ki50dkh6a4nmmcc4nlylqw-source",
+  "query_responses": {"80x24": true, "20x8": true, "120x24_query": true, "120x24_noquery": false},
+  "artifacts": ["80x24", "20x8", "120x24-query", "120x24-noquery"]
+}

@@ -1,11 +1,15 @@
 (defpackage #:ekko/extensions
   (:use #:cl)
   (:export #:register-component #:unregister-component #:register-command #:bind-key
-           #:register-keymap #:set-option #:value #:action #:api-version))
+           #:register-keymap #:set-option #:value #:action #:api-version #:display-width))
 (in-package #:ekko/extensions)
 
+(defun display-width (value)
+  "Return the ordinary Unicode terminal cell width of a character or string."
+  (ekko/text:display-width value))
+
 (defun api-version () 1)
-(defparameter *context-keys* '(:session :focus :panes :layout :mode :zoom :viewport :chrome-status :pane-notes))
+(defparameter *context-keys* '(:session :focus :panes :layout :mode :zoom :viewport :chrome-status :pane-notes :component-state))
 (defstruct component id reads handler commands bindings options keymaps)
 (defvar *components* nil)
 (defvar *reads* nil)
@@ -48,8 +52,9 @@
                (error "Unknown key: ~S" key)))))
 (defun register-keymap (&key component name (unbound :forward))
   (registration-phase)
+  (when (stringp unbound) (setf unbound (name-string unbound)))
   (unless (and (keywordp name) name (not (member name '(:prefix :copy)))
-               (member unbound '(:forward :ignore)))
+               (or (member unbound '(:forward :ignore)) (stringp unbound)))
     (error "Invalid keymap name or unbound policy"))
   (name-string name)
   (let ((owner (owner component)))
@@ -99,7 +104,8 @@
             (:erase-display-history (or (eq value t) (null value)))
             (:pane-insets (bounded-geometry-p value 4))
             (:viewport-insets (bounded-geometry-p value 4))
-            (:split-gaps (bounded-geometry-p value 2)))
+            (:split-gaps (bounded-geometry-p value 2))
+            (:pty-pixel-source (member value '(:effective :reported))))
     (error "Invalid option ~S: ~S" name value))
   (setf (getf (component-options (owner component)) name)
         (if (eq name :prefix) (key-code value) value)) nil)

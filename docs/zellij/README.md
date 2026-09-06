@@ -10,6 +10,14 @@ fullscreen followed by Normal. It uses the documented public keymap/action API a
 in the ordinary isolated configuration worker. No Zellij runtime participates in
 Ekko sessions. Zellij is only an independent test oracle.
 
+The pending title slice uses public launch/name/OSC metadata for command titles,
+implicit-shell pane numbers, rename precedence, and empty OSC titles. Its
+regular/bare lifecycle test is `checks.pane-titles`; the paired workflow adds a
+`titles` scenario. The fresh Nix/live regular and bare lifecycle checks pass;
+see [title-metadata evidence](../evidence/zellij/title-metadata/). Unicode
+frame widths, title-stack operations, and layout-name behavior remain
+incomplete; see [title observations](title-observations.md).
+
 ## Reference and reproduction
 
 [pin.json](../../tests/zellij/reference/pin.json) records the upstream tag, Nix
@@ -220,3 +228,27 @@ and 96×24 application cell dimensions. Zellij initially reports zero pixel
 metadata in this run, while Ekko reports 1248×600; both share the 98×28 outer
 terminal. Bars, titles, content, initial input, and pixel metadata differences
 remain visible. Both private sessions stopped cleanly with no owned PIDs left.
+
+Move-mode work (2026-09-06): the optional profile now swaps tiled pane positions
+through the ordinary public `:set-layout` action. Ctrl-h enters Move; n/Tab and
+p select the next/previous pane in screen order, while h/j/k/l and arrows swap
+with the adjacent pane selected by activation history. Movement retains the
+focused pane and Move mode. Enter/Escape/Ctrl-h return to Normal, Ctrl-g locks,
+and Ctrl-p enters Pane. Other shared modes and the complete reference surface
+remain incomplete. The default-layout bar/hint rendering remains separate work.
+
+The regular/bare `pane-moves` check exercises the actual keybindings, exact
+swap/inverse rectangles, retained child PIDs, input suppression, exits, and
+reload/reattach. `move` and `move-fullscreen` paired scenarios retain all input,
+PTY histories, and cells. The private `move-workflow` capture compares startup,
+mode entry, cyclic and directional movements, and exit. Results and limitations
+are tracked in [Move evidence](../evidence/zellij/move-mode/README.md).
+
+Rename-pane work (2026-09-06): Pane c enters the ordinary profile's rename
+keymap. Input and bracketed paste invoke a public fallback command; saved
+names live in public daemon-owned component state, survive reload/worker
+restart, and are discarded when their owner is removed. Entry retains the
+current name, Enter/Ctrl-c commit, and Escape restores the saved name and
+returns to Pane. Paired ASCII/paste editing and private screenshots are
+recorded in [rename evidence](../evidence/zellij/rename-mode/README.md).
+Unicode frame width and size limits remain required discrepancies.

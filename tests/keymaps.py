@@ -75,7 +75,9 @@ def integration(binary, profile, bare=False):
                     for m in state["keymaps"]} == {
                         ("normal", "forward", "zellij-modes"),
                         ("locked", "forward", "zellij-modes"),
-                        ("pane", "ignore", "zellij-modes")}
+                        ("pane", "ignore", "zellij-modes"),
+                        ("move", "ignore", "zellij-modes"),
+                        ("rename", "rename-input", "zellij-modes")}
             assert {c["name"] for c in state["commands"]} >= {"lock", "unlock"}
 
             def label():

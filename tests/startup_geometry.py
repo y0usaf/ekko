@@ -527,6 +527,10 @@ def integration(binary, profile, bare, cols, rows):
         split_command = '''
 (in-package :cl-user)
 (ekko/extensions:register-component :id :startup-geometry-test)
+;; This suite tests the core's effective-pixel startup handoff. The profile's
+;; reported-pixel lifecycle is covered separately by pane_pixels/differential.
+(ekko/extensions:set-option :component :startup-geometry-test
+ :name :pty-pixel-source :value :effective)
 (ekko/extensions:register-command :component :startup-geometry-test :name "split-columns"
  :handler (lambda (snapshot event) (declare (ignore snapshot))
             (list (ekko/extensions:action

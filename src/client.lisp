@@ -1,8 +1,8 @@
 (in-package #:ekko/runtime)
 
 (defparameter *terminal-enter*
-  (format nil "~C[?1049h~C[?25l~C[?1003h~C[?1006h~C[?1016h~C[?1004h~C[?2004h~C[>1u~C[16t"
-          #1=(code-char 27) #1# #1# #1# #1# #1# #1# #1# #1#))
+  (format nil "~C[?1049h~C[?25l~C[?1003h~C[?1006h~C[?1016h~C[?1004h~C[?2004h~C[>1u~C[14t~C[16t"
+          #1=(code-char 27) #1# #1# #1# #1# #1# #1# #1# #1# #1#))
 (defparameter *terminal-leave*
   (format nil "~C[?2026l~C[<u~C[?1003l~C[?1006l~C[?1016l~C[?1004l~C[?2004l~C[0m~C[?25h~C[?1049l"
           #1=(code-char 27) #1# #1# #1# #1# #1# #1# #1# #1# #1#))
@@ -17,7 +17,7 @@
   (row-cache (make-array 0)) (row-cache-cols 0) (row-cache-rows 0)
   (ids (ekko/client:make-attachment :max-mappings 4096 :max-id 4294967294))
   (input-state :ground) (input (make-array 0 :element-type '(unsigned-byte 8) :adjustable t :fill-pointer 0))
-  (input-at 0) (paste nil) (done nil) size (cw 8) (ch 16))
+  (input-at 0) (paste nil) (done nil) size reported-cell-size (cw 8) (ch 16))
 (defun terminal-write (viewer text) (queue-bytes (viewer-io viewer) (text-bytes text)))
 (defun terminal-viewport ()
   "Return a validated viewport for a detached server, or NIL without a tty."
@@ -31,13 +31,26 @@
     (error () nil)))
 (defun send-size (viewer &optional queried-cw queried-ch)
   (let* ((size (terminal-size 0)) (cols (first size)) (rows (second size))
-         (cw (or queried-cw (and (plusp cols) (plusp (third size)) (floor (third size) cols)) (viewer-cw viewer)))
-         (ch (or queried-ch (and (plusp rows) (plusp (fourth size)) (floor (fourth size) rows)) (viewer-ch viewer))))
+         (cw (or queried-cw (second (viewer-reported-cell-size viewer))
+                 (and (plusp cols) (plusp (third size)) (floor (third size) cols)) (viewer-cw viewer)))
+         (ch (or queried-ch (third (viewer-reported-cell-size viewer))
+                 (and (plusp rows) (plusp (fourth size)) (floor (fourth size) rows)) (viewer-ch viewer))))
     (setf cols (max 5 (min 500 cols)) rows (max 4 (min 300 rows))
           cw (max 1 (min 128 cw)) ch (max 1 (min 256 ch)))
     (when (or (not (equal size (viewer-size viewer))) (/= cw (viewer-cw viewer)) (/= ch (viewer-ch viewer)))
       (setf (viewer-size viewer) size (viewer-cw viewer) cw (viewer-ch viewer) ch)
       (send-packet (viewer-connection viewer) 1 (integers (list +wire-version+ cols rows cw ch))))))
+(defun report-cell-size (viewer width height source)
+  ;; A direct character-cell answer takes precedence over a text-area estimate.
+  ;; Physical viewport changes precede the separate observation: receiving a
+  ;; measurement does not itself impose an application PTY resize policy.
+  (when (and (<= 1 width 128) (<= 1 height 256)
+             (not (and (eq source :area)
+                       (eq (first (viewer-reported-cell-size viewer)) :cell))))
+    (send-size viewer width height)
+    (unless (equal (list source width height) (viewer-reported-cell-size viewer))
+      (setf (viewer-reported-cell-size viewer) (list source width height))
+      (send-packet (viewer-connection viewer) 15 (integers (list width height))))))
 (defun clipped-image (pane placement asset cw ch)
   (destructuring-bind (id x y cols rows &rest rest) pane
     (declare (ignore id rest))
@@ -256,8 +269,13 @@
       ((viewer-paste viewer) (send-packet connection 5 bytes))
       ((and (> length 3) (char= final #\t))
        (let ((args (parameters (subseq text 2 (1- length)))))
-         (when (and (= (length args) 3) (= (first args) 6) (<= 1 (second args) 256) (<= 1 (third args) 128))
-           (send-size viewer (third args) (second args)))))
+         (when (= (length args) 3)
+           (case (first args)
+             (6 (report-cell-size viewer (third args) (second args) :cell))
+             (4 (let ((size (terminal-size 0)))
+                  (when (and (plusp (first size)) (plusp (second size)))
+                    (report-cell-size viewer (floor (third args) (first size))
+                                      (floor (second args) (second size)) :area))))))))
       ((and (> length 2) (find final "cnyR")) nil)
       (t (send-packet connection 2 bytes))))
   (setf (fill-pointer (viewer-input viewer)) 0 (viewer-input-state viewer) :ground))

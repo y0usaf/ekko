@@ -80,6 +80,7 @@
               (pkgs.lib.fileset.fileFilter (file: file.hasExt "lisp" || file.hasExt "py") ./tests)
               ./scripts/build.sh ./scripts/build.lisp ./scripts/build-demo.lisp
               ./scripts/test.sh ./scripts/test.lisp ./scripts/smoke.sh
+              ./scripts/generate-text-width.py ./scripts/text-width-oracle.rs
             ];
           };
           nativeBuildInputs = [ pkgs.sbcl ];
@@ -161,6 +162,28 @@
         default = { type = "app"; meta.description = "Ekko terminal multiplexer CLI"; program = "${self.packages.${pkgs.system}.default}/bin/ekko"; };
       });
       checks = forEachSystem (pkgs: {
+        text-width = pkgs.runCommand "ekko-text-width" {
+          nativeBuildInputs = [ pkgs.python3 pkgs.rustc pkgs.sbcl pkgs.gnutar pkgs.stdenv.cc ];
+          unicodeWidthCrate = pkgs.fetchurl {
+            url = "https://static.crates.io/crates/unicode-width/unicode-width-0.1.10.crate";
+            sha256 = "c0edd1e5b14653f783770bce4a4dabb4a5108a5370a5f5d8cfe8710c361f6c8b";
+          };
+        } ''
+          mkdir crate
+          tar -xf $unicodeWidthCrate -C crate
+          rustc --crate-name unicode_width --crate-type lib --edition=2018 \
+            crate/unicode-width-0.1.10/src/lib.rs -o libunicode_width.rlib
+          rustc ${./scripts/text-width-oracle.rs} \
+            --extern unicode_width=$PWD/libunicode_width.rlib -o rust-oracle
+          ./rust-oracle > rust-widths
+          sbcl --noinform --non-interactive --load ${./src/text-width.lisp} \
+            --eval '(loop for cp from 0 to #x10ffff do
+                      (unless (<= #xd800 cp #xdfff)
+                        (format t "~D~%" (ekko/text:display-width (code-char cp)))))' \
+            > lisp-widths
+          cmp rust-widths lisp-widths
+          printf 'exhaustive Unicode scalar widths match unicode-width 0.1.10\n' > $out
+        '';
         pane-modes = pkgs.runCommand "ekko-pane-modes" { nativeBuildInputs = [ pkgs.python3 ]; } ''
           python ${./tests}/pane_modes.py ${self.packages.${pkgs.system}.default}/bin/ekko ${./examples/profiles}/zellij.lisp > $out
           python ${./tests}/pane_modes.py ${self.packages.${pkgs.system}.default}/bin/ekko-bare ${./examples/profiles}/zellij.lisp bare >> $out
@@ -170,6 +193,10 @@
           python ${./tests}/pane_workflow.py ${self.packages.${pkgs.system}.default}/bin/ekko ${./examples/profiles}/zellij.lisp regular 20 8 >> $out
           python ${./tests}/pane_workflow.py ${self.packages.${pkgs.system}.default}/bin/ekko-bare ${./examples/profiles}/zellij.lisp bare 80 24 >> $out
           python ${./tests}/pane_workflow.py ${self.packages.${pkgs.system}.default}/bin/ekko-bare ${./examples/profiles}/zellij.lisp bare 20 8 >> $out
+        '';
+        keymap-input = pkgs.runCommand "ekko-keymap-input" { nativeBuildInputs = [ pkgs.python3 ]; } ''
+          python ${./tests}/keymap_input.py ${self.packages.${pkgs.system}.default}/bin/ekko > $out
+          python ${./tests}/keymap_input.py ${self.packages.${pkgs.system}.default}/bin/ekko-bare bare >> $out
         '';
         keymaps = pkgs.runCommand "ekko-keymaps" { nativeBuildInputs = [ pkgs.python3 ]; } ''
           python ${./tests}/keymaps.py ${self.packages.${pkgs.system}.default}/bin/ekko ${./examples/profiles}/zellij.lisp > $out
@@ -182,6 +209,26 @@
         pane-notes = pkgs.runCommand "ekko-pane-notes" { nativeBuildInputs = [ pkgs.python3 ]; } ''
           python ${./tests}/pane_notes.py ${self.packages.${pkgs.system}.default}/bin/ekko ${./examples/profiles}/zellij.lisp > $out
           python ${./tests}/pane_notes.py ${self.packages.${pkgs.system}.default}/bin/ekko-bare ${./examples/profiles}/zellij.lisp bare >> $out
+        '';
+        pane-titles = pkgs.runCommand "ekko-pane-titles" { nativeBuildInputs = [ pkgs.python3 ]; } ''
+          python ${./tests}/pane_titles.py ${self.packages.${pkgs.system}.default}/bin/ekko ${./examples/profiles}/zellij.lisp > $out
+          python ${./tests}/pane_titles.py ${self.packages.${pkgs.system}.default}/bin/ekko-bare ${./examples/profiles}/zellij.lisp bare >> $out
+        '';
+        pane-rename = pkgs.runCommand "ekko-pane-rename" { nativeBuildInputs = [ pkgs.python3 ]; } ''
+          python ${./tests}/pane_rename.py ${self.packages.${pkgs.system}.default}/bin/ekko ${./examples/profiles}/zellij.lisp > $out
+          python ${./tests}/pane_rename.py ${self.packages.${pkgs.system}.default}/bin/ekko-bare ${./examples/profiles}/zellij.lisp bare >> $out
+        '';
+        pane-moves = pkgs.runCommand "ekko-pane-moves" { nativeBuildInputs = [ pkgs.python3 ]; } ''
+          python ${./tests}/pane_moves.py ${self.packages.${pkgs.system}.default}/bin/ekko ${./examples/profiles}/zellij.lisp > $out
+          python ${./tests}/pane_moves.py ${self.packages.${pkgs.system}.default}/bin/ekko-bare ${./examples/profiles}/zellij.lisp bare >> $out
+        '';
+        pane-layouts = pkgs.runCommand "ekko-pane-layouts" { nativeBuildInputs = [ pkgs.python3 ]; } ''
+          python ${./tests}/pane_layouts.py ${self.packages.${pkgs.system}.default}/bin/ekko > $out
+          python ${./tests}/pane_layouts.py ${self.packages.${pkgs.system}.default}/bin/ekko-bare bare >> $out
+        '';
+        pane-pixels = pkgs.runCommand "ekko-pane-pixels" { nativeBuildInputs = [ pkgs.python3 ]; } ''
+          python ${./tests}/pane_pixels.py ${self.packages.${pkgs.system}.default}/bin/ekko > $out
+          python ${./tests}/pane_pixels.py ${self.packages.${pkgs.system}.default}/bin/ekko-bare bare >> $out
         '';
         startup-geometry = pkgs.runCommand "ekko-startup-geometry" { nativeBuildInputs = [ pkgs.python3 ]; } ''
           python ${./tests}/startup_geometry.py ${self.packages.${pkgs.system}.default}/bin/ekko ${./examples/profiles}/zellij.lisp regular 80 24 > $out

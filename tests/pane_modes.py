@@ -171,11 +171,11 @@ def integration(binary, profile, bare=False):
             tiny_geometry = custom_geometry.replace("'(1 1 1 1)", "'(16 16 16 16)")
             config.write_text(profile.read_text() + tiny_geometry)
             cli("config", "reload", "pane-modes")
-            attached.send(1, struct.pack(">IIIII", 5, 5, 4, 8, 16))
+            attached.send(1, struct.pack(">IIIII", 6, 5, 4, 8, 16))
             eventually(lambda: status()["panes"][0]["cols"] == 1 and status()["panes"][0]["rows"] == 1)
             tiny = status()
             assert (tiny["panes"][0]["x"], tiny["panes"][0]["y"]) == (4, 3)
-            attached.send(1, struct.pack(">IIIII", 5, 120, 40, 8, 16))
+            attached.send(1, struct.pack(">IIIII", 6, 120, 40, 8, 16))
             eventually(lambda: status()["panes"][0]["cols"] == 28 and status()["panes"][0]["rows"] == 8)
 
             # Restore the source profile and verify the original split while

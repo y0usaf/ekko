@@ -2,6 +2,60 @@
 
 (defun option (session key &optional default)
   (getf (getf (session-registry session) :options) key default))
+(defun layout-pane-ids (tree)
+  "Validate a public layout tree and return its pane leaves."
+  (let ((nodes 0))
+    (labels ((walk (node)
+               ;; Sixteen leaves need at most 31 nodes. Bound traversal before
+               ;; descending so an invalid deep tree cannot exhaust the stack.
+               (when (> (incf nodes) 31) (error "At most 16 layout leaves are supported"))
+               (cond
+                 ((and (integerp node) (plusp node)) (list node))
+                 ((and (listp node) (= (length node) 4)
+                       (member (first node) '(:columns :rows))
+                       (typep (second node) '(integer 1 99)))
+                  (append (walk (third node)) (walk (fourth node))))
+                 (t (error "Invalid layout tree: ~S" tree)))))
+      (walk tree))))
+(defun validate-layout-tree (session tree)
+  (let ((ids (layout-pane-ids tree))
+        (existing (mapcar #'pane-id (session-panes session))))
+    (unless (and (<= 1 (length ids) 16)
+                 (= (length ids) (length (remove-duplicates ids)))
+                 (equal (sort (copy-list ids) #'<)
+                        (sort (copy-list existing) #'<)))
+      (error "Layout leaves must name each existing pane exactly once"))
+    t))
+(defun validate-component-state (value)
+  (let ((active (make-hash-table :test #'eq)) (nodes 0) (bytes 0))
+    (labels ((walk (x depth)
+               (when (> depth 16) (error "Component state is too deep"))
+               (when (> (incf nodes) 1024) (error "Component state has too many nodes"))
+               (cond
+                 ((or (null x) (eq x t) (keywordp x) (integerp x)) nil)
+                 ((stringp x) (incf bytes (length (text-bytes x))))
+                 ((consp x)
+                  (let ((marked nil) (tail x))
+                    (loop while (consp tail) do
+                      (when (gethash tail active) (error "Cyclic component state"))
+                      (setf (gethash tail active) t)
+                      (push tail marked)
+                      (walk (car tail) (1+ depth))
+                      (setf tail (cdr tail)))
+                    (unless (null tail) (error "Component state needs proper lists"))
+                    (dolist (cell marked) (remhash cell active))))
+                 (t (error "Invalid component state value")))))
+      (walk value 0)
+      (when (> bytes 16384) (error "Component state exceeds 16 KiB")))
+    t))
+(defun component-state-bytes (entries)
+  (loop for (owner . value) in entries
+        sum (length (text-bytes (prin1-to-string (list owner value))))))
+(defun copy-component-state (value)
+  (if (consp value)
+      (cons (copy-component-state (car value))
+            (copy-component-state (cdr value)))
+      (if (stringp value) (copy-seq value) value)))
 (defun context-data (session)
   (multiple-value-bind (insets pane gaps width height) (session-geometry session)
     (declare (ignore pane width height))
@@ -11,14 +65,24 @@
             :focus (pane-id (focused-pane session)) :zoom (session-zoom session)
             :viewport (list :cols (session-cols session) :rows (session-rows session)
                             :cell-width (session-cw session) :cell-height (session-ch session)
+                            :reported-cell-width (session-reported-cw session)
+                            :reported-cell-height (session-reported-ch session)
                             :insets insets :gaps gaps)
             :chrome-status (list :text (status-text session)
                                  :style (option session :status-style '(0 30 47)))
             :pane-notes (pane-note-data session)
+            :component-state (loop for (owner . value) in (session-component-state session)
+                                   collect (cons (copy-seq owner) (copy-component-state value)))
             :layout (copy-tree (session-tree session))
             :panes (loop for p in (session-panes session) collect
                      (let ((vt (pane-vt p)))
                        (list :id (pane-id p) :label (pane-label p)
+                             :name (and (pane-name p) (copy-seq (pane-name p)))
+                             :argv (mapcar #'copy-seq (pane-argv p))
+                             :launch-kind (pane-launch-kind p)
+                             :creation-position (pane-creation-position p)
+                             :terminal-title (and (terminal-title vt)
+                                                  (copy-seq (terminal-title vt)))
                              :activation-order (pane-activation-order p)
                              :layout-rect (copy-list (rest (assoc (pane-id p) tiled)))
                              :display-label (if (pane-copy-lines p)
@@ -27,6 +91,7 @@
                                                         (length (pane-copy-lines p)))
                                                 (pane-label p))
                              :pid (pane-pid p) :cols (terminal-cols vt) :rows (terminal-rows vt)
+                             :pty-size (copy-list (pane-pty-size p))
                              :x (pane-x p) :y (pane-y p)
                              :outer-rect (list (pane-outer-x p) (pane-outer-y p)
                                                (pane-outer-cols p) (pane-outer-rows p))
@@ -53,10 +118,21 @@
     (unless (or (null (getf binding :command))
                 (find (getf binding :command) (getf registry :commands) :key (lambda (c) (getf c :name)) :test #'equal))
       (error "Binding references unknown command: ~A" (getf binding :command))))
+  (dolist (keymap (getf registry :keymaps))
+    (let ((fallback (getf keymap :unbound)))
+      (when (and (stringp fallback)
+                 (not (find fallback (getf registry :commands)
+                            :key (lambda (c) (getf c :name)) :test #'equal)))
+        (error "Keymap fallback references unknown command: ~A" fallback))))
   (unless (find (session-mode session) (getf registry :keymaps) :key (lambda (m) (getf m :name)))
     (setf (session-mode session) (getf (getf registry :options) :initial-keymap)
           (session-prefix session) nil (session-key-fragment session) nil
           (session-key-fragment-mode session) nil))
+  (let ((owners (getf registry :components)))
+    (setf (session-component-state session)
+          (remove-if-not (lambda (entry)
+                           (find (car entry) owners :key (lambda (c) (getf c :id)) :test #'equal))
+                         (session-component-state session))))
   (setf (session-registry session) registry (session-config-error session) nil
         (session-contributions session) nil (session-decorations session) nil
         (session-pane-notes session) nil
@@ -96,6 +172,18 @@
     (when (and binding (getf binding :command))
       (handler-case (request-command session (getf binding :command) (list :arguments nil) nil)
         (error (e) (note-error session e))))))
+(defun dispatch-keymap-fallback (session map key bytes)
+  "Dispatch a named keymap fallback through the ordinary worker command path."
+  (let* ((policy (find map (reverse (getf (session-registry session) :keymaps))
+                       :key (lambda (m) (getf m :name))))
+         (fallback (and policy (getf policy :unbound))))
+    (when (stringp fallback)
+      (handler-case
+          (request-command session fallback
+                           (list :key (semantic-key bytes key)
+                                 :bytes (coerce bytes 'list)) nil)
+        (error (e) (note-error session e)))
+      t)))
 (defun request-command (session name event peer)
   (unless (find name (getf (session-registry session) :commands) :key (lambda (c) (getf c :name)) :test #'equal)
     (error "Unknown command: ~A" name))
@@ -254,13 +342,13 @@
   t)
 (defun validate-actions (session actions hook &optional owner)
   (unless (and (listp actions) (<= (length actions) 32)) (error "At most 32 actions are allowed"))
-  (let ((primary-count 0) (mode-count 0) (mode-before-primary nil) (primary-seen nil))
+  (let ((primary-count 0) (mode-count 0) (state-count 0) (mode-before-primary nil) (primary-seen nil))
     (dolist (a actions)
       (unless (and (listp a) (oddp (length a))) (error "Malformed action: ~S" a))
       (let* ((op (first a)) (args (rest a)) (pane (getf args :pane))
              (keys (case op
                      (:pane-note '(:pane :text :sgr :duration))
-                     (:set-keymap '(:name)) (:decorate '(:spans)) (:split '(:pane :axis :argv)) (:focus '(:pane)) (:rename '(:pane :text)) (:resize '(:delta))
+                     (:set-keymap '(:name)) (:set-layout '(:tree)) (:set-state '(:value)) (:decorate '(:spans)) (:split '(:pane :axis :argv)) (:focus '(:pane)) (:rename '(:pane :text)) (:resize '(:delta))
                      (:close '(:focus)) (:copy-move '(:delta)) (:copy-edge '(:edge)) (:status '(:text))
                      ((:focus-next :zoom :swap :detach :stop :copy-mode :copy-mark :copy-selection
                        :copy-exit :copy-search :copy-search-next :paste-buffer :reload :help) nil)
@@ -280,7 +368,14 @@
            (unless (find (getf args :name) (getf (session-registry session) :keymaps)
                          :key (lambda (m) (getf m :name)))
              (error "Unknown keymap")))
-          ((:status :decorate :pane-note) nil)
+          ((:status :decorate :pane-note :set-state)
+           (when (eq op :set-state)
+             (incf state-count)
+             (when (> state-count 1) (error "A batch may contain at most one state update"))
+             (unless (find owner (getf (session-registry session) :components)
+                           :key (lambda (component) (getf component :id)) :test #'equal)
+               (error "State needs a registered component owner"))
+             (validate-component-state (getf args :value))))
           (otherwise (incf primary-count) (setf primary-seen t)))
         (case op
           (:focus (unless pane (error "Focus needs a pane ID")))
@@ -302,6 +397,7 @@
           ((:resize :copy-move) (unless (and (integerp (getf args :delta)) (<= -10000 (getf args :delta) 10000))
                                  (error "Invalid movement")))
           (:copy-edge (unless (member (getf args :edge) '(:start :end)) (error "Invalid edge")))
+          (:set-layout (validate-layout-tree session (getf args :tree)))
           (:split
            (unless (member (getf args :axis) '(:columns :rows)) (error "Invalid split axis"))
            (when (>= (length (session-panes session)) 16) (error "At most 16 panes are supported"))
@@ -313,6 +409,15 @@
       (error "A batch may contain one session action plus status contributions"))
     (when (and (plusp primary-count) mode-before-primary)
       (error "A keymap transition must follow the session action"))
+    (let ((state-action (find :set-state actions :key #'first)))
+      (when state-action
+        (let* ((value (getf (rest state-action) :value))
+               (entries (remove owner (session-component-state session)
+                                :key #'car :test #'equal)))
+          (when value
+            (push (cons owner value) entries))
+          (when (> (component-state-bytes entries) 16384)
+            (error "Aggregate component state exceeds 16 KiB")))))
     ;; Contributions are bounded across the retained owner set as well as per
     ;; action. The invoking owner's replacement is staged in this calculation,
     ;; so a rejected batch cannot evict its previous contribution.
@@ -337,7 +442,7 @@
   ;; Complete a mode transition only after the primary action succeeds. This
   ;; keeps mode and status contributions out of a batch whose primary action
   ;; raises after partially updating its own state.
-  (let ((primary (find-if (lambda (a) (and (not (member (first a) '(:status :decorate :pane-note)))
+  (let ((primary (find-if (lambda (a) (and (not (member (first a) '(:status :decorate :pane-note :set-state)))
                                            (not (eq (first a) :set-keymap)))) actions))
         (mode-transition (find-if (lambda (a) (eq (first a) :set-keymap)) actions)))
     (when primary (apply-session-action session (first primary) (rest primary) peer))
@@ -366,7 +471,14 @@
       (:decorate
        (setf (session-decorations session)
              (acons owner (copy-tree (getf (rest a) :spans))
-                    (remove owner (session-decorations session) :key #'car :test #'equal))))))
+                    (remove owner (session-decorations session) :key #'car :test #'equal))))
+      (:set-state
+       (let ((value (getf (rest a) :value)))
+         (setf (session-component-state session)
+               (remove owner (session-component-state session) :key #'car :test #'equal))
+         (when value
+           (push (cons owner (copy-component-state value))
+                 (session-component-state session)))))))
   (when actions (incf (session-revision session))))
 (defun apply-session-action (session op args peer)
   (let* ((pane (or (and (getf args :pane) (pane-by-id session (getf args :pane))) (focused-pane session)))
@@ -374,13 +486,19 @@
     (case op
       (:set-keymap (setf (session-mode session) (getf args :name) (session-prefix session) nil
                          (session-key-fragment session) nil (session-key-fragment-mode session) nil))
+      (:set-layout
+       (setf (session-tree session) (copy-tree (getf args :tree)))
+       (layout session))
       (:split
        (let* ((argv (copy-list (getf args :argv (option session :shell '("/bin/sh" "-i")))))
               (new-id (session-next-pane-id session))
               (new-tree (ekko/layout:split-pane (session-tree session) id new-id (getf args :axis)))
               (new-placeholder (make-pane :id new-id :vt (make-terminal :cols 1 :rows 1
                                                                           :cw (session-cw session)
-                                                                          :ch (session-ch session))))
+                                                                          :ch (session-ch session))
+                                  :argv argv
+                                  :launch-kind (if (member :argv args) :command :shell)
+                                  :creation-position (1+ (length (session-panes session)))))
               ;; Compute the post-split focused layout without changing the
               ;; live session. This lets the PTY start at its final size.
               (planned (make-session :name (session-name session)
@@ -394,16 +512,20 @@
          (multiple-value-bind (cols rows) (content-size planned width height)
            ;; Acquire the only fallible resource before changing live logical
            ;; state. Existing panes are resized by set-focus after this spawn.
-           (multiple-value-bind (fd pid) (spawn argv cols rows (session-cw session) (session-ch session))
-             (let ((new (make-pane :id new-id :pid pid :io (make-wire :fd fd)
+           (multiple-value-bind (fd pid)
+               (multiple-value-call #'spawn argv cols rows (pty-cell-size session))
+              (let ((new (make-pane :id new-id :pid pid :io (make-wire :fd fd)
                                    :vt (make-terminal :cols cols :rows rows
                                                        :cw (session-cw session) :ch (session-ch session))
-                                   :argv argv :label (file-namestring (first argv)))))
+                                   :argv argv :label (file-namestring (first argv))
+                                   :launch-kind (if (member :argv args) :command :shell)
+                                   :creation-position (1+ (length (session-panes session)))
+                                   :pty-size (pty-size-for session cols rows))))
                (setf (session-panes session) (append (session-panes session) (list new))
                      (session-tree session) new-tree
                      (session-zoom session) nil)
                (incf (session-next-pane-id session))
-               (set-focus session (1- (length (session-panes session)))))))))
+               (set-focus session (1- (length (session-panes session))) t))))))
       (:close
        (if (= (length (session-panes session)) 1) (setf (session-stopping session) t)
            (let ((focus (focused-pane session)))
@@ -423,7 +545,8 @@
              ;; the next snapshot.  Use the same expiry/pruning path as the
              ;; daemon maintenance loop now that the pane tree is committed.
              (expire-pane-notes session))))
-      (:rename (setf (pane-label pane) (getf args :text)))
+      (:rename (setf (pane-label pane) (getf args :text)
+                     (pane-name pane) (getf args :text)))
       (:focus (set-focus session (position pane (session-panes session))))
       (:focus-next (set-focus session (mod (1+ (session-focus session)) (length (session-panes session)))))
       (:zoom (setf (session-zoom session) (not (session-zoom session))) (layout session))
@@ -541,7 +664,14 @@
          (format nil "{~{~A~^,~}}" (loop for (key val) on (rest value) by #'cddr
                                         collect (format nil "~A:~A" (json-value key) (json-value val)))))
         ((listp value) (format nil "[~{~A~^,~}]" (mapcar #'json-value value)))
+        ((vectorp value) (format nil "[~{~A~^,~}]" (map 'list #'json-value value)))
         (t (error "Not JSON data"))))
+(defun component-state-json-value (value)
+  ;; Plain state must not be interpreted as the inspector's :object/:false
+  ;; representation. Preserve keyword values as strings and lists as arrays.
+  (cond ((consp value) (map 'vector #'component-state-json-value value))
+        ((keywordp value) (string-downcase (symbol-name value)))
+        (t value)))
 (defun inspect-json (session)
   (let ((registry (session-registry session)))
     (multiple-value-bind (viewport pane gaps width height) (session-geometry session)
@@ -554,11 +684,17 @@
                 :zoom (if (session-zoom session) t :false)
                 :viewport (list :object :cols (session-cols session) :rows (session-rows session)
                                 :cell-width (session-cw session) :cell-height (session-ch session)
+                                :reported-cell-width (session-reported-cw session)
+                                :reported-cell-height (session-reported-ch session)
                                 :insets viewport :gaps gaps)
                 :chrome-status (list :object :text (status-text session)
                                      :style (option session :status-style '(0 30 47)))
                 :panes (loop for p in (session-panes session) for vt = (pane-vt p) collect
                          (list :object :id (pane-id p) :label (pane-label p)
+                               :argv (pane-argv p) :name (pane-name p)
+                               :launch_kind (pane-launch-kind p)
+                               :creation_position (pane-creation-position p)
+                               :terminal_title (terminal-title vt)
                                :activation_order (pane-activation-order p)
                                :layout_rect (copy-list (rest (assoc (pane-id p) tiled)))
                                :display-label (if (pane-copy-lines p)
@@ -567,6 +703,7 @@
                                                           (length (pane-copy-lines p)))
                                                   (pane-label p))
                                :pid (pane-pid p) :cols (terminal-cols vt) :rows (terminal-rows vt)
+                               :pty_size (copy-list (pane-pty-size p))
                                :x (pane-x p) :y (pane-y p)
                                :outer_rect (list (pane-outer-x p) (pane-outer-y p)
                                                  (pane-outer-cols p) (pane-outer-rows p))
@@ -589,6 +726,8 @@
                                                                 :rows (getf span :rows 1)))))
                 :contributions (loop for (owner . text) in (session-contributions session)
                                      collect (list :object :owner owner :text text))
+                :component-state (loop for (owner . value) in (session-component-state session)
+                                      collect (list :object :owner owner :value (component-state-json-value value)))
                 :options (cons :object (getf registry :options)) :layout (session-tree session)
                 :components (mapcar (lambda (c) (cons :object c)) (getf registry :components))
                 :commands (mapcar (lambda (c) (cons :object c)) (getf registry :commands))

@@ -3,7 +3,7 @@
 ;; Interface:
 ;;   (zellij-frame-spans plist)
 ;;
-;; PLIST contains :RECT (x y columns rows), :TITLE (an ASCII string), :SCROLL
+;; PLIST contains :RECT (x y columns rows), :TITLE (a printable Unicode string), :SCROLL
 ;; (position length), :FOCUS (a boolean), and :MODE (:NORMAL, :LOCKED, or
 ;; another mode). An optional :SGR overrides the frame rendition, allowing a
 ;; public pane-note contribution to mark the frame without a privileged path.
@@ -15,7 +15,7 @@
 ;; or input state. It covers the standard, rectangular, non-floating pane
 ;; frame observed by the custom two-pane/no-bar probe. Stacked, floating,
 ;; pinned, rounded-corner, mouse-hover, multiplayer, exit-status, one-line,
-;; frame-disabled, and non-ASCII-title variants are outside this helper's
+;; frame-disabled variants are outside this helper's
 ;; contract and must be added explicitly before use.
 ;;
 ;; The title and scroll fitting code below is derived from the MIT-licensed
@@ -29,18 +29,39 @@
 (defparameter *zellij-frame-selected-color* 154)
 (defparameter *zellij-frame-highlight-color* 166)
 
-(defun zellij-frame-char-width (character)
-  "Return the pinned title width for the supported ASCII title contract.
-
-Zellij delegates this to unicode-width. The observed and tested profile
-titles are ASCII, for which the width is exact; rejecting other characters
-keeps truncation deterministic instead of silently approximating their width."
+(defun zellij-title-whitespace-p (character)
   (let ((code (char-code character)))
+    (or (<= #x9 code #xd) (= code #x20) (= code #x85) (= code #xa0)
+        (= code #x1680) (<= #x2000 code #x200a) (<= #x2028 code #x2029)
+        (= code #x202f) (= code #x205f) (= code #x3000))))
+
+(defun zellij-title-trim (string)
+  (let ((start (or (position-if-not #'zellij-title-whitespace-p string) 0))
+        (end (or (position-if-not #'zellij-title-whitespace-p string :from-end t) -1)))
+    (if (> start end) "" (subseq string start (1+ end)))))
+
+(defun zellij-pane-title (pane)
+  "Select the pinned Zellij title from public pane metadata.
+
+Explicit non-empty rename wins, then OSC 0/2 (including an explicit empty
+title after Unicode White_Space trimming), then the command display string,
+then the implicit shell's Pane # creation position."
+  (let ((name (getf pane :name))
+        (terminal-title (getf pane :terminal-title))
+        (argv (getf pane :argv)))
     (cond
-      ((or (< code #x20) (= code #x7f))
-       (error "Control character is unsupported in a frame title: ~S" character))
-      ((<= code #x7e) 1)
-      (t (error "Non-ASCII title character is unsupported: ~S" character)))))
+      ((and (stringp name) (plusp (length name))) name)
+      ((stringp terminal-title) (zellij-title-trim terminal-title))
+      ((and (eq (getf pane :launch-kind) :command) argv)
+       (format nil "~{~A~^ ~}" argv))
+      (t (format nil "Pane #~D" (or (getf pane :creation-position) 1))))))
+
+(defun zellij-frame-char-width (character)
+  "Measure a printable title scalar through the public text API."
+  (let ((code (char-code character)))
+    (when (or (< code #x20) (<= #x7f code #x9f))
+      (error "Control character is unsupported in a frame title: ~S" character))
+    (ekko/extensions:display-width character)))
 
 (defun zellij-frame-string-width (string)
   (loop for character across string

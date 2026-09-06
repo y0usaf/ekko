@@ -1,0 +1,90 @@
+This is SBCL 2.6.7, an implementation of ANSI Common Lisp.
+More information about SBCL is available at <http://www.sbcl.org/>.
+
+SBCL is free software, provided as is, with absolutely no warranty.
+It is mostly in the public domain; some portions are provided under
+BSD-style licenses.  See the CREDITS and COPYING files in the
+distribution for more information.
+; compiling file "/home/y0usaf/dev/maintaining/ekko_v2/src/commands.lisp" (written 06 SEP 2026 12:33:08 AM):
+
+; wrote /tmp/ekko-title-native-cache/common-lisp/sbcl-2.6.7-linux-x64/home/y0usaf/dev/maintaining/ekko_v2/src/commands-tmpGHU3ALSV.fasl
+; compilation finished in 0:00:00.085
+; compiling file "/home/y0usaf/dev/maintaining/ekko_v2/src/client.lisp" (written 05 SEP 2026 07:54:11 PM):
+
+; wrote /tmp/ekko-title-native-cache/common-lisp/sbcl-2.6.7-linux-x64/home/y0usaf/dev/maintaining/ekko_v2/src/client-tmpAAURSO1.fasl
+; compilation finished in 0:00:00.111
+; compiling file "/home/y0usaf/dev/maintaining/ekko_v2/src/package.lisp" (written 04 SEP 2026 12:21:34 PM):
+
+; wrote /tmp/ekko-title-native-cache/common-lisp/sbcl-2.6.7-linux-x64/home/y0usaf/dev/maintaining/ekko_v2/src/package-tmp5GEXGEG5.fasl
+; compilation finished in 0:00:00.000
+; compiling file "/home/y0usaf/dev/maintaining/ekko_v2/src/cli.lisp" (written 05 SEP 2026 07:54:21 PM):
+
+; wrote /tmp/ekko-title-native-cache/common-lisp/sbcl-2.6.7-linux-x64/home/y0usaf/dev/maintaining/ekko_v2/src/cli-tmpAR3FSGEY.fasl
+; compilation finished in 0:00:00.009
+; compiling file "/home/y0usaf/dev/maintaining/ekko_v2/examples/profiles/zellij-frames.lisp" (written 06 SEP 2026 12:28:31 AM):
+
+; wrote /tmp/ekko-title-native-cache/common-lisp/sbcl-2.6.7-linux-x64/home/y0usaf/dev/maintaining/ekko_v2/examples/profiles/zellij-frames-tmpJAIDFZTC.fasl
+; compilation finished in 0:00:00.019
+; compiling file "/home/y0usaf/dev/maintaining/ekko_v2/examples/profiles/zellij-pane.lisp" (written 05 SEP 2026 08:49:21 PM):
+
+; wrote /tmp/ekko-title-native-cache/common-lisp/sbcl-2.6.7-linux-x64/home/y0usaf/dev/maintaining/ekko_v2/examples/profiles/zellij-pane-tmp8V3J6PE9.fasl
+; compilation finished in 0:00:00.026
+; compiling file "/home/y0usaf/dev/maintaining/ekko_v2/tests/zellij-frames.lisp" (written 06 SEP 2026 12:28:54 AM):
+
+; wrote /tmp/ekko-title-native-cache/common-lisp/sbcl-2.6.7-linux-x64/home/y0usaf/dev/maintaining/ekko_v2/tests/zellij-frames-tmp9V47YWQF.fasl
+; compilation finished in 0:00:00.011
+; compiling file "/home/y0usaf/dev/maintaining/ekko_v2/tests/erase-history.lisp" (written 05 SEP 2026 07:45:32 PM):
+
+; wrote /tmp/ekko-title-native-cache/common-lisp/sbcl-2.6.7-linux-x64/home/y0usaf/dev/maintaining/ekko_v2/tests/erase-history-tmp9BN22RMA.fasl
+; compilation finished in 0:00:00.009
+; compiling file "/home/y0usaf/dev/maintaining/ekko_v2/tests/geometry.lisp" (written 04 SEP 2026 12:47:14 PM):
+
+; wrote /tmp/ekko-title-native-cache/common-lisp/sbcl-2.6.7-linux-x64/home/y0usaf/dev/maintaining/ekko_v2/tests/geometry-tmp1CXFJSK9.fasl
+; compilation finished in 0:00:00.008
+; compiling file "/home/y0usaf/dev/maintaining/ekko_v2/tests/presentation.lisp" (written 04 SEP 2026 12:44:53 PM):
+
+; wrote /tmp/ekko-title-native-cache/common-lisp/sbcl-2.6.7-linux-x64/home/y0usaf/dev/maintaining/ekko_v2/tests/presentation-tmpX4BRKI0R.fasl
+; compilation finished in 0:00:00.007
+; compiling file "/home/y0usaf/dev/maintaining/ekko_v2/tests/graphics-demo.lisp" (written 04 SEP 2026 12:53:32 PM):
+
+; wrote /tmp/ekko-title-native-cache/common-lisp/sbcl-2.6.7-linux-x64/home/y0usaf/dev/maintaining/ekko_v2/tests/graphics-demo-tmpQ371UGST.fasl
+; compilation finished in 0:00:00.008
+; compiling file "/home/y0usaf/dev/maintaining/ekko_v2/tests/input.lisp" (written 05 SEP 2026 08:40:37 PM):
+
+; wrote /tmp/ekko-title-native-cache/common-lisp/sbcl-2.6.7-linux-x64/home/y0usaf/dev/maintaining/ekko_v2/tests/input-tmp2OWI3Q7U.fasl
+; compilation finished in 0:00:00.009
+; compiling file "/home/y0usaf/dev/maintaining/ekko_v2/tests/render.lisp" (written 05 SEP 2026 07:33:16 PM):
+
+; wrote /tmp/ekko-title-native-cache/common-lisp/sbcl-2.6.7-linux-x64/home/y0usaf/dev/maintaining/ekko_v2/tests/render-tmp9KKTJMYV.fasl
+; compilation finished in 0:00:00.004
+; compiling file "/home/y0usaf/dev/maintaining/ekko_v2/tests/base64.lisp" (written 04 SEP 2026 03:36:32 PM):
+
+; wrote /tmp/ekko-title-native-cache/common-lisp/sbcl-2.6.7-linux-x64/home/y0usaf/dev/maintaining/ekko_v2/tests/base64-tmpJU0JWO19.fasl
+; compilation finished in 0:00:00.014
+; compiling file "/home/y0usaf/dev/maintaining/ekko_v2/tests/graphics-parser.lisp" (written 04 SEP 2026 03:37:23 PM):
+
+; wrote /tmp/ekko-title-native-cache/common-lisp/sbcl-2.6.7-linux-x64/home/y0usaf/dev/maintaining/ekko_v2/tests/graphics-parser-tmpZX2WN8N4.fasl
+; compilation finished in 0:00:00.007
+; compiling file "/home/y0usaf/dev/maintaining/ekko_v2/tests/assets.lisp" (written 05 SEP 2026 10:00:03 AM):
+
+; wrote /tmp/ekko-title-native-cache/common-lisp/sbcl-2.6.7-linux-x64/home/y0usaf/dev/maintaining/ekko_v2/tests/assets-tmpOU81XRV0.fasl
+; compilation finished in 0:00:00.008
+; compiling file "/home/y0usaf/dev/maintaining/ekko_v2/tests/customization.lisp" (written 06 SEP 2026 12:32:03 AM):
+
+; wrote /tmp/ekko-title-native-cache/common-lisp/sbcl-2.6.7-linux-x64/home/y0usaf/dev/maintaining/ekko_v2/tests/customization-tmpY2ML9CFA.fasl
+; compilation finished in 0:00:00.095
+; compiling file "/home/y0usaf/dev/maintaining/ekko_v2/tests/runner.lisp" (written 05 SEP 2026 07:34:32 PM):
+
+; wrote /tmp/ekko-title-native-cache/common-lisp/sbcl-2.6.7-linux-x64/home/y0usaf/dev/maintaining/ekko_v2/tests/runner-tmpX2JYJDQE.fasl
+; compilation finished in 0:00:00.003
+M01 synthetic graphics demo tests passed
+Zellij Pane helper tests passed
+Zellij frame decoration tests passed
+ED2 history tests passed
+G06 geometry tests passed
+G01/G04/G05/G17 presentation contract tests passed
+input batching tests passed
+render cache tests passed
+Base64 codec tests passed
+Customization, split layout and scrollback tests passed
+M00 tests passed

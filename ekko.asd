@@ -11,14 +11,17 @@
                (:file "src/cli")))
 
 (asdf:defsystem "ekko/runtime"
-  :depends-on ("sb-posix" "ekko/scene" "ekko/client" "ekko/extensions")
+  :depends-on ("sb-posix" "ekko/scene" "ekko/client" "ekko/text" "ekko/extensions")
   :serial t
   :components ((:file "src/platform") (:file "src/assets") (:file "src/vt") (:file "src/history")
                (:file "src/layout") (:file "src/graphics")
                (:file "src/wire") (:file "src/worker") (:file "src/server") (:file "src/commands") (:file "src/client")))
 
 (asdf:defsystem "ekko/extensions"
+  :depends-on ("ekko/text")
   :components ((:file "src/extensions")))
+(asdf:defsystem "ekko/text"
+  :components ((:file "src/text-width")))
 (asdf:defsystem "ekko/builtins"
   :depends-on ("ekko/extensions")
   :components ((:file "src/builtins")))

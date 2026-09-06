@@ -1,0 +1,10 @@
+{
+  "date": "2026-09-06",
+  "command": "nix run 'path:.#zellij-visual' -- compare --zellij /nix/store/wxjfyl2ksqkh263zwikp2igqh2a23y8r-zellij-0.43.1/bin/zellij --ekko /nix/store/k4a7qsrg1rn53w9jskp6rxcs1wjlm07h-ekko-0.1.0/bin/ekko --profile /home/y0usaf/dev/maintaining/ekko_v2/examples/profiles/zellij.lisp --reference /home/y0usaf/dev/maintaining/ekko_v2/tests/zellij/reference --output /tmp/ekko-reported-pixels-visual --scenario pane-workflow",
+  "candidate": {"path": "/nix/store/k4a7qsrg1rn53w9jskp6rxcs1wjlm07h-ekko-0.1.0/bin/ekko", "sha256": "a915b19825eaa6232a6d55bed4c00380beceb4dd38781747eff2c878c88f2a28"},
+  "reference": {"path": "/nix/store/wxjfyl2ksqkh263zwikp2igqh2a23y8r-zellij-0.43.1/bin/zellij", "sha256": "74b8a5da42b75b162685b6a26d13898b6955226d24fb2fe54c86454de805adc0"},
+  "profile_sha256": "2f4fb83d6d351297f8c421994216103494880e450873b2bc178a2b239bcf599f",
+  "reference_pin_sha256": "05f5a11c71102927adaa8d19ff80352778bea1837f2f3d871fe875928c72e0ab",
+  "summary": {"settled_checkpoints": 13, "settled_pixel_differences": 0, "settled_cell_differences": 0, "startup_screen_pixel_differences": 50794, "startup_screen_cell_differences": 1159, "full_parity": false, "cleanup_remaining_pids": 0},
+  "qualification": "visual candidate post-focus-fix; not full parity"
+}

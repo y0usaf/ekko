@@ -1,0 +1,4 @@
+{"status": "pass", "suite": "pane-workflow", "dimensions": [80, 24]}
+{"status": "pass", "suite": "pane-workflow", "dimensions": [20, 8]}
+{"status": "pass", "suite": "pane-workflow-bare", "dimensions": [80, 24]}
+{"status": "pass", "suite": "pane-workflow-bare", "dimensions": [20, 8]}

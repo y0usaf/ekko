@@ -1,0 +1,7 @@
+these 2 derivations will be built:
+  /nix/store/qb9z8hxy7z8snird1n6z1i4kmnrinj77-ekko-0.1.0.drv
+  /nix/store/c8884b5afy1p82y0dcvk1p1n3iss8a7l-ekko-zellij-pane-workflow.drv
+building '/nix/store/qb9z8hxy7z8snird1n6z1i4kmnrinj77-ekko-0.1.0.drv'...
+building '/nix/store/c8884b5afy1p82y0dcvk1p1n3iss8a7l-ekko-zellij-pane-workflow.drv'...
+{"scenario": "three-pane-pane-workflow-matrix", "scenarios": ["titles", "navigation", "new-n", "new-d", "new-r", "close-x", "fullscreen-navigation"], "dimensions": [20, 8], "output": "/tmp/ekko-reported-pixels-20"}
+Pane workflow functional slice differs; see retained report

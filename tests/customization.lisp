@@ -33,10 +33,10 @@
     (let* ((scene (ekko/runtime::scene-data session))
            (record (first (seventh scene))))
       (customization-check
-       (and (= 5 (first scene))
+       (and (= ekko/runtime::+wire-version+ (first scene))
             (equal (subseq record 0 5) '(1 2 1 6 6))
             (equal (nth 12 record) '(0 1 9 7)))
-       "server derives inset content and v5 outer rectangle")
+       "server derives inset content and outer rectangle")
       (ekko/runtime::install-registry
        session (list :api-version 1 :components nil :keymaps nil :commands nil :bindings nil
                      :options (list :pane-insets '(0 0 0 0) :viewport-insets '(0 0 1 0)
@@ -75,6 +75,28 @@
     (customization-check (<= (ekko/vt::history-bytes (ekko/vt:terminal-history vt)) (* 8 1024 1024)) "history accounted bytes"))
   (customization-check (string= "A界" (ekko/runtime::clip-copy-text "A界B" 3)) "copy clips by cells")
   (customization-check (string= "A" (ekko/runtime::clip-copy-text "A界B" 2)) "copy never cuts wide glyph")
+  ;; The public width contract follows the pinned unicode-width scalar
+  ;; behavior used by Zellij's UI text path.
+  (dolist (case (list (list #\Newline 0) (list #\Null 0)
+                      (list (code-char #xa1) 1) (list (code-char #x754c) 2)
+                      (list (code-char #x301) 0) (list (code-char #x1161) 0)))
+    (customization-check
+     (= (second case) (ekko/extensions:display-width (first case)))
+     "display-width scalar contract"))
+  (customization-check
+   (= 4 (ekko/extensions:display-width "👩‍💻"))
+   "display-width string is additive over ZWJ scalars")
+  (let ((session (ekko/runtime::make-session :cols 4 :rows 1))
+        (panes nil))
+    (customization-check
+     (equal (ekko/runtime::clip-decoration
+             session panes '(:x 1 :y 0 :text "界ÁB" :sgr (0 31)))
+            '((1 0 "界Á" (0 31))))
+     "decoration clip keeps a wide glyph and drops its right overflow")
+    (customization-check
+     (null (ekko/runtime::clip-decoration
+            session panes '(:x 3 :y 0 :text "界́A" :sgr (0 31))))
+     "decoration clip does not publish a half-wide glyph or leaked mark"))
   (let* ((panes (list (list 1 0 1 20 3 "upper" nil 0 0 nil nil nil '(0 0 20 4))
                       (list 2 0 5 20 3 "lower" nil 0 0 nil nil nil '(0 4 20 4))))
          (rows (ekko/runtime::scene-text-rows
@@ -154,13 +176,18 @@
                             :components nil
                             :keymaps (list (list :name :normal :unbound :forward))
                             :commands nil :bindings nil
-                            :options (list :initial-keymap :missing))))
+                            :options (list :initial-keymap :missing)))
+         (bad-fallback (list :api-version 1
+                             :components nil
+                             :keymaps (list (list :name :normal :unbound "missing-command"))
+                             :commands nil :bindings nil
+                             :options (list :initial-keymap :normal))))
     (ekko/runtime::install-registry session valid)
     (let ((old-registry (ekko/runtime::session-registry session))
           (old-mode (ekko/runtime::session-mode session))
           (old-generation (ekko/runtime::session-config-generation session))
           (old-revision (ekko/runtime::session-revision session)))
-      (dolist (candidate (list bad-binding bad-initial))
+      (dolist (candidate (list bad-binding bad-initial bad-fallback))
         (customization-check (customization-signals-error-p
                               (lambda () (ekko/runtime::install-registry session candidate)))
                              "invalid registry rejected")
@@ -550,4 +577,199 @@
       (ekko/runtime::apply-actions close-session "notes" '((:close :focus 1)) nil nil)
       (customization-check (null (ekko/runtime::session-pane-notes close-session))
                            "close synchronously prunes removed pane note")))
+  ;; Pane launch metadata and terminal titles remain detached public state.
+  (let* ((argv (list "/bin/sh" "-i"))
+         (pane (ekko/runtime::make-pane :id 1 :argv argv :label "sh"
+                                        :launch-kind :command :creation-position 1
+                                        :vt (ekko/vt:make-terminal)))
+         (session (ekko/runtime::make-session :panes (list pane) :tree 1
+                                              :registry (list :components
+                                                              (list (list :id "title" :reads '(:panes) :hook t)))))
+         (panes (getf (ekko/runtime::context-data session) :panes)))
+    (customization-check (and (null (getf (first panes) :name))
+                              (null (getf (first panes) :terminal-title)))
+                         "pane name and title start absent")
+    (setf (first (getf (first panes) :argv)) "/changed")
+    (customization-check (string= "/bin/sh" (first (ekko/runtime::pane-argv pane)))
+                         "pane argv snapshot is detached")
+    (let ((copy (getf (first (getf (ekko/runtime::context-data session) :panes)) :argv)))
+      (setf (char (first copy) 0) #\X)
+      (customization-check (string= "/bin/sh" (first (ekko/runtime::pane-argv pane)))
+                           "pane argv strings are detached"))
+    (ekko/runtime::apply-actions session "test"
+                                 '((:rename :text "renamed")) nil nil)
+    (customization-check (and (string= "renamed" (ekko/runtime::pane-label pane))
+                              (string= "renamed" (ekko/runtime::pane-name pane)))
+                         "rename updates profile name and label")
+    (ekko/runtime::apply-actions session "test" '((:rename :text "")) nil nil)
+    (customization-check (and (equal "" (ekko/runtime::pane-label pane))
+                              (equal "" (ekko/runtime::pane-name pane)))
+                         "empty rename clears explicit profile name")
+    (ekko/vt:feed (ekko/runtime::pane-vt pane)
+                  (coerce (map 'vector #'char-code
+                               (format nil "~C]2;  title  ~C" (code-char 27) (code-char 7)))
+                          '(vector (unsigned-byte 8)))
+                  (lambda (kind value) (declare (ignore kind value))))
+    (customization-check (string= "  title  " (ekko/vt:terminal-title (ekko/runtime::pane-vt pane)))
+                         "OSC title retains surrounding spaces")
+    (let ((long (make-string 200 :initial-element #\L)))
+      (ekko/vt:feed (ekko/runtime::pane-vt pane)
+                    (coerce (map 'vector #'char-code
+                                 (format nil "~C]2;~A~C" (code-char 27) long (code-char 7)))
+                            '(vector (unsigned-byte 8)))
+                    (lambda (kind value) (declare (ignore kind value))))
+      (customization-check (= 200 (length (ekko/vt:terminal-title (ekko/runtime::pane-vt pane))))
+                           "long OSC title is not arbitrarily truncated"))
+    (let ((title (getf (first (getf (ekko/runtime::context-data session) :panes)) :terminal-title)))
+      (setf (char title 0) #\X)
+      (customization-check (char= #\L
+                                  (char (ekko/vt:terminal-title (ekko/runtime::pane-vt pane)) 0))
+                           "title snapshot is detached"))
+    (ekko/vt:feed (ekko/runtime::pane-vt pane)
+                  (coerce (map 'vector #'char-code
+                               (format nil "~C]2;~C" (code-char 27) (code-char 7)))
+                          '(vector (unsigned-byte 8)))
+                  (lambda (kind value) (declare (ignore kind value))))
+    (customization-check (equal "" (ekko/vt:terminal-title (ekko/runtime::pane-vt pane)))
+                         "empty OSC title is distinct from absent title")
+    (ekko/runtime::schedule-hooks session)
+    (setf (ekko/runtime::session-hooks session) nil
+          (ekko/runtime::session-hook-context session)
+          (ekko/runtime::context-data session))
+    (ekko/vt:feed (ekko/runtime::pane-vt pane)
+                  (coerce (map 'vector #'char-code
+                               (format nil "~C]2;updated~C" (code-char 27) (code-char 7)))
+                          '(vector (unsigned-byte 8)))
+                  (lambda (kind value) (declare (ignore kind value))))
+    (ekko/runtime::schedule-hooks session)
+    (customization-check (equal (ekko/runtime::session-hooks session) (list "title"))
+                         "OSC-only title update reaches pane hook")
+    (let ((metadata (lambda ()
+                      (let ((p (first (getf (ekko/runtime::context-data session) :panes))))
+                        (loop for key in '(:id :pid :argv :name :terminal-title
+                                           :launch-kind :creation-position)
+                              collect (getf p key)))))
+          (registry (list :api-version 1 :components
+                          (list (list :id "title" :reads '(:panes) :hook t)))))
+      (let ((before (funcall metadata)))
+        (ekko/runtime::install-registry session (list :api-version 1))
+        (customization-check (equal before (funcall metadata))
+                             "component removal preserves pane title metadata")
+        (ekko/runtime::install-registry session registry)
+        (customization-check (equal before (funcall metadata))
+                             "component reinstall preserves pane title metadata"))))
+  (let* ((wire (ekko/runtime::make-wire :fd -1 :attached t))
+         (pane (ekko/runtime::make-pane :id 1 :io wire
+                                        :pty-size '(10 4 0 0) :vt (ekko/vt:make-terminal)))
+         (session (ekko/runtime::make-session :panes (list pane) :tree 1 :writer wire
+                                              :registry '(:options (:pty-pixel-source :reported)))))
+    (flet ((packet (width height)
+             (concatenate '(vector (unsigned-byte 8)) #(15)
+                          (ekko/runtime::integers (list width height)))))
+      (ekko/runtime::server-packet session wire (packet 9 17))
+      (customization-check
+       (and (= 9 (ekko/runtime::session-reported-cw session))
+            (= 17 (ekko/runtime::session-reported-ch session))
+            (equal '(10 4 0 0) (ekko/runtime::pane-pty-size pane)))
+       "reported metrics update facts without touching the invalid test PTY")
+      (dolist (dimensions '((0 17) (9 0) (129 17) (9 257)))
+        (customization-check
+         (customization-signals-error-p
+          (lambda () (ekko/runtime::server-packet session wire (apply #'packet dimensions))))
+         "invalid reported metrics rejected"))
+      (customization-check
+       (customization-signals-error-p
+        (lambda () (ekko/runtime::server-packet
+                    session (ekko/runtime::make-wire :fd -1 :attached t) (packet 8 16))))
+       "only the attached writer reports metrics")
+      (customization-check (= 9 (ekko/runtime::session-reported-cw session))
+                           "invalid metrics leave reported state intact")
+      (customization-check
+       (equal '(500 300 64000 11264)
+              (ekko/runtime::pty-size-for
+               (ekko/runtime::make-session :cw 128 :ch 256) 500 300))
+       "PTY pixel metadata follows unsigned winsize field width")))
+  ;; Public layout replacement reuses stable pane IDs and child processes.
+  (let* ((a (ekko/runtime::make-pane :id 1 :pid 101 :vt (ekko/vt:make-terminal)))
+         (b (ekko/runtime::make-pane :id 2 :pid 102 :vt (ekko/vt:make-terminal)))
+         (session (ekko/runtime::make-session :panes (list a b)
+                                              :tree '(:columns 50 1 2)
+                                              :focus 1 :zoom t)))
+    (dolist (tree '(1 (:columns 50 1 1) (:columns 50 1 3)
+                    (:columns 0 1 2) (:rows 100 1 2)
+                    (:columns 50 1 2 1) (:diagonal 50 1 2)))
+      (let ((before (ekko/runtime::session-tree session)))
+        (customization-check
+         (customization-signals-error-p
+          (lambda () (ekko/runtime::apply-actions
+                      session "layout" (list (list :set-layout :tree tree)) nil nil)))
+         "invalid layout replacement rejected")
+        (customization-check (equal before (ekko/runtime::session-tree session))
+                             "invalid layout replacement has no effects")))
+    (let ((deep-tree 1))
+      (dotimes (n 40) (setf deep-tree (list :rows 50 deep-tree 2)))
+      (customization-check
+       (customization-signals-error-p
+        (lambda () (ekko/runtime::validate-layout-tree session deep-tree)))
+       "layout validation bounds tree traversal"))
+    (let ((new-tree '(:rows 60 2 1)))
+      (ekko/runtime::apply-actions session "layout"
+                                   (list (list :set-layout :tree new-tree)) nil nil)
+      (customization-check (equal new-tree (ekko/runtime::session-tree session))
+                           "valid layout replacement applies")
+      (customization-check (and (eq t (ekko/runtime::session-zoom session))
+                                (= 101 (ekko/runtime::pane-pid a))
+                                (= 102 (ekko/runtime::pane-pid b)))
+                           "layout replacement preserves zoom and child processes")
+      (let ((snapshot (ekko/runtime::context-data session)))
+        (setf (third (getf snapshot :layout)) 99))
+      (customization-check (= 2 (third (ekko/runtime::session-tree session)))
+                           "layout snapshot is detached")))
+  (let* ((pane (ekko/runtime::make-pane :id 1 :vt (ekko/vt:make-terminal)))
+         (registry (list :api-version 1 :components
+                         (list (list :id "state" :reads '(:component-state) :hook nil))
+                         :commands nil :bindings nil :keymaps nil :options nil))
+         (session (ekko/runtime::make-session
+                   :panes (list pane) :tree 1 :registry registry)))
+    (ekko/runtime::apply-actions session "state"
+                                 '((:set-state :value (:name "before"))) nil nil)
+    (let* ((snapshot (ekko/runtime::context-data session))
+           (value (cdr (first (getf snapshot :component-state)))))
+      (setf (char (second value) 0) #\X)
+      (setf (char (car (first (getf snapshot :component-state))) 0) #\X)
+      (customization-check (string= "before"
+                                    (second (cdr (first (ekko/runtime::session-component-state session)))))
+                           "component state snapshot is detached"))
+    (let ((before (copy-tree (ekko/runtime::session-component-state session))))
+      (customization-check
+       (customization-signals-error-p
+        (lambda ()
+          (let ((cycle (cons :cycle nil)))
+            (setf (cdr cycle) cycle)
+            (ekko/runtime::apply-actions session "state"
+                                         (list (list :set-state :value cycle)) nil nil))))
+       "cyclic component state rejected")
+      (customization-check (equal before (ekko/runtime::session-component-state session))
+                           "invalid state batch has no effects"))
+    (let ((deep nil) (before-label (ekko/runtime::pane-label pane)))
+      (dotimes (i 18) (setf deep (list deep)))
+      (dolist (invalid (list (cons :bad 1) (make-list 1025 :initial-element 1)
+                            deep (make-string 16384 :initial-element #\\)))
+        (customization-check
+         (customization-signals-error-p
+          (lambda () (ekko/runtime::apply-actions session "state"
+                       (list '(:rename :text "must-not-apply")
+                             (list :set-state :value invalid)) nil nil)))
+         "invalid state rejects the complete primary-action batch")
+        (customization-check (equal before-label (ekko/runtime::pane-label pane))
+                             "invalid state leaves pane name unchanged")))
+    (ekko/runtime::apply-actions session "state"
+                                 '((:set-state :value (:object 1 :false))) nil nil)
+    (customization-check
+     (search "\"value\":[\"object\",1,\"false\"]" (ekko/runtime::inspect-json session))
+     "plain state cannot inject inspector object or boolean markers")
+    (ekko/runtime::install-registry
+     session (list :api-version 1 :components nil :commands nil :bindings nil :keymaps nil :options nil))
+    (customization-check (null (ekko/runtime::session-component-state session))
+                         "removed component state is pruned on reload"))
   (format t "Customization, split layout and scrollback tests passed~%") t)

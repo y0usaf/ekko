@@ -1,0 +1,15 @@
+layout {
+    pane split_direction="vertical" {
+        pane  command="/tmp/ekko-rename-reference-probe2/root/workflow-shell.py" {
+            args "--fixture" "A" "/tmp/ekko-rename-reference-probe2/root/session/A.input" "/tmp/ekko-rename-reference-probe2/root/session/A.events"
+        }
+        pane split_direction="horizontal" {
+            pane  command="/tmp/ekko-rename-reference-probe2/root/workflow-shell.py" {
+                args "--fixture" "B" "/tmp/ekko-rename-reference-probe2/root/session/B.input" "/tmp/ekko-rename-reference-probe2/root/session/B.events"
+            }
+            pane  command="/tmp/ekko-rename-reference-probe2/root/workflow-shell.py" {
+                args "--fixture" "C" "/tmp/ekko-rename-reference-probe2/root/session/C.input" "/tmp/ekko-rename-reference-probe2/root/session/C.events"
+            }
+        }
+    }
+}

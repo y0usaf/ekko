@@ -1,0 +1,2 @@
+nix shell --impure --expr 'let f = builtins.getFlake "path:/home/y0usaf/dev/maintaining/ekko_v2"; p = import f.inputs.nixpkgs { system = "x86_64-linux"; }; in p.python3.withPackages (ps: [ ps.pyte ])' --command python tests/zellij/startup_pixel_probe.py --zellij /nix/store/wxjfyl2ksqkh263zwikp2igqh2a23y8r-zellij-0.43.1/bin/zellij --ekko /nix/store/z8hwiia1mp59lgcyda7ivhw8h3r35axf-ekko-0.1.0/bin/ekko --profile examples/profiles/zellij.lisp --reference tests/zellij/reference --output /tmp/ekko-startup-query-order-nix
+Exit: 0
