@@ -1,0 +1,40 @@
+{
+  "runtime": "/nix/store/99f83jjv089cbirn8gzwgw5qn78240f9-ekko-0.1.0",
+  "wire_version": 11,
+  "commands": [
+    {
+      "argv": "nix flake check -L path:.",
+      "exit": 0,
+      "checks": 24,
+      "workflow_scenarios": 14,
+      "log": "ekko-shared-overlay-full-check.log.gz"
+    },
+    {
+      "argv": "nix flake check -L path:/tmp/ekko-shared-runtime-flake-8dxsm9fg",
+      "exit": 0,
+      "checks": [
+        "menu",
+        "launcher",
+        "frames",
+        "viewer-exit"
+      ],
+      "log": "ekko-shared-runtime-menu-check.log.gz"
+    },
+    {
+      "argv": "nix run path:/tmp/ekko-shared-runtime-flake-8dxsm9fg#menu-visual -- /tmp/ekko-shared-menu-visual-pillow",
+      "exit": 0,
+      "log": "ekko-shared-menu-visual-pillow.log.gz"
+    }
+  ],
+  "upstream_finix_patch_sha256": "af4784db3873398e4c8fdad6f508d72ad1681942b2604d17ce666edcdae6769b",
+  "normalizations": [],
+  "full_parity": false,
+  "coverage_complete": false,
+  "frame_capture": {
+    "settled_screenshots_exact": 14,
+    "settled_native_exports_exact": 14,
+    "startup_differing_pixels": 50578,
+    "startup_differing_cells": 1159,
+    "report": "frame-native/report.json.gz"
+  }
+}

@@ -287,3 +287,11 @@ child survival/termination and termios restoration. Ten settled Session
 screenshots match, and post-quit screenshot plus native Kitty text/cursor exports
 match. Startup, plugin launchers, other modes and multi-client/persistence
 semantics remain open. [Session evidence](../evidence/zellij/session-mode/README.md).
+
+
+The shared runtime now includes the generic Finix opaque-overlay/input/copy
+capabilities; both Lisp profiles can use one executable without a patch. The
+existing custom menu's native-graphics capture and Nix checks pass. This does
+not implement release notes: [startup findings](startup-ui-investigation.md)
+identify the remaining initialization, durable state, pointer and floating UI
+contracts. [Shared-runtime evidence](../evidence/zellij/shared-overlays/README.md).

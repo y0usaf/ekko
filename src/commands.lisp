@@ -337,12 +337,13 @@
       (unless (and (listp span) (evenp (length span))) (error "Malformed decoration span: ~S" span))
       (let ((keys nil))
         (loop for (key value) on span by #'cddr do
-          (unless (member key '(:x :y :text :sgr :rows)) (error "Unknown decoration field: ~S" key))
+          (unless (member key '(:x :y :text :sgr :rows :overlay)) (error "Unknown decoration field: ~S" key))
           (when (member key keys) (error "Duplicate decoration field: ~S" key))
           (push key keys))
         (let ((x (getf span :x)) (y (getf span :y)) (text (getf span :text))
               (sgr (getf span :sgr)) (rows (getf span :rows 1)))
           (unless (and (integerp x) (<= 0 x 499) (integerp y) (<= 0 y 299)
+                       (member (getf span :overlay) '(nil t))
                        (integerp rows) (<= 1 rows 300)
                        (valid-decoration-text-p text)
                        (listp sgr) (<= (length sgr) 16)
@@ -378,7 +379,7 @@
       (let* ((op (first a)) (args (rest a)) (pane (getf args :pane))
              (keys (case op
                      (:pane-note '(:pane :text :sgr :duration))
-                     (:set-keymap '(:name)) (:set-layout '(:tree)) (:set-state '(:value)) (:set-geometry '(:value)) (:decorate '(:spans)) (:split '(:pane :axis :argv)) (:focus '(:pane)) (:rename '(:pane :text)) (:resize '(:delta))
+                     (:send-input '(:bytes)) (:set-keymap '(:name)) (:set-layout '(:tree)) (:set-state '(:value)) (:set-geometry '(:value)) (:decorate '(:spans)) (:split '(:pane :axis :argv)) (:focus '(:pane)) (:rename '(:pane :text)) (:resize '(:delta))
                      (:close '(:focus)) (:copy-move '(:delta)) (:copy-edge '(:edge)) (:status '(:text))
                      ((:focus-next :zoom :swap :detach :stop :copy-mode :copy-mark :copy-selection
                        :copy-exit :copy-search :copy-search-next :paste-buffer :reload :help) nil)
@@ -414,6 +415,10 @@
            (validate-geometry-value (getf args :value)))
           (otherwise (incf primary-count) (setf primary-seen t)))
         (case op
+          (:send-input
+           (unless (and (listp (getf args :bytes)) (<= (length (getf args :bytes)) 4096)
+                        (every (lambda (b) (typep b '(unsigned-byte 8))) (getf args :bytes)))
+             (error "Invalid input bytes")))
           (:focus (unless pane (error "Focus needs a pane ID")))
           (:close
            (when (member :focus args)
@@ -607,6 +612,7 @@
                        (loop for b in (reverse (getf (session-registry session) :bindings))
                              when (eq (getf b :map) :prefix) collect
                                (format nil "~A -> ~A (~A)" (getf b :key) (getf b :command) (getf b :owner)))) 'vector)))
+      (:send-input (pane-input pane (octets-from-list (getf args :bytes))))
       (:copy-mode (enter-copy pane (history-text (pane-vt pane))))
       (:copy-exit (setf (pane-copy-lines pane) nil (pane-search-input pane) nil))
       (:copy-move (when (pane-copy-lines pane) (move-copy pane (+ (pane-copy-cursor pane) (getf args :delta)))))
@@ -771,7 +777,8 @@
                                                                 :y (getf span :y)
                                                                 :text (getf span :text)
                                                                 :sgr (getf span :sgr)
-                                                                :rows (getf span :rows 1)))))
+                                                                :rows (getf span :rows 1)
+                                                                :overlay (if (getf span :overlay) t :false)))))
                 :contributions (loop for (owner . text) in (session-contributions session)
                                      collect (list :object :owner owner :text text))
                 :component-state (loop for (owner . value) in (session-component-state session)

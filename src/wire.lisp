@@ -3,8 +3,9 @@
   (:export #:run-session #:serve #:attach-session #:control-session #:restore-terminal))
 (in-package #:ekko/runtime)
 
-;; Version 8 is reserved for the existing Finix overlay build.
-(defconstant +wire-version+ 9)
+;; Versions 8 and 10 were the isolated Finix overlay variants.
+;; Version 11 provides their generic capabilities in the shared runtime.
+(defconstant +wire-version+ 11)
 (defconstant +queue-limit+ (* 8 1024 1024))
 (defstruct wire fd (version +wire-version+) (packet-limit +queue-limit+) (queue nil) (queue-tail nil) (queued 0) (offset 0) (prefix (octets 4))
   (prefix-used 0) body (body-used 0) (known (make-hash-table :test 'equal))
