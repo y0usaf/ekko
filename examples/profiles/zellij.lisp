@@ -57,6 +57,7 @@
 (ekko/extensions:set-option :component :zellij-decoration :name :split-gaps :value '(0 0))
 (ekko/extensions:set-option :component :zellij-decoration :name :erase-display-history :value t)
 (ekko/extensions:set-option :component :zellij-decoration :name :pty-pixel-source :value :reported)
+(ekko/extensions:set-option :component :zellij-decoration :name :viewer-exit-text :value "Bye from Zellij!")
 (ekko/extensions:register-component
  :id :zellij-frames :reads '(:component-state)
  :handler (lambda (snapshot event) (declare (ignore snapshot event)) nil))
@@ -77,10 +78,10 @@
  :id :zellij-modes :reads '(:mode :focus :panes :viewport :zoom :layout :component-state))
 (ekko/extensions:bind-key :component :zellij-frames :map :pane
                            :key "z" :command "toggle-frames")
-(dolist (mode '(:normal :locked :pane :move :rename))
+(dolist (mode '(:normal :locked :pane :move :rename :session))
   (ekko/extensions:register-keymap :component :zellij-modes :name mode
                                     :unbound (cond ((eq mode :rename) "rename-input")
-                                                   ((member mode '(:pane :move)) :ignore)
+                                                   ((member mode '(:pane :move :session)) :ignore)
                                                    (t :forward))))
 (ekko/extensions:set-option :component :zellij-modes :name :initial-keymap :value :normal)
 (dolist (spec '((:normal :locked "lock") (:locked :normal "unlock")))
@@ -185,3 +186,29 @@
   :handler (lambda (snapshot event) (declare (ignore event))
              (zellij-pane-close-actions snapshot)))
 (ekko/extensions:bind-key :component :zellij-modes :map :pane :key "x" :command "pane-close")
+
+;; Session policy remains ordinary action-returning Lisp. Plugin launchers in
+;; this mode require future public mechanisms and remain in the surface ledger.
+(ekko/extensions:register-command :component :zellij-modes :name "session-mode"
+  :handler (lambda (snapshot event) (declare (ignore snapshot event))
+             (list (ekko/extensions:action :set-keymap :name :session))))
+(ekko/extensions:register-command :component :zellij-modes :name "session-quit"
+  :handler (lambda (snapshot event) (declare (ignore snapshot event))
+             (list (ekko/extensions:action :stop))))
+(ekko/extensions:register-command :component :zellij-modes :name "session-detach"
+  :handler (lambda (snapshot event) (declare (ignore snapshot event))
+             (list (ekko/extensions:action :detach)
+                   (ekko/extensions:action :set-keymap :name :normal))))
+(dolist (map '(:normal :pane :move :rename :session))
+  (ekko/extensions:bind-key :component :zellij-modes :map map
+                             :key "C-q" :command "session-quit")
+  (unless (eq map :session)
+    (ekko/extensions:bind-key :component :zellij-modes :map map
+                               :key "C-o" :command "session-mode")))
+(dolist (key '("C-o" "Enter" "Escape"))
+  (ekko/extensions:bind-key :component :zellij-modes :map :session
+                             :key key :command "normal-mode"))
+(dolist (spec '(("C-g" "lock") ("C-p" "pane-mode") ("C-h" "move-mode")
+                ("d" "session-detach")))
+  (ekko/extensions:bind-key :component :zellij-modes :map :session
+                             :key (first spec) :command (second spec)))

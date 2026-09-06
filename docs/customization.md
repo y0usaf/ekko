@@ -123,11 +123,15 @@ contributions, disabled hooks, and the last error. Builtins use the same API in
 and tested with no builtins and an externally loaded command.
 
 These keymap additions are additive to public API version 1; `(api-version)`
-continues to return `1`. Geometry and decorations use attachment wire
-version `6`, with explicit outer rectangles, geometry metadata, published
-decoration spans, and separate reported-cell metrics. Packet 15 carries two
+continues to return `1`. Attachment wire version `9` adds optional viewer exit
+text to the scene metadata. Version `8` is reserved for the existing separate
+Finix overlay runtime; the isolated combined preview uses version `10`.
+The base runtime accepts versions `6`, `7`, and `9` and publishes the requested
+version in each scene. Older viewers can ignore the additive exit-text field.
+Geometry metadata includes outer rectangles, decoration spans, and separate
+reported-cell metrics. Packet 15 carries two
 big-endian unsigned 32-bit values (cell width 1–128 and height 1–256) from the
-attached writer. Older attachment versions reject explicitly.
+attached writer. Unsupported attachment versions reject explicitly.
 
 | Option | Value |
 | --- | --- |
@@ -141,6 +145,7 @@ attached writer. Older attachment versions reject explicitly.
 | `:initial-keymap` | Registered custom keymap keyword, or `nil` |
 | `:prefix` | `"C-a"` through `"C-z"`, or integer 1–26 |
 | `:shell` | Executable argument list for new panes; defaults to `$SHELL -i` |
+| `:viewer-exit-text` | `nil` (default) or at most 512 printable Unicode characters, excluding C0/DEL/C1 controls; appended with CRLF after returning to the host main screen |
 | `:status-text` | Up to 512 characters |
 | `:status-style` | SGR integer list, e.g. `'(0 37 44)` |
 
@@ -430,3 +435,16 @@ to accept version-6 attachments and emits scene version 6 for those viewers;
 version-7 viewers receive scene version 7. The optional profile uses
 `(getf event :read-bytes (getf event :bytes))` to reproduce the reference's
 rename batching while preserving legacy key clients.
+
+
+Viewer exit text is a static, owner-scoped option. Successful configuration
+reload publishes its replacement to the attached viewer; removal publishes
+`nil`, and rejected reload preserves the previous text. The viewer retains the
+latest accepted scene value so it can display it after the daemon disconnects.
+It prints the literal text after normal terminal restoration; it does not
+interpret markup or embedded control sequences. Both registration and the viewer
+validate it. The ordinary Zellij profile supplies its farewell wording; the
+runtime contains no profile-specific exit message. `checks.viewer-exit` verifies
+regular/bare replacement, rejected control characters, owner removal, unchanged
+child PIDs and restored host termios. Failure-specific reference messages and
+multi-client termination behavior remain separate parity work.

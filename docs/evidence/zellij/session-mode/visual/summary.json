@@ -1,0 +1,147 @@
+{
+  "scenario": "session-workflow",
+  "capture_complete": true,
+  "full_parity": false,
+  "coverage_complete": false,
+  "workflow_coverage_complete": true,
+  "normalizations": [],
+  "limitations": [
+    "workflow checkpoints settle at fixed delays",
+    "hardware display latency is not measured"
+  ],
+  "cleanup": {
+    "zellij": {
+      "stop_exit_code": 0,
+      "stop_error": null,
+      "remaining_pids": []
+    },
+    "ekko": {
+      "stop_exit_code": 0,
+      "stop_error": null,
+      "remaining_pids": []
+    }
+  },
+  "checkpoints": [
+    {
+      "stage": "startup-screen",
+      "differing_pixels": 50772,
+      "same_pixels": false,
+      "cell_report": {
+        "file": "startup-screen-cell-report.json",
+        "dimensions_equal": true,
+        "cursor_equal": false,
+        "differing_cells": 1159
+      }
+    },
+    {
+      "stage": "startup",
+      "differing_pixels": 0,
+      "same_pixels": true,
+      "cell_report": {
+        "file": "startup-cell-report.json",
+        "dimensions_equal": true,
+        "cursor_equal": true,
+        "differing_cells": 0
+      }
+    },
+    {
+      "stage": "session-enter",
+      "differing_pixels": 0,
+      "same_pixels": true,
+      "cell_report": {
+        "file": "session-enter-cell-report.json",
+        "dimensions_equal": true,
+        "cursor_equal": true,
+        "differing_cells": 0
+      }
+    },
+    {
+      "stage": "session-unbound",
+      "differing_pixels": 0,
+      "same_pixels": true,
+      "cell_report": {
+        "file": "session-unbound-cell-report.json",
+        "dimensions_equal": true,
+        "cursor_equal": true,
+        "differing_cells": 0
+      }
+    },
+    {
+      "stage": "session-exit-toggle",
+      "differing_pixels": 0,
+      "same_pixels": true,
+      "cell_report": {
+        "file": "session-exit-toggle-cell-report.json",
+        "dimensions_equal": true,
+        "cursor_equal": true,
+        "differing_cells": 0
+      }
+    },
+    {
+      "stage": "session-reenter",
+      "differing_pixels": 0,
+      "same_pixels": true,
+      "cell_report": {
+        "file": "session-reenter-cell-report.json",
+        "dimensions_equal": true,
+        "cursor_equal": true,
+        "differing_cells": 0
+      }
+    },
+    {
+      "stage": "session-to-pane",
+      "differing_pixels": 0,
+      "same_pixels": true,
+      "cell_report": {
+        "file": "session-to-pane-cell-report.json",
+        "dimensions_equal": true,
+        "cursor_equal": true,
+        "differing_cells": 0
+      }
+    },
+    {
+      "stage": "session-from-pane",
+      "differing_pixels": 0,
+      "same_pixels": true,
+      "cell_report": {
+        "file": "session-from-pane-cell-report.json",
+        "dimensions_equal": true,
+        "cursor_equal": true,
+        "differing_cells": 0
+      }
+    },
+    {
+      "stage": "session-to-move",
+      "differing_pixels": 0,
+      "same_pixels": true,
+      "cell_report": {
+        "file": "session-to-move-cell-report.json",
+        "dimensions_equal": true,
+        "cursor_equal": true,
+        "differing_cells": 0
+      }
+    },
+    {
+      "stage": "session-from-move",
+      "differing_pixels": 0,
+      "same_pixels": true,
+      "cell_report": {
+        "file": "session-from-move-cell-report.json",
+        "dimensions_equal": true,
+        "cursor_equal": true,
+        "differing_cells": 0
+      }
+    },
+    {
+      "stage": "session-exit-escape",
+      "differing_pixels": 0,
+      "same_pixels": true,
+      "cell_report": {
+        "file": "session-exit-escape-cell-report.json",
+        "dimensions_equal": true,
+        "cursor_equal": true,
+        "differing_cells": 0
+      }
+    }
+  ]
+}

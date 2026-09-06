@@ -1,0 +1,264 @@
+{
+  "full_parity": false,
+  "coverage_complete": false,
+  "scenarios": {
+    "detach": {
+      "functional_slice_passed": true,
+      "differences": [
+        {
+          "stage": "startup",
+          "input_equal": true,
+          "cursor_equal": false,
+          "differing_cells": 1045
+        },
+        {
+          "stage": "dismiss-release-notes",
+          "input_equal": false,
+          "cursor_equal": false,
+          "differing_cells": 14
+        },
+        {
+          "stage": "lock",
+          "input_equal": false,
+          "cursor_equal": false,
+          "differing_cells": 14
+        },
+        {
+          "stage": "locked-quit",
+          "input_equal": false,
+          "cursor_equal": false,
+          "differing_cells": 14
+        },
+        {
+          "stage": "locked-session",
+          "input_equal": false,
+          "cursor_equal": false,
+          "differing_cells": 14
+        },
+        {
+          "stage": "unlock",
+          "input_equal": false,
+          "cursor_equal": false,
+          "differing_cells": 14
+        },
+        {
+          "stage": "session-enter",
+          "input_equal": false,
+          "cursor_equal": false,
+          "differing_cells": 14
+        },
+        {
+          "stage": "detach-key",
+          "input_equal": false,
+          "cursor_equal": false,
+          "differing_cells": 497
+        },
+        {
+          "stage": "detached",
+          "input_equal": false,
+          "cursor_equal": false,
+          "differing_cells": 497
+        },
+        {
+          "stage": "reattached",
+          "input_equal": false,
+          "cursor_equal": false,
+          "differing_cells": 14
+        },
+        {
+          "stage": "reattach-input",
+          "input_equal": false,
+          "cursor_equal": false,
+          "differing_cells": 14
+        },
+        {
+          "stage": "quit-key",
+          "input_equal": false,
+          "cursor_equal": false,
+          "differing_cells": 497
+        },
+        {
+          "stage": "quit",
+          "input_equal": false,
+          "cursor_equal": false,
+          "differing_cells": 497
+        }
+      ]
+    },
+    "quit-normal": {
+      "functional_slice_passed": true,
+      "differences": [
+        {
+          "stage": "startup",
+          "input_equal": true,
+          "cursor_equal": false,
+          "differing_cells": 1045
+        },
+        {
+          "stage": "dismiss-release-notes",
+          "input_equal": false,
+          "cursor_equal": false,
+          "differing_cells": 14
+        },
+        {
+          "stage": "quit-key",
+          "input_equal": false,
+          "cursor_equal": false,
+          "differing_cells": 477
+        },
+        {
+          "stage": "quit",
+          "input_equal": false,
+          "cursor_equal": false,
+          "differing_cells": 477
+        }
+      ]
+    },
+    "quit-pane": {
+      "functional_slice_passed": true,
+      "differences": [
+        {
+          "stage": "startup",
+          "input_equal": true,
+          "cursor_equal": false,
+          "differing_cells": 1045
+        },
+        {
+          "stage": "dismiss-release-notes",
+          "input_equal": false,
+          "cursor_equal": false,
+          "differing_cells": 14
+        },
+        {
+          "stage": "mode-0",
+          "input_equal": false,
+          "cursor_equal": false,
+          "differing_cells": 14
+        },
+        {
+          "stage": "quit-key",
+          "input_equal": false,
+          "cursor_equal": false,
+          "differing_cells": 477
+        },
+        {
+          "stage": "quit",
+          "input_equal": false,
+          "cursor_equal": false,
+          "differing_cells": 477
+        }
+      ]
+    },
+    "quit-move": {
+      "functional_slice_passed": true,
+      "differences": [
+        {
+          "stage": "startup",
+          "input_equal": true,
+          "cursor_equal": false,
+          "differing_cells": 1045
+        },
+        {
+          "stage": "dismiss-release-notes",
+          "input_equal": false,
+          "cursor_equal": false,
+          "differing_cells": 14
+        },
+        {
+          "stage": "mode-0",
+          "input_equal": false,
+          "cursor_equal": false,
+          "differing_cells": 14
+        },
+        {
+          "stage": "quit-key",
+          "input_equal": false,
+          "cursor_equal": false,
+          "differing_cells": 477
+        },
+        {
+          "stage": "quit",
+          "input_equal": false,
+          "cursor_equal": false,
+          "differing_cells": 477
+        }
+      ]
+    },
+    "quit-rename": {
+      "functional_slice_passed": true,
+      "differences": [
+        {
+          "stage": "startup",
+          "input_equal": true,
+          "cursor_equal": false,
+          "differing_cells": 1045
+        },
+        {
+          "stage": "dismiss-release-notes",
+          "input_equal": false,
+          "cursor_equal": false,
+          "differing_cells": 14
+        },
+        {
+          "stage": "mode-0",
+          "input_equal": false,
+          "cursor_equal": false,
+          "differing_cells": 14
+        },
+        {
+          "stage": "mode-1",
+          "input_equal": false,
+          "cursor_equal": false,
+          "differing_cells": 14
+        },
+        {
+          "stage": "quit-key",
+          "input_equal": false,
+          "cursor_equal": false,
+          "differing_cells": 477
+        },
+        {
+          "stage": "quit",
+          "input_equal": false,
+          "cursor_equal": false,
+          "differing_cells": 477
+        }
+      ]
+    },
+    "quit-session": {
+      "functional_slice_passed": true,
+      "differences": [
+        {
+          "stage": "startup",
+          "input_equal": true,
+          "cursor_equal": false,
+          "differing_cells": 1045
+        },
+        {
+          "stage": "dismiss-release-notes",
+          "input_equal": false,
+          "cursor_equal": false,
+          "differing_cells": 14
+        },
+        {
+          "stage": "mode-0",
+          "input_equal": false,
+          "cursor_equal": false,
+          "differing_cells": 14
+        },
+        {
+          "stage": "quit-key",
+          "input_equal": false,
+          "cursor_equal": false,
+          "differing_cells": 477
+        },
+        {
+          "stage": "quit",
+          "input_equal": false,
+          "cursor_equal": false,
+          "differing_cells": 477
+        }
+      ]
+    }
+  }
+}

@@ -33,6 +33,13 @@
             --profile ${./examples/profiles}/zellij.lisp \
             --reference ${./tests/zellij}/reference "$@"
         '';
+        zellij-session-lifecycle = pkgs.writeShellScriptBin "ekko-zellij-session-lifecycle" ''
+          exec ${pkgs.python3.withPackages (p: [ p.pyte ])}/bin/python ${./tests/zellij}/session_lifecycle.py \
+            --zellij ${self.packages.${pkgs.system}.zellij-reference}/bin/zellij \
+            --ekko ${self.packages.${pkgs.system}.default}/bin/ekko \
+            --profile ${./examples/profiles}/zellij.lisp \
+            --reference ${./tests/zellij}/reference "$@"
+        '';
         zellij-differential = pkgs.writeShellScriptBin "ekko-zellij-differential" ''
           exec ${pkgs.python3.withPackages (p: [ p.pyte ])}/bin/python ${./tests/zellij}/differential.py \
             --zellij ${self.packages.${pkgs.system}.zellij-reference}/bin/zellij \
@@ -123,6 +130,11 @@
           type = "app";
           meta.description = "Settled Pane-mode PTY differential; visual parity remains open";
           program = "${self.packages.${pkgs.system}.zellij-pane-differential}/bin/ekko-zellij-pane-differential";
+        };
+        zellij-session-lifecycle = {
+          type = "app";
+          meta.description = "Pinned quit/detach lifecycle comparison; full parity remains open";
+          program = "${self.packages.${pkgs.system}.zellij-session-lifecycle}/bin/ekko-zellij-session-lifecycle";
         };
         zellij-differential = {
           type = "app";
@@ -223,6 +235,10 @@
           python ${./tests}/pane_rename.py ${self.packages.${pkgs.system}.default}/bin/ekko ${./examples/profiles}/zellij.lisp > $out
           python ${./tests}/pane_rename.py ${self.packages.${pkgs.system}.default}/bin/ekko-bare ${./examples/profiles}/zellij.lisp bare >> $out
         '';
+        viewer-exit = pkgs.runCommand "ekko-viewer-exit" { nativeBuildInputs = [ pkgs.python3 ]; } ''
+          python ${./tests}/viewer_exit.py ${self.packages.${pkgs.system}.default}/bin/ekko > $out
+          python ${./tests}/viewer_exit.py ${self.packages.${pkgs.system}.default}/bin/ekko-bare >> $out
+        '';
         pane-frames = pkgs.runCommand "ekko-pane-frames" { nativeBuildInputs = [ pkgs.python3 ]; } ''
           python ${./tests}/pane_frames.py ${self.packages.${pkgs.system}.default}/bin/ekko ${./examples/profiles}/zellij.lisp > $out
           python ${./tests}/pane_frames.py ${self.packages.${pkgs.system}.default}/bin/ekko-bare ${./examples/profiles}/zellij.lisp >> $out
@@ -244,6 +260,12 @@
           python ${./tests}/startup_geometry.py ${self.packages.${pkgs.system}.default}/bin/ekko ${./examples/profiles}/zellij.lisp regular 20 8 >> $out
           python ${./tests}/startup_geometry.py ${self.packages.${pkgs.system}.default}/bin/ekko-bare ${./examples/profiles}/zellij.lisp bare 80 24 >> $out
           python ${./tests}/startup_geometry.py ${self.packages.${pkgs.system}.default}/bin/ekko-bare ${./examples/profiles}/zellij.lisp bare 20 8 >> $out
+        '';
+        zellij-session-lifecycle = pkgs.runCommand "ekko-zellij-session-lifecycle" {} ''
+          mkdir -p $out
+          ${self.packages.${pkgs.system}.zellij-session-lifecycle}/bin/ekko-zellij-session-lifecycle --output $out/regular
+          ${self.packages.${pkgs.system}.zellij-session-lifecycle}/bin/ekko-zellij-session-lifecycle \
+            --ekko ${self.packages.${pkgs.system}.default}/bin/ekko-bare --only detach --output $out/bare
         '';
         zellij-pane-workflow = pkgs.runCommand "ekko-zellij-pane-workflow" {} ''
           mkdir -p $out

@@ -1,0 +1,46 @@
+{
+  "commands": [
+    {
+      "argv": "nix flake check -L path:.",
+      "exit": 0,
+      "checks": 24,
+      "workflow_scenarios": 14,
+      "log": "ekko-exit-full-check.log.gz"
+    },
+    {
+      "argv": "nix flake check -L path:/tmp/ekko-finix-exit-flake-kr6pxk6x",
+      "exit": 0,
+      "checks": [
+        "frames",
+        "launcher",
+        "viewer-exit",
+        "menu"
+      ],
+      "log": "ekko-finix-exit-candidate-full-check.log.gz"
+    },
+    {
+      "argv": "nix flake check -L path:/tmp/ekko-finix-exit-flake-kr6pxk6x",
+      "exit": 0,
+      "note": "launcher also tests --keep-session",
+      "log": "ekko-finix-exit-kept-check.log.gz"
+    }
+  ],
+  "binaries": {
+    "final_checked": "/nix/store/phqn6vlwdhi04zpx7ssk7ihqrry9hxcm-ekko-0.1.0",
+    "exit_native_capture": "/nix/store/fmg2gzr7s95d8y6l202fpq3p5pwch93n-ekko-0.1.0",
+    "finix_exit_capture": "/nix/store/fld8w87lbvhajcdsqqm23piccn0n6xmq-ekko-0.1.0"
+  },
+  "full_parity": false,
+  "coverage_complete": false,
+  "notes": [
+    "The final checked viewer adds invalid-metadata atomicity validation after the base exit screenshot candidate; the Finix screenshot includes that final validation.",
+    "Two intermediate full workflow failures retain reference FIRST 0x0/WINCH scheduling differences; no gate was relaxed."
+  ],
+  "source_sha256": {
+    "src/client.lisp": "710e68f08375820c333e6262f981dfcd73bb2917d4e0dc85322500fdbd2ff556",
+    "src/extensions.lisp": "2d9380158ad11e3fc0d8f8391211ac7d5cb8d2b51bd5d8e42e61bd5df90c4687",
+    "src/server.lisp": "50760182be35bff633cd26df02ca09153d29743fec4c88c0773174f9179914e6",
+    "src/wire.lisp": "dadad6a825435835fb25e102f73da57a5458abcb200ef5b21697e569440e2098",
+    "examples/profiles/zellij.lisp": "759414b3e807373c49cfeb77f664fc5ff940a265367b0d79b9ad2ae89656c79b"
+  }
+}

@@ -1,0 +1,74 @@
+{
+  "scenario": "exit-workflow",
+  "capture_complete": true,
+  "full_parity": false,
+  "coverage_complete": false,
+  "workflow_coverage_complete": true,
+  "normalizations": [],
+  "limitations": [
+    "workflow checkpoints settle at fixed delays",
+    "hardware display latency is not measured"
+  ],
+  "cleanup": {
+    "zellij": {
+      "stop_exit_code": 1,
+      "stop_error": null,
+      "remaining_pids": []
+    },
+    "ekko": {
+      "stop_exit_code": 2,
+      "stop_error": null,
+      "remaining_pids": []
+    }
+  },
+  "checkpoints": [
+    {
+      "stage": "startup-screen",
+      "differing_pixels": 50760,
+      "same_pixels": false,
+      "cell_report": {
+        "file": "startup-screen-cell-report.json",
+        "dimensions_equal": true,
+        "cursor_equal": false,
+        "differing_cells": 1159
+      },
+      "kitty_text_and_cursor_equal": false,
+      "kitty_text_files": {
+        "zellij": "zellij/startup-screen.kitty-text.ansi",
+        "ekko": "ekko/startup-screen.kitty-text.ansi"
+      }
+    },
+    {
+      "stage": "startup",
+      "differing_pixels": 0,
+      "same_pixels": true,
+      "cell_report": {
+        "file": "startup-cell-report.json",
+        "dimensions_equal": true,
+        "cursor_equal": true,
+        "differing_cells": 0
+      },
+      "kitty_text_and_cursor_equal": true,
+      "kitty_text_files": {
+        "zellij": "zellij/startup.kitty-text.ansi",
+        "ekko": "ekko/startup.kitty-text.ansi"
+      }
+    },
+    {
+      "stage": "quit",
+      "differing_pixels": 0,
+      "same_pixels": true,
+      "cell_report": {
+        "file": "quit-cell-report.json",
+        "dimensions_equal": true,
+        "cursor_equal": false,
+        "differing_cells": 567
+      },
+      "kitty_text_and_cursor_equal": true,
+      "kitty_text_files": {
+        "zellij": "zellij/quit.kitty-text.ansi",
+        "ekko": "ekko/quit.kitty-text.ansi"
+      }
+    }
+  ]
+}

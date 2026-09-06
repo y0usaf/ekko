@@ -12,6 +12,19 @@
           (ekko/runtime::wire-queue (ekko/runtime::viewer-io viewer)))))
 
 (defun run-render-tests ()
+  (let ((viewer (ekko/runtime::make-viewer :exit-text "previous")))
+    (dolist (text (list (string (code-char 27)) (string (code-char 133))
+                       (make-string 513 :initial-element #\a) 42))
+      (let ((packet (concatenate '(vector (unsigned-byte 8)) #(12)
+                     (ekko/runtime::encode-scene
+                      (list ekko/runtime::+wire-version+ 20 6 8 16 1 nil
+                            (list :exit-text text))))))
+        (render-check
+         (handler-case (progn (ekko/runtime::receive-view viewer packet) nil)
+           (error () t)) "malformed exit text rejected by viewer")
+        (render-check (and (string= (ekko/runtime::viewer-exit-text viewer) "previous")
+                           (null (ekko/runtime::viewer-awaiting-scene viewer)))
+                      "invalid exit text does not alter retained lifecycle state"))))
   (let* ((viewer (ekko/runtime::make-viewer))
          (placement (list 7 1 0 0 0 0))
          (pane (list 1 0 1 20 4 "fixture" nil 0 0 nil

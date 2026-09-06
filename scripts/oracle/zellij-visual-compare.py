@@ -133,6 +133,23 @@ def proxy(config_path):
         fcntl.ioctl(0, termios.TIOCSWINSZ, struct.pack("HHHH", *size))
         os.execvpe(config["argv"][0], config["argv"], config["env"])
     control = os.open(work / "control", os.O_RDWR | os.O_NONBLOCK)
+    child_reaped = False
+
+    def child_finished():
+        nonlocal child_reaped
+        _, status = os.waitpid(pid, 0)
+        child_reaped = True
+        save(work / "child-exit.json", {"wait_status": status,
+                                        "exit_code": os.waitstatus_to_exitcode(status)})
+        if config.get("hold_on_exit"):
+            # Keep the exact final terminal image without adding shell output.
+            # The private compositor owns this observer and closes it at cleanup.
+            while True:
+                ready, _, _ = select.select([0, control], [], [], .2)
+                for source in ready:
+                    if not os.read(source, 65536):
+                        return
+
     try:
         with open(work / "output.ansi", "wb", buffering=0) as output, \
                 open(work / "terminal-input.bin", "wb", buffering=0) as inputs:
@@ -143,9 +160,11 @@ def proxy(config_path):
                         data = os.read(source, 65536)
                     except OSError as error:
                         if error.errno == errno.EIO:
+                            child_finished()
                             return
                         raise
                     if not data:
+                        child_finished()
                         return
                     if source == fd:
                         output.write(data)
@@ -160,7 +179,8 @@ def proxy(config_path):
             os.kill(pid, signal.SIGTERM)
         except ProcessLookupError:
             pass
-        os.waitpid(pid, 0)
+        if not child_reaped:
+            os.waitpid(pid, 0)
 
 
 def wait_for(predicate, process, seconds=15):
@@ -357,6 +377,16 @@ UNICODE_TITLE_PER_KEY_STAGES = WORKFLOW_STAGES[:2] + (
     ('rename-commit-long', b'\r', .5),
 )
 
+EXIT_STAGES = WORKFLOW_STAGES[:2] + (("quit", b"\x11", .7),)
+
+SESSION_STAGES = WORKFLOW_STAGES[:2] + (
+    ("session-enter", b"\x0f", .4), ("session-unbound", b"q", .4),
+    ("session-exit-toggle", b"\x0f", .4), ("session-reenter", b"\x0f", .4),
+    ("session-to-pane", b"\x10", .4), ("session-from-pane", b"\x0f", .4),
+    ("session-to-move", b"\x08", .4), ("session-from-move", b"\x0f", .4),
+    ("session-exit-escape", b"\x1b", .4),
+)
+
 FRAME_STAGES = WORKFLOW_STAGES[:3] + (
     ("frames-off", b"z", .5), ("frames-pane", b"\x10", .4),
     ("frames-right", b"l", .4), ("frames-on", b"z", .5),
@@ -368,7 +398,7 @@ FRAME_STAGES = WORKFLOW_STAGES[:3] + (
 
 
 def workflow_stages(args):
-    return {"frame-workflow": FRAME_STAGES, "move-workflow": MOVE_STAGES, "rename-workflow": RENAME_STAGES,
+    return {"exit-workflow": EXIT_STAGES, "session-workflow": SESSION_STAGES, "frame-workflow": FRAME_STAGES, "move-workflow": MOVE_STAGES, "rename-workflow": RENAME_STAGES,
             "unicode-title-batched-workflow": UNICODE_TITLE_STAGES,
             "unicode-title-workflow": UNICODE_TITLE_PER_KEY_STAGES}.get(
         args.scenario, WORKFLOW_STAGES)
@@ -520,13 +550,15 @@ def run_workflow_side(kind, args, root):
                                      "shell": str(shell), "argv": argv})
     os.mkfifo(work / "control", 0o600)
     command = ["cage", "-d", "--", "kitty", "--config", "NONE",
+               "--listen-on", "unix:" + str(work / "kitty-control"),
+               "--override", "allow_remote_control=socket-only",
                "--override", "linux_display_server=wayland",
                "--override", "font_family=DejaVu Sans Mono", "--override", "font_size=16",
                "--override", "cursor_blink_interval=0", "--override", "remember_window_size=no",
                "--class", "ekko-zellij-visual", sys.executable, str(script),
                "--proxy", str(work / "proxy.json")]
     child_env = dict(env)
-    save(work / "proxy.json", {"argv": argv, "env": child_env})
+    save(work / "proxy.json", {"argv": argv, "env": child_env, "hold_on_exit": args.scenario == "exit-workflow"})
     process = None
     stopped = None
     stop_error = None
@@ -588,9 +620,19 @@ def run_workflow_side(kind, args, root):
                     time.sleep(delay)
                 if process.poll() is not None:
                     raise RuntimeError("private compositor exited before workflow screenshot")
+                if name == "quit":
+                    wait_for(lambda: (work / "child-exit.json").exists(), process)
+                    child_exit = json.loads((work / "child-exit.json").read_text())
+                    if child_exit["exit_code"] != 0:
+                        raise RuntimeError(f"{kind} quit failed: {child_exit}")
                 captured_at = time.monotonic()
                 subprocess.run(["grim", str(dest / (name + ".png"))], env=env,
                                capture_output=True, timeout=10, check=True)
+                exported = subprocess.run(
+                    ["kitty", "@", "--to", "unix:" + str(work / "kitty-control"),
+                     "get-text", "--extent", "screen", "--ansi", "--add-cursor", "--add-wrap-markers"],
+                    env=env, capture_output=True, timeout=10, check=True)
+                (dest / (name + ".kitty-text.ansi")).write_bytes(exported.stdout)
                 if kind == "zellij" and name == "failed-split-flash":
                     if not zellij_red_frame(dest / (name + ".png")):
                         raise RuntimeError(
@@ -603,7 +645,7 @@ def run_workflow_side(kind, args, root):
                             f"artifacts retained at {dest}")
                 shutil.copyfile(work / "output.ansi", dest / (name + ".ansi"))
                 inspect = status = None
-                if kind == "ekko":
+                if kind == "ekko" and name != "quit":
                     inspect_result = subprocess.run([args.ekko, "inspect", "workflow"], env=child_env,
                                                     capture_output=True, timeout=8, check=True)
                     status_result = subprocess.run([args.ekko, "status", "workflow"], env=child_env,
@@ -652,10 +694,13 @@ def run_workflow_side(kind, args, root):
                 remaining = wait_owned_processes(work)
                 save(dest / "cleanup.json", {"stop_exit_code": stopped.returncode if stopped else None,
                                               "stop_error": stop_error, "remaining_pids": remaining})
-                for name in ("output.ansi", "terminal-input.bin", "outer.json"):
+                for name in ("output.ansi", "terminal-input.bin", "outer.json", "child-exit.json"):
                     if (work / name).exists():
                         shutil.copyfile(work / name, dest / name)
-            if stop_error or stopped is None or stopped.returncode or remaining:
+            exited_cleanly = (args.scenario == "exit-workflow"
+                              and (work / "child-exit.json").exists()
+                              and json.loads((work / "child-exit.json").read_text())["exit_code"] == 0)
+            if stop_error or stopped is None or (stopped.returncode and not exited_cleanly) or remaining:
                 raise RuntimeError(f"{kind} workflow cleanup failed; runtime retained at {work}")
     shutil.rmtree(work)
     return stages
@@ -724,7 +769,11 @@ def workflow_report(args, root):
         difference = ImageChops.difference(z, e)
         difference.save(args.output / (name + "-difference.png"))
         differing_pixels = sum(pixel != (0, 0, 0) for pixel in difference.getdata())
+        kitty_text = {side: (args.output / side / (name + ".kitty-text.ansi")).read_bytes()
+                      for side in ("zellij", "ekko")}
         checkpoints.append({"stage": name, "differing_pixels": differing_pixels,
+                            "kitty_text_and_cursor_equal": kitty_text["zellij"] == kitty_text["ekko"],
+                            "kitty_text_files": {side: side + "/" + name + ".kitty-text.ansi" for side in kitty_text},
                             "same_pixels": differing_pixels == 0,
                             "cell_report": {"file": cell_file,
                                             "dimensions_equal": cells["dimensions_equal"],
@@ -753,7 +802,7 @@ def main():
     parser.add_argument("--profile", type=Path, required=True)
     parser.add_argument("--reference", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
-    parser.add_argument("--scenario", choices=("startup", "frame-workflow", "pane-workflow", "move-workflow", "rename-workflow", "unicode-title-workflow", "unicode-title-batched-workflow"), default="startup")
+    parser.add_argument("--scenario", choices=("startup", "exit-workflow", "session-workflow", "frame-workflow", "pane-workflow", "move-workflow", "rename-workflow", "unicode-title-workflow", "unicode-title-batched-workflow"), default="startup")
     parser.add_argument("--require-parity", action="store_true")
     args = parser.parse_args()
     args.output = args.output.resolve()
@@ -773,7 +822,7 @@ def main():
         raise RuntimeError("font mismatch")
     root = Path(tempfile.mkdtemp(prefix="ekko-zellij-visual-"))
     # Retain runtime state on failure so cleanup can be diagnosed/retried.
-    if args.scenario in ("frame-workflow", "pane-workflow", "move-workflow", "rename-workflow", "unicode-title-workflow", "unicode-title-batched-workflow"):
+    if args.scenario in ("exit-workflow", "session-workflow", "frame-workflow", "pane-workflow", "move-workflow", "rename-workflow", "unicode-title-workflow", "unicode-title-batched-workflow"):
         for kind in ("zellij", "ekko"):
             run_workflow_side(kind, args, root)
         workflow_report(args, root)

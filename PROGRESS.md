@@ -5,6 +5,26 @@ through an optional, replaceable public Lisp profile, while preserving Ekko's
 independent daemon, transactional reload, reversible ownership, and graphics
 isolation. The full acceptance gate is in GOAL.md; it remains open.
 
+Session/exit continuation (2026-09-06): added ordinary Lisp Session entry/exits,
+locking, single-client detach and Quit in the five supported unlocked modes.
+The paired lifecycle test verifies restored termios, stable child PIDs through
+detach/reattach, Normal input on reattach, and child termination on quit;
+regular and bare cases pass. A rejected action-order attempt is retained.
+The initial full Nix check hit reference FIRST 0×0 then WINCH versus Ekko's
+final-size FIRST. That minimized failure is archived without relaxing any gate.
+After the generic exit-text work, `nix flake check -L path:.` exited 0 with
+24 checks, 14 workflow scenarios, and the lifecycle matrix. The optional
+`:viewer-exit-text` is owned, reloadable, validated plain text; its wording stays
+in Lisp. Base wire 9 preserves viewers 6/7; 8 remains reserved for the existing
+Finix overlay build, and the combined preview uses 10. Ten settled Session
+screenshots match. Quit now matches the actual screenshot and native Kitty
+styled-text/wrap/cursor export. Pyte's alternate-screen discrepancy is preserved
+and identified as a model limitation. [Exact evidence](docs/evidence/zellij/session-mode/README.md).
+The Finix candidate passes its frame, launcher, viewer-exit and preserved-menu
+Nix checks. Full parity remains false. Next bounded action: startup UI
+initialization and ownership for a replaceable Lisp release-notes overlay;
+all remaining source-ledger surfaces and startup size/input differences remain.
+
 Frame-toggle continuation (2026-09-06, session 01a076eb-d25e-74b3-a610-fe3d78b2fa45):
 work is isolated in `../ekko-zellij-parity` on `zellij-parity-01a076eb`, starting
 from the existing `1736077` implementation. Concurrent Finix/menu changes and
