@@ -1,0 +1,135 @@
+{
+  "scenario": "pane-workflow",
+  "capture_complete": true,
+  "workflow_coverage_complete": true,
+  "coverage_complete": false,
+  "full_parity": false,
+  "normalizations": [],
+  "checkpoints": [
+    {
+      "stage": "startup-screen",
+      "differing_pixels": 50672,
+      "file": "startup-screen-cell-report.json",
+      "dimensions_equal": true,
+      "cursor_equal": false,
+      "differing_cells": 1159
+    },
+    {
+      "stage": "startup",
+      "differing_pixels": 0,
+      "file": "startup-cell-report.json",
+      "dimensions_equal": true,
+      "cursor_equal": true,
+      "differing_cells": 0
+    },
+    {
+      "stage": "pane-enter",
+      "differing_pixels": 0,
+      "file": "pane-enter-cell-report.json",
+      "dimensions_equal": true,
+      "cursor_equal": true,
+      "differing_cells": 0
+    },
+    {
+      "stage": "direction-right",
+      "differing_pixels": 0,
+      "file": "direction-right-cell-report.json",
+      "dimensions_equal": true,
+      "cursor_equal": true,
+      "differing_cells": 0
+    },
+    {
+      "stage": "fullscreen-on",
+      "differing_pixels": 0,
+      "file": "fullscreen-on-cell-report.json",
+      "dimensions_equal": true,
+      "cursor_equal": true,
+      "differing_cells": 0
+    },
+    {
+      "stage": "fullscreen-left-enter",
+      "differing_pixels": 0,
+      "file": "fullscreen-left-enter-cell-report.json",
+      "dimensions_equal": true,
+      "cursor_equal": true,
+      "differing_cells": 0
+    },
+    {
+      "stage": "fullscreen-left",
+      "differing_pixels": 0,
+      "file": "fullscreen-left-cell-report.json",
+      "dimensions_equal": true,
+      "cursor_equal": true,
+      "differing_cells": 0
+    },
+    {
+      "stage": "restore",
+      "differing_pixels": 0,
+      "file": "restore-cell-report.json",
+      "dimensions_equal": true,
+      "cursor_equal": true,
+      "differing_cells": 0
+    },
+    {
+      "stage": "prepare-enter",
+      "differing_pixels": 0,
+      "file": "prepare-enter-cell-report.json",
+      "dimensions_equal": true,
+      "cursor_equal": true,
+      "differing_cells": 0
+    },
+    {
+      "stage": "prepare-right",
+      "differing_pixels": 0,
+      "file": "prepare-right-cell-report.json",
+      "dimensions_equal": true,
+      "cursor_equal": true,
+      "differing_cells": 0
+    },
+    {
+      "stage": "prepare-split",
+      "differing_pixels": 0,
+      "file": "prepare-split-cell-report.json",
+      "dimensions_equal": true,
+      "cursor_equal": true,
+      "differing_cells": 0
+    },
+    {
+      "stage": "failed-enter",
+      "differing_pixels": 0,
+      "file": "failed-enter-cell-report.json",
+      "dimensions_equal": true,
+      "cursor_equal": true,
+      "differing_cells": 0
+    },
+    {
+      "stage": "failed-split-flash",
+      "differing_pixels": 0,
+      "file": "failed-split-flash-cell-report.json",
+      "dimensions_equal": true,
+      "cursor_equal": true,
+      "differing_cells": 0
+    },
+    {
+      "stage": "failed-split-restored",
+      "differing_pixels": 0,
+      "file": "failed-split-restored-cell-report.json",
+      "dimensions_equal": true,
+      "cursor_equal": true,
+      "differing_cells": 0
+    }
+  ],
+  "cleanup": {
+    "zellij": {
+      "stop_exit_code": 0,
+      "stop_error": null,
+      "remaining_pids": []
+    },
+    "ekko": {
+      "stop_exit_code": 0,
+      "stop_error": null,
+      "remaining_pids": []
+    }
+  },
+  "report_replay": "Only coverage flag semantics corrected; measurements recomputed from the same unchanged PNG/ANSI captures."
+}

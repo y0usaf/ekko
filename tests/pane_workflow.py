@@ -189,8 +189,8 @@ def assert_first_events(event_paths, state):
         first = events[0]["winsize"]
         assert (first["cols"], first["rows"]) == (pane["cols"], pane["rows"]), (
             label, first, pane)
-        assert (first["xpixels"], first["ypixels"]) == (
-            first["cols"] * CELL_WIDTH, first["rows"] * CELL_HEIGHT), first
+        # The profile uses reported host metrics, unavailable at child start.
+        assert (first["xpixels"], first["ypixels"]) == (0, 0), first
 
 
 def write_config(root, profile):

@@ -14,7 +14,7 @@ attach. Applications never write to the outer terminal directly.
 | `worker.lisp`, `commands.lisp` | Worker transport and deadlines, atomic config replacement, validated actions, copy mode |
 | `graphics.lisp` | Pane-owned RGB/RGBA uploads, validation, compressed assets, native placements, deletion, quotas |
 | `assets.lisp` | Daemon-owned raw frame snapshots, byte quota, reference ownership and crash reclamation |
-| `wire.lisp` | Length-prefixed local IPC, wire version 3, bounded buffers, scene acknowledgements, private session directory |
+| `wire.lisp` | Length-prefixed local IPC, wire version 6, bounded buffers, scene acknowledgements, private session directory |
 | `server.lisp` | Reactor, pane processes, layout application, focus, input routing, snapshots, status, shutdown |
 | `client.lisp` | Host input decoding, dimensions, text/Kitty rendering, per-client image IDs, terminal restoration |
 | `geometry.lisp`, `presentation.lisp` | Rational clipping and attachment identity/transaction contracts, also exercised by synthetic experiments |

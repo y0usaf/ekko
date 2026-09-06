@@ -41,7 +41,65 @@ STAGES = [
     ("pane-reenter-close", b"\x10"),
     ("close-focus", b"x"),
 ]
+MOVE_STAGES = STAGES[:2] + [
+    ("move-enter", b"\x08"),
+    ("move-next", b"n"), ("move-tab", b"\x09"), ("move-back", b"p"),
+    ("move-left", b"h"), ("move-down", b"j"), ("move-up", b"k"),
+    ("move-right", b"l"),
+    ("move-arrow-left", b"\x1b[D"), ("move-arrow-down", b"\x1b[B"),
+    ("move-arrow-up", b"\x1b[A"), ("move-arrow-right", b"\x1b[C"),
+    ("move-exit-escape", b"\x1b"), ("move-reenter", b"\x08"),
+    ("move-exit-enter", b"\r"),
+    ("move-enter-toggle", b"\x08"), ("move-exit-toggle", b"\x08"),
+    ("move-enter-lock", b"\x08"), ("move-unbound", b"q"),
+    ("move-lock", b"\x07"), ("move-unlock", b"\x07"),
+]
+UNICODE_TITLE_STAGES = STAGES[:2] + [
+    ("pane-enter", b"\x10"), ("rename-enter", b"c"),
+    ("rename-wide", "界面".encode("utf-8")), ("rename-commit-wide", b"\r"),
+    ("rename-reenter-combining", b"\x10"), ("rename-enter-combining", b"c"),
+    ("rename-clear-combining", b"\x7f" * 2),
+    ("rename-combining", "Cafe\u0301".encode("utf-8")),
+    ("rename-commit-combining", b"\r"),
+    ("rename-reenter-long", b"\x10"), ("rename-enter-long", b"c"),
+    ("rename-clear-long", b"\x7f" * 5),
+    ("rename-long", ("界Cafe\u0301-" * 12).encode("utf-8")),
+    ("rename-commit-long", b"\r"),
+]
+UNICODE_TITLE_PER_KEY_STAGES = STAGES[:2] + [
+    ('pane-enter', b'\x10'),
+    ('rename-enter-wide', b'c'),
+    ('rename-wide', b'\xe7\x95\x8c\xe9\x9d\xa2'),
+    ('rename-commit-wide', b'\r'),
+    ('rename-reenter-combining', b'\x10'),
+    ('rename-enter-combining', b'c'),
+    ('rename-delete-wide-1', b'\x7f'),
+    ('rename-delete-wide-2', b'\x7f'),
+    ('rename-combining', b'Cafe\xcc\x81'),
+    ('rename-commit-combining', b'\r'),
+    ('rename-reenter-long', b'\x10'),
+    ('rename-enter-long', b'c'),
+    ('rename-delete-combining-1', b'\x7f'),
+    ('rename-delete-combining-2', b'\x7f'),
+    ('rename-delete-combining-3', b'\x7f'),
+    ('rename-delete-combining-4', b'\x7f'),
+    ('rename-delete-combining-5', b'\x7f'),
+    ('rename-long', b'\xe7\x95\x8cCafe\xcc\x81-\xe7\x95\x8cCafe\xcc\x81-\xe7\x95\x8cCafe\xcc\x81-\xe7\x95\x8cCafe\xcc\x81-\xe7\x95\x8cCafe\xcc\x81-\xe7\x95\x8cCafe\xcc\x81-\xe7\x95\x8cCafe\xcc\x81-\xe7\x95\x8cCafe\xcc\x81-\xe7\x95\x8cCafe\xcc\x81-\xe7\x95\x8cCafe\xcc\x81-\xe7\x95\x8cCafe\xcc\x81-\xe7\x95\x8cCafe\xcc\x81-'),
+    ('rename-commit-long', b'\r'),
+]
 SCENARIOS = {
+    "rename": STAGES[:3] + [
+        ("rename-enter", b"c"), ("rename-first", b"ABC"),
+        ("rename-commit", b"\r"), ("rename-pane", b"\x10"),
+        ("rename-reenter", b"c"), ("rename-append", b"X"),
+        ("rename-cancel", b"\x1b"), ("rename-reenter-edit", b"c"),
+        ("rename-delete", b"\x7f"),
+        ("rename-paste", b"\x1b[200~Z\nQ\x1b[201~"),
+        ("rename-control-commit", b"\x03")],
+    "titles": STAGES[:2] + [
+        ("title-osc0", b"0"), ("title-osc2", b"2"),
+        ("title-empty", b"E"), ("title-long", b"L"),
+        ("title-whitespace", b"W")],
     "navigation": STAGES[:5],
     "new-n": STAGES[:3] + [("new-pane", b"n")],
     "new-d": STAGES[:3] + [("new-pane-down", b"d")],
@@ -50,6 +108,14 @@ SCENARIOS = {
     "fullscreen-navigation": STAGES[:3] + [
         ("fullscreen-on", b"f"), ("fullscreen-reenter", b"\x10"),
         ("fullscreen-focus-right", b"l"), ("fullscreen-off", b"f")],
+    "move": MOVE_STAGES,
+    "unicode-title-batched": UNICODE_TITLE_STAGES,
+    "unicode-title": UNICODE_TITLE_PER_KEY_STAGES,
+    "move-fullscreen": STAGES[:3] + [
+        ("fullscreen-on", b"\x66"), ("move-enter", b"\x08"),
+        ("move-next", b"n"), ("move-back", b"p"),
+        ("move-right", b"l"), ("move-left", b"h"),
+        ("pane-reenter", b"\x10"), ("fullscreen-off", b"f")],
 }
 
 
@@ -215,8 +281,9 @@ def inspect_spawn_source():
     # This standalone wrapper avoids importing the test module from a child
     # PTY.  With --fixture it is the initial app; with no arguments it is the
     # shell used by every later NewPane action.
-    return r'''#!/usr/bin/env python3
-import errno
+    # The Nix build sandbox has no /usr/bin/env. Use the same pinned Python
+    # interpreter that runs this harness for both multiplexer children.
+    return "#!" + sys.executable + "\n" + r'''import errno
 import fcntl
 import json
 import os
@@ -244,6 +311,13 @@ def run(label, input_path, events_path, message):
     def on_winch(_signum, _frame):
         event("WINCH")
     signal.signal(signal.SIGWINCH, on_winch)
+    title_outputs = {
+        ord("0"): b"\x1b]0;OSC ZERO\x07",
+        ord("2"): b"\x1b]2;OSC TWO\x1b\\",
+        ord("E"): b"\x1b]2;\x07",
+        ord("L"): b"\x1b]2;" + b"long title " * 24 + b"\x07",
+        ord("W"): "\x1b]2;\u2003  trimmed title  \u3000\x07".encode("utf-8"),
+    }
     event("FIRST")
     os.write(1, message)
     while True:
@@ -258,7 +332,12 @@ def run(label, input_path, events_path, message):
         with inputs.open("ab", buffering=0) as output:
             output.write(data)
         event("READ", data)
-        if message == b"WORKFLOW-" + label.encode() + b" READY\r\n":
+        for byte in data:
+            if byte in title_outputs:
+                os.write(1, title_outputs[byte])
+                event("TITLE", bytes([byte]))
+        if (not any(byte in title_outputs for byte in data)
+                and message == b"WORKFLOW-" + label.encode() + b" READY\r\n"):
             os.write(1, b"WORKFLOW-READY\r\n")
 
 if len(sys.argv) == 5 and sys.argv[1] == "--fixture":
@@ -541,7 +620,17 @@ def run_side(kind, binary, profile, reference, root, output, shell,
                                 cols, rows)
         for stage, keys in stage_plan[1:]:
             before = {label: read_bytes(pair[0]) for label, pair in paths.items()}
+            prior_title_events = sum(event["event"] == "TITLE"
+                                     for event in read_events(paths["A"][1]))
             os.write(terminal.fd, keys)
+            if stage.startswith("title-"):
+                # Prove the fixture consumed the request and emitted its OSC
+                # before capturing either multiplexer. Keep raw output and
+                # all event/input differences in the ordinary comparison.
+                wait_for(lambda: sum(event["event"] == "TITLE"
+                                     for event in read_events(paths["A"][1]))
+                         > prior_title_events, terminal)
+                terminal.pump(.5)
             expected_count = None
             probe_stage = stage in {
                 "direction-right", "switch-focus", "fullscreen-focus-right",
@@ -558,7 +647,7 @@ def run_side(kind, binary, profile, reference, root, output, shell,
                     "fullscreen-on": 1,
                     "fullscreen-reenter": 1,
                     "fullscreen-focus-right": 3,
-                    "fullscreen-off": 3,
+                    "fullscreen-off": stages[-1]["status"]["focus"] if stages else None,
                     "close-focus": 3,
                 }.get(stage)
                 if stage in ("new-pane", "new-pane-down", "new-pane-right"):
@@ -570,12 +659,54 @@ def run_side(kind, binary, profile, reference, root, output, shell,
                     "fullscreen-reenter": True,
                     "fullscreen-focus-right": True,
                     "fullscreen-off": False,
-                }.get(stage, False)
+                    "new-pane": False, "new-pane-down": False,
+                    "new-pane-right": False, "close-focus": False,
+                }.get(stage, stages[-1]["inspect"]["zoom"] if stages else False)
 
                 def candidate_ready():
                     state = inspect_candidate(binary, env)
                     status = status_candidate(binary, env)
                     mode = state["mode"]
+                    rename_mode = {
+                        "rename-enter": "rename", "rename-first": "rename",
+                        "rename-commit": "normal", "rename-pane": "pane",
+                        "rename-reenter": "rename", "rename-append": "rename",
+                        "rename-cancel": "pane", "rename-reenter-edit": "rename",
+                        "rename-delete": "rename", "rename-paste": "rename",
+                        "rename-control-commit": "normal",
+                        "rename-enter-wide": "rename", "rename-clear-wide": "rename",
+                        "rename-wide": "rename", "rename-commit-wide": "normal",
+                        "rename-reenter-combining": "pane", "rename-enter-combining": "rename",
+                        "rename-clear-combining": "rename", "rename-combining": "rename",
+                        "rename-commit-combining": "normal",
+                        "rename-reenter-long": "pane", "rename-enter-long": "rename",
+                        "rename-clear-long": "rename", "rename-long": "rename",
+                        "rename-commit-long": "normal",
+                        "rename-delete-wide-1": "rename", "rename-delete-wide-2": "rename",
+                        "rename-delete-combining-1": "rename", "rename-delete-combining-2": "rename",
+                        "rename-delete-combining-3": "rename", "rename-delete-combining-4": "rename",
+                        "rename-delete-combining-5": "rename", "rename-delete-long": "rename",
+                    }.get(stage)
+                    if rename_mode is not None and mode != rename_mode:
+                        return None
+                    expected_name = {
+                        "rename-wide": "界面", "rename-commit-wide": "界面",
+                        "rename-combining": "Cafe\u0301", "rename-commit-combining": "Cafe\u0301",
+                        "rename-long": "界Cafe\u0301-" * 12,
+                        "rename-commit-long": "界Cafe\u0301-" * 12,
+                        "rename-delete-wide-1": "界",
+                        "rename-delete-wide-2": "",
+                        "rename-delete-combining-1": "Cafe",
+                        "rename-delete-combining-2": "Caf",
+                        "rename-delete-combining-3": "Ca",
+                        "rename-delete-combining-4": "C",
+                        "rename-delete-combining-5": "",
+                        "rename-clear-combining": "", "rename-clear-long": "",
+                    }.get(stage)
+                    if expected_name is not None and next(
+                            pane["name"] for pane in state["panes"]
+                            if pane["id"] == status["focus"]) != expected_name:
+                        return None
                     if stage in ("pane-enter", "direction-right", "switch-focus",
                                  "pane-reenter-down", "pane-reenter-right",
                                  "pane-reenter-close", "fullscreen-reenter",
@@ -614,7 +745,7 @@ def run_side(kind, binary, profile, reference, root, output, shell,
                     "new-pane-right": 4 if expected_count == 4 else 1,
                     "close-focus": 3,
                     "fullscreen-focus-right": 3,
-                    "fullscreen-off": 3,
+                    "fullscreen-off": stages[-1]["status"]["focus"] if stages else None,
                 }.get(stage)
                 if expected_focus is not None:
                     assert status["focus"] == expected_focus, (stage, status, state)

@@ -1,0 +1,33 @@
+This is SBCL 2.6.7, an implementation of ANSI Common Lisp.
+More information about SBCL is available at <http://www.sbcl.org/>.
+
+SBCL is free software, provided as is, with absolutely no warranty.
+It is mostly in the public domain; some portions are provided under
+BSD-style licenses.  See the CREDITS and COPYING files in the
+distribution for more information.
+
+; file: /home/y0usaf/dev/maintaining/ekko_v2/src/extensions.lisp
+; in: DEFUN REGISTER-COMPONENT
+;     (EKKO/EXTENSIONS:UNREGISTER-COMPONENT EKKO/EXTENSIONS::ID)
+; 
+; caught STYLE-WARNING:
+;   undefined function: EKKO/EXTENSIONS:UNREGISTER-COMPONENT
+; 
+; compilation unit finished
+;   Undefined function:
+;     UNREGISTER-COMPONENT
+;   caught 1 STYLE-WARNING condition
+
+; file: /tmp/ekko-title-config-8qld54q5/zellij-pane.lisp
+; in: DEFUN ZELLIJ-PANE-SPLIT-ACTIONS
+;     (ZELLIJ-PANE-ROOM-P
+;      (FIND PANE-ID (GETF SNAPSHOT :PANES) :KEY (LAMBDA (PANE) (GETF PANE :ID)))
+;      AXIS)
+; 
+; caught STYLE-WARNING:
+;   undefined function: COMMON-LISP-USER::ZELLIJ-PANE-ROOM-P
+; 
+; compilation unit finished
+;   Undefined function:
+;     ZELLIJ-PANE-ROOM-P
+;   caught 1 STYLE-WARNING condition

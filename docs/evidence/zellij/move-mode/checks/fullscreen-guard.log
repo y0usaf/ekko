@@ -1,0 +1,12 @@
+error (ignored): SQLite database '/home/y0usaf/.cache/nix/eval-cache-v6/6672e8763df888502e5878428a373c77925c1b9af16a3953224de652656b27f4.sqlite' is busy
+these 4 derivations will be built:
+  /nix/store/1k242f2mcj6hp83qr6yx84pm8ygjb37m-ekko-0.1.0.drv
+  /nix/store/1lprx2gzfb1mfczzphnldp5cz8wf5jsp-ekko-pane-moves.drv
+  /nix/store/gj47gkibvcdg1k1m55pd0041p1p4aj0l-ekko-pane-workflow.drv
+  /nix/store/vlzzl21hb7dccg11hvq9354i190n2k4i-ekko-keymaps.drv
+building '/nix/store/vlzzl21hb7dccg11hvq9354i190n2k4i-ekko-keymaps.drv'...
+building '/nix/store/1lprx2gzfb1mfczzphnldp5cz8wf5jsp-ekko-pane-moves.drv'...
+building '/nix/store/gj47gkibvcdg1k1m55pd0041p1p4aj0l-ekko-pane-workflow.drv'...
+/nix/store/4nw0nriqhvqlqpayfjab9rz8x1g149yk-ekko-pane-moves
+/nix/store/7qc9b78bp090dq5bql1r5j68a9iji9l4-ekko-keymaps
+/nix/store/2kz2pnkgmdln2f73vpk5l1v2zjj91znv-ekko-pane-workflow

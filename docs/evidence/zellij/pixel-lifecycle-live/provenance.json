@@ -1,0 +1,16 @@
+{
+  "date": "2026-09-06",
+  "reference_source": "/nix/store/2q437kxp07ki50dkh6a4nmmcc4nlylqw-source",
+  "commands": [
+    "nix run 'path:.#zellij-pane-workflow' -- --output /tmp/ekko-pixel-live-80-query --cols 80 --rows 24 --only new-d",
+    "nix run 'path:.#zellij-pane-workflow' -- --output /tmp/ekko-pixel-live-80-noquery --cols 80 --rows 24 --only new-d --no-query-response",
+    "nix run 'path:.#zellij-pane-workflow' -- --output /tmp/ekko-pixel-live-120-query --cols 120 --rows 24 --only new-d"
+  ],
+  "exit_codes": {"80x24_query": 1, "80x24_noquery": 0, "120x24_query": 1},
+  "query_responses": {"80x24": true, "80x24_noquery": false, "120x24": true},
+  "artifacts": {
+    "80x24_query": "80x24-query",
+    "80x24_noquery": "80x24-noquery",
+    "120x24_query": "120x24-query"
+  }
+}

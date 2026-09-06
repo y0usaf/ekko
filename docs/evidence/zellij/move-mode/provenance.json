@@ -1,0 +1,13 @@
+{
+  "date": "2026-09-06",
+  "profile_sha256": "59e93d0fe638c3386dac57439fc6c62d36118240376aed54011db8f0df86274b",
+  "pane_policy_sha256": "4810c4ce1eb0d93a603698b6212042fc55a2d47475441ef7d5c4e6ba23c980ec",
+  "commands": [
+    "nix run 'path:.#zellij-pane-workflow' -- --only move --only move-fullscreen --cols 80 --rows 24 --output /tmp/ekko-move-final2-80x24",
+    "nix run 'path:.#zellij-pane-workflow' -- --only move --cols 20 --rows 8 --output /tmp/ekko-move-final-20x8",
+    "nix run 'path:.#zellij-pane-workflow' -- --only move-fullscreen --cols 80 --rows 24 --output /tmp/ekko-move-fullscreen-fixed2",
+    "nix build --no-link -L --print-out-paths 'path:.#checks.x86_64-linux.pane-moves' 'path:.#checks.x86_64-linux.keymaps' 'path:.#checks.x86_64-linux.pane-workflow'"
+  ],
+  "qualification": "paired-80x24 and paired-20x8 precede fullscreen no-op guard; fullscreen-fixed verifies final guard. visual has its own captured-candidate provenance. No full parity claim.",
+  "full_parity": false
+}

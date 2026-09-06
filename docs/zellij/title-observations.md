@@ -1,6 +1,9 @@
 # Pane title lifecycle (pinned Zellij 0.43.1)
 
-This is source analysis only; it contains no new visual capture. The pinned
+This records source analysis and the title metadata implementation. Fresh Nix
+regular/bare lifecycle checks pass; the private workflow has exact settled
+pixel/cell matches but startup and broader behavioral gaps remain. See
+[evidence](../evidence/zellij/title-metadata/README.md). The pinned
 source checkout is `/nix/store/2q437kxp07ki50dkh6a4nmmcc4nlylqw-source`,
 corresponding to `tests/zellij/reference/pin.json` (`v0.43.1`, nixpkgs
 revision `ac62194c3917d5f474c1a844b6fd6da2db95077d`).
@@ -10,15 +13,15 @@ frame override, rename/search prompts, explicit pane name, terminal grid title,
 then stored initial title. The same steady-state precedence is explicit at
 `terminal_pane.rs:458-466` and `:768-783`: explicit name wins; otherwise OSC
 0/2 grid title wins; otherwise the initial title wins. The OSC parser accepts
-codes 0 and 2 and stores the value in Grid (`grid.rs:2545-2567`). Ekko parses
-those codes into `terminal-title` (`src/vt.lisp:296-300`), but the current
-profile chooses note text or pane `:label` (`examples/profiles/zellij.lisp:24-40`).
+codes 0 and 2 and stores the value in Grid (`grid.rs:2545-2567`). Ekko exposes
+those codes as `:terminal-title`; the ordinary profile now chooses note text
+or the result of `zellij-pane-title`.
 The Rust `Option::as_deref().unwrap_or(...)` means an explicitly set empty OSC
 title (`Some("")`) still wins over the initial title; only absence falls back.
 The reference trims surrounding whitespace before storing OSC titles
-(`grid.rs:2554-2565`); Ekko instead removes control characters and truncates
-to 120 characters (`src/vt.lisp:300`). These parser differences also require
-coverage when exposing titles to the profile. The reference has title-stack
+(`grid.rs:2554-2565`); Ekko removes control characters but preserves surrounding
+spaces so profiles choose whitespace policy. The former 120-character cap is
+removed; the existing 16 KiB OSC parser bound remains. The reference has title-stack
 push/pop state (`grid.rs:2023-2038`), another required title lifecycle case.
 
 `TerminalPane::new` defaults an absent initial title to exactly `Pane #N`
@@ -36,23 +39,23 @@ A close removes the pane before allocation, so a later pane number can be
 reused; it is not historical monotonic state. `rename` writes `pane_name`
 (`terminal_pane.rs:800-804`), making it highest priority until cleared.
 
-Ekko stores `argv`, `label`, and `vt` (`src/server.lisp:3-6`). The current
-snapshot does not export `argv`; `context-data` in `src/commands.lisp` exports
-labels, geometry, process and history state, and activation order. Startup and
-split creation set `label` to `(file-namestring (first argv))`
-(`src/server.lisp` and `src/commands.lisp`), explaining the basename title.
-Rename mutates that label (`src/commands.lisp:426`), and the default formatter
-renders pane ID plus display label (`src/builtins.lisp:19-26`). The public
-snapshot exports `label` and `display-label`, but neither `argv` nor
-`terminal-title` nor title provenance. Ekko currently stores absent and empty
-OSC titles as the same empty string; the pinned reference distinguishes them.
+Ekko retains its existing basename `:label` for builtin decoration. Its public
+snapshot now also exports copied `:argv`, `:name`, `:terminal-title`,
+`:launch-kind`, and immutable `:creation-position`. Rename updates both the
+existing label and the separate explicit name. Absent OSC titles are now `nil`,
+distinct from empty strings. Inspect JSON exposes the same observations with
+underscore names for `launch_kind`, `creation_position`, and `terminal_title`.
 
-The missing observations needed for a faithful ordinary Lisp policy are the
-original startup command vector (including whether the command is an implicit
-shell), the current terminal OSC title including the empty-string case, and
-whether the label came from a layout name or an interactive rename. Exposing
-those as plain snapshot data would let a hook choose policy without imposing a
-new global title-policy API. No implementation was made here.
+The profile now consumes the plain metadata needed for a faithful policy:
+original startup command vector, `:launch-kind`, creation position, rename
+`:name`, and terminal OSC title including the empty-string case. Its pure
+`zellij-pane-title` helper joins command argv literally, trims Unicode
+White_Space from OSC titles, and applies the pinned precedence. Layout-name
+versus interactive rename provenance, title stack behavior, and saved-layout
+restore behavior remain outside the current public metadata contract.
+Unicode whitespace trimming is covered by the policy tests, but interior
+non-ASCII titles still exceed the frame helper's supported width contract.
+Full title parity remains unproven; this is a required outstanding gap.
 
 Source file hashes from the pinned checkout:
 

@@ -56,12 +56,25 @@ cross this boundary.
 | `:session` | Session name |
 | `:focus` | Stable focused pane ID |
 | `:mode` | Active custom keymap keyword, or `nil` for built-in routing |
-| `:panes` | Plists with `:id`, raw `:label`, `:display-label`, `:pid`, `:cols`, `:rows`, `:exit`, content `:x`/`:y`, `:outer-rect` `(x y width height)`, `:layout-rect`, `:activation-order`, `:visible`, and `:history-rows` |
-| `:viewport` | Plist with `:cols`, `:rows`, effective pixel `:cell-width`/`:cell-height`, resolved `:insets` and `:gaps` |
+| `:panes` | Plists with `:id`, raw `:label`, explicit `:name` (nil until rename), detached `:argv`, `:launch-kind` (`:command` or `:shell`), immutable `:creation-position`, `:terminal-title` (nil until OSC title, empty when cleared), `:display-label`, `:pid`, `:cols`, `:rows`, `:exit`, content `:x`/`:y`, `:outer-rect` `(x y width height)`, `:layout-rect`, `:activation-order`, `:visible`, `:pty-size`, and `:history-rows` |
+| `:viewport` | Plist with `:cols`, `:rows`, effective pixel `:cell-width`/`:cell-height`, nullable `:reported-cell-width`/`:reported-cell-height`, resolved `:insets` and `:gaps` |
 | `:zoom` | Lisp boolean (`t` or `nil`) |
 | `:chrome-status` | Resolved status `:text` and SGR `:style` |
+| `:component-state` | Detached alist of component ID strings to daemon-owned plain values; other components can read it when declared |
 | `:pane-notes` | Active temporary contributions, each with `:owner`, `:pane`, `:text`, and `:sgr`, ordered by component registration |
 | `:layout` | Pane ID leaves; branches `(axis percentage first second)` |
+
+Pane launch metadata is daemon-owned and survives component removal, reload,
+and viewer replacement. `:launch-kind` is `:command` for startup commands and
+splits with explicit `:argv`, or `:shell` for splits using the configured shell.
+`:creation-position` records the live pane count including the new pane when
+it is created; it is not the stable pane ID and is not renumbered after closes.
+`:name` records the last rename, including an empty string; `:label` retains
+its existing builtin behavior. `:terminal-title` preserves surrounding spaces
+and distinguishes no OSC title (`nil`) from an explicitly empty title (`""`).
+The OSC parser remains bounded to 16 KiB and extension packets to 64 KiB;
+oversized snapshots are not silently truncated. Formatting and title precedence
+belong to ordinary components.
 
 `:layout-rect` is the pane's outer `(x y width height)` rectangle with zoom
 ignored; it is `nil` for panes hidden by a layout too small to fit. It allows
@@ -69,7 +82,17 @@ navigation policy to inspect the tiled arrangement while one pane is fullscreen.
 `:activation-order` is a daemon-owned increasing integer updated when focus
 moves to a pane. Reload and reattachment preserve it. Cell pixel dimensions are
 the daemon's effective values, including fallback values when host dimensions
-are unavailable.
+are unavailable. Reported values remain `nil` until a host query reply arrives;
+they are distinct from effective rendering metrics and survive detach/reload.
+The client accepts both text-area and cell-size replies, with direct cell-size
+reports taking precedence. Merely reporting metrics does not resize applications.
+`:pty-pixel-source` selects `:effective` (default) or `:reported` for application
+PTY pixels, applied at startup and subsequent layout operations. Unknown reported
+metrics produce zero pixel fields. Pane `:pty-size` records `(cols rows xpixels
+ypixels)` last successfully applied to the kernel; inspect calls it `pty_size`.
+Pixel fields follow the platform's unsigned 16-bit winsize representation.
+Physical VT/rendering geometry remains independent of this option. Removing the
+owning component restores the effective source on reload without replacing panes.
 
 A change hook runs initially and when one of its declared keys changes; changes
 can coalesce while a handler runs. Hook results are discarded when a declared
@@ -82,8 +105,9 @@ registrations from the accepted init source; worker-local variables reset.
 Components own their commands, bindings, keymaps, options, status contributions, and decorations.
 Later components shadow earlier ones. Removal or reload reconstructs those
 contributions, restoring underlying defaults. A keymap name is a keyword other
-than the built-in `:prefix` and `:copy`; its `:unbound` policy is either
-`:forward` (send an unbound key to the focused pane) or `:ignore` (discard it).
+than the built-in `:prefix` and `:copy`; its `:unbound` policy is
+`:forward` (send an unbound key to the focused pane), `:ignore` (discard it),
+or a registered command-name string (receive the input event as described below).
 `register-keymap` records the component as the map's owner. A `bind-key` map may
 be `:prefix`, `:copy`, or a custom registered map; custom map references are
 validated when the complete registry is installed, so an unknown map rejects the
@@ -100,11 +124,14 @@ and tested with no builtins and an externally loaded command.
 
 These keymap additions are additive to public API version 1; `(api-version)`
 continues to return `1`. Geometry and decorations use attachment wire
-version `5`, with explicit outer rectangles, geometry metadata, and published
-decoration spans.
+version `6`, with explicit outer rectangles, geometry metadata, published
+decoration spans, and separate reported-cell metrics. Packet 15 carries two
+big-endian unsigned 32-bit values (cell width 1–128 and height 1–256) from the
+attached writer. Older attachment versions reject explicitly.
 
 | Option | Value |
 | --- | --- |
+| `:pty-pixel-source` | `:effective` (default) or `:reported`; selects application PTY pixel metrics independently of rendering |
 | `:pane-insets` | `(top right bottom left)`, each integer 0–16; default `(1 0 0 0)` |
 | `:viewport-insets` | Same order/range; default `(0 0 1 0)` |
 | `:split-gaps` | `(column-gap row-gap)`, each integer 0–16; default `(1 0)` |
@@ -205,7 +232,7 @@ writer discards them. Grapheme and modifier handling is not complete Zellij pari
 
 Actions are plists prefixed by their kind. A batch accepts up to 32 actions,
 with at most **one primary session action**, optionally followed by one
-`:set-keymap` transition, plus status contributions. A map transition must
+`:set-keymap` transition, plus contributions (including at most one `:set-state`). A map transition must
 follow the primary action when both are present; a map transition by itself is
 also valid. Status contributions may accompany either form. The complete batch
 is validated before application, so an invalid action, map target, order, or
@@ -216,6 +243,8 @@ primary action made before raising are not rolled back.
 
 | Action | Arguments |
 | --- | --- |
+| `:set-state` | `:value` replaces the invoking component’s state; `nil` deletes it |
+| `:set-layout` | `:tree` of `(:columns percentage first second)` / `(:rows percentage first second)` branches and existing stable pane-ID leaves; every pane exactly once |
 | `:split` | `:axis :columns` or `:rows`; optional `:pane` target ID and `:argv` list |
 | `:focus` | `:pane` stable ID |
 | `:close` | Optional `:focus` surviving pane ID; otherwise retains the existing fallback policy |
@@ -286,3 +315,43 @@ The daemon buffer holds up to 1 MiB and survives client replacement. Pasting
 honors the application's bracketed-paste mode and currently accepts up to 60,000
 UTF-8 bytes, within the pane's bounded input queue. Export larger selections with
 `ekko buffer`; host clipboard integration and character-level selection remain future work.
+
+The `:set-layout` action replaces the current tiled tree without spawning or
+closing applications. Branch percentages are integers 1–99; every existing
+pane ID must appear exactly once. Invalid trees reject the complete action
+batch. Focus and fullscreen state are preserved: changing the tiled tree while
+fullscreen takes effect behind the focused pane until fullscreen is cleared.
+The tree is daemon-owned session state, so it survives detach, component
+removal, and reload; `:initial-layout` is only a startup default. Profiles can
+compute layout choices from their detached `:layout` and `:panes` snapshots
+and return this ordinary action. The core performs geometry and PTY resizing.
+
+A custom keymap's `:unbound` may also be a registered command-name string.
+Unbound keys invoke that command through the ordinary isolated worker and
+validated action path. The event includes `:key` (Unicode code point, semantic
+key keyword, or `nil`) and `:bytes` (the original octet list). Bound commands
+win first. Subsequent input waits for the current command result, so a mode
+transition affects remaining bytes in the same input packet. Referencing a
+missing fallback command rejects configuration reload before installation.
+
+For a named fallback, bracketed paste delivers one event with `:key nil`,
+`:paste t`, and the original payload `:bytes`; wrapper bytes are excluded and
+bound-key lookup is bypassed. Payloads are bounded to 4096 raw bytes. Oversized
+pastes report an error and are discarded through the closing wrapper, without
+sending them to pane applications. `:ignore` consumes paste, while `:forward`
+retains the normal application paste path.
+
+`:set-state` belongs to the command's registered component; it cannot write
+another owner's entry. Values may be nil/t, keywords, integers, strings, and
+proper lists of those values. Validation bounds each value to 1024 visited
+values and 16 nesting levels and all retained state to 16 KiB when printed and
+UTF-8 encoded. Cycles, dotted lists, and host objects are rejected. Snapshots
+copy nested strings as well as list structure. Inspect exposes entries as
+`component-state` objects with `owner` and `value` fields.
+
+Component state survives detach, worker restart, and reload while that owner
+remains registered. Removing the owner discards its state. Invalid batches or
+failed registry validation leave the prior state intact. State updates may
+accompany one primary action and one mode transition, and commit only after the
+primary succeeds. Change hooks cannot emit state updates. This state is visible
+to other components that declare the snapshot key; it is not private storage.

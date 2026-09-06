@@ -1,0 +1,3 @@
+4d2e6479a8ddfcac55415775af8cc3a61289e7aa4b9f425346ba10e2b377db09  flake.lock
+41197b9f92ac0cae4252324dfbaa7ae824e898360cebdf596f57245a8d8b3a24  tests/zellij/pane_workflow_differential.py
+2f4fb83d6d351297f8c421994216103494880e450873b2bc178a2b239bcf599f  examples/profiles/zellij.lisp

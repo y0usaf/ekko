@@ -66,7 +66,11 @@
             (declare (ignore width height))
             (destructuring-bind (bx by other-width other-height) (zellij-pane-rect b)
               (declare (ignore other-width other-height))
-              (or (< ay by) (and (= ay by) (< ax bx))))))))
+              (or (< ay by)
+                  (and (= ay by)
+                       (or (< ax bx)
+                           (and (= ax bx)
+                                (< (getf a :id) (getf b :id)))))))))))
 
 (defun zellij-pane-switch-focus-action (snapshot)
   (let* ((panes (zellij-pane-row-major
@@ -76,6 +80,35 @@
     (when (and panes index)
       (list (ekko/extensions:action
              :focus :pane (getf (nth (mod (1+ index) (length panes)) panes) :id))))))
+
+(defun zellij-pane-move-action (snapshot target-id)
+  "Swap the focused pane with TARGET-ID through the public layout action.
+
+The pinned implementation swaps geometry overrides while fullscreen is active;
+the public tree action path has not been paired for that case yet."
+  (let ((focus (getf snapshot :focus)))
+    ;; Pinned Tab move entry points reject tiled movement during fullscreen.
+    (when (and (not (getf snapshot :zoom)) target-id (not (= focus target-id)))
+      (list (ekko/extensions:action
+             :set-layout :tree
+             (ekko/layout:swap-panes (getf snapshot :layout) focus target-id))))))
+
+(defun zellij-pane-move-cyclic-action (snapshot backwards)
+  "Move the focused pane to the previous/next row-major pane."
+  (let* ((panes (zellij-pane-row-major
+                 (remove-if-not #'zellij-pane-rect (getf snapshot :panes))))
+         (focus (getf snapshot :focus))
+         (index (position focus panes :key (lambda (pane) (getf pane :id)))))
+    (when (and panes index)
+      (zellij-pane-move-action
+       snapshot
+       (getf (nth (mod (+ index (if backwards -1 1)) (length panes)) panes)
+             :id)))))
+
+(defun zellij-pane-move-direction-action (snapshot direction)
+  "Move the focused pane into the direction target selected by tiled geometry."
+  (let ((target (zellij-pane-directional-target snapshot direction)))
+    (zellij-pane-move-action snapshot (and target (getf target :id)))))
 
 (defun zellij-pane-failed-split-actions (snapshot pane-id)
   (append (when (getf snapshot :zoom)
@@ -120,8 +153,8 @@ ascending ID order and ties retain the lower ID.  It then chooses rows only
 when the height-weighted width is larger and the height is over ten; columns
 are the fallback when width is over ten.  There is no alternate-pane search."
   (let* ((viewport (getf snapshot :viewport))
-         (cell-width (getf viewport :cell-width))
-         (cell-height (getf viewport :cell-height))
+         (cell-width (getf viewport :reported-cell-width))
+         (cell-height (getf viewport :reported-cell-height))
          ;; Rust's f64::round rounds positive halves away from zero.  FLOOR
          ;; of ratio+1/2 has that behavior without CL's ties-to-even ROUND.
          (ratio (if (and (integerp cell-width) (> cell-width 0)
@@ -188,3 +221,83 @@ are the fallback when width is over ten.  There is no alternate-pane search."
               (ekko/extensions:action :close :focus (getf replacement :id))
               (ekko/extensions:action :close))
           (ekko/extensions:action :set-keymap :name :normal))))
+
+;; RenamePane keeps the previous name separately because entering the mode
+;; does not clear the editable label.  The daemon exposes this as ordinary
+;; component state, so the policy remains reload-safe and independent of pane
+;; process identity.
+(defun zellij-pane-state-value (snapshot)
+  (cdr (assoc "zellij-modes" (getf snapshot :component-state) :test #'equal)))
+
+(defun zellij-pane-state-for-panes (state panes)
+  (let ((ids (mapcar (lambda (pane) (getf pane :id)) panes)))
+    (loop for entry in state
+          when (and (listp entry) (= (length entry) 2)
+                    (member (first entry) ids :test #'eql))
+            collect (list (first entry) (second entry)))))
+
+(defun zellij-pane-rename-state (snapshot pane-id old-name)
+  (let* ((state (zellij-pane-state-for-panes
+                 (or (zellij-pane-state-value snapshot) nil)
+                 (getf snapshot :panes)))
+         (without (remove pane-id state :key #'first :test #'eql)))
+    (cons (list pane-id (or old-name "")) without)))
+
+(defun zellij-pane-rename-enter-actions (snapshot)
+  (let* ((pane (zellij-pane-focused snapshot))
+         (id (and pane (getf pane :id)))
+         (old (and pane (or (getf pane :name) ""))))
+    (when pane
+      (list (ekko/extensions:action
+             :set-state :value (zellij-pane-rename-state snapshot id old))
+            (ekko/extensions:action :set-keymap :name :rename)))))
+
+(defun zellij-pane-rename-pop (text)
+  (if (plusp (length text))
+      (subseq text 0 (1- (length text)))
+      text))
+
+(defun zellij-pane-rename-decoded (bytes)
+  (handler-case
+      (let* ((octets (coerce bytes '(vector (unsigned-byte 8))))
+             (text (sb-ext:octets-to-string octets :external-format :utf-8))
+             ;; SBCL versions differ in whether malformed input signals or
+             ;; inserts U+FFFD.  Round-tripping makes rejection deterministic.
+             (encoded (sb-ext:string-to-octets text :external-format :utf-8)))
+        (when (equal bytes (coerce encoded 'list)) text))
+    (error () nil)))
+
+(defun zellij-pane-rename-filter (text)
+  (coerce (loop for char across text
+                for code = (char-code char)
+                unless (or (<= code #x1f)
+                           (<= #x7f code #x9f)
+                           (= code #x2028) (= code #x2029))
+                  collect char)
+          'string))
+
+(defun zellij-pane-rename-input-action (snapshot event)
+  (let* ((pane (zellij-pane-focused snapshot))
+         (id (and pane (getf pane :id)))
+         (old (and pane (or (getf pane :name) "")))
+         (bytes (getf event :bytes)))
+    (when (and pane (listp bytes) (every (lambda (byte) (typep byte '(integer 0 255))) bytes))
+      (let ((new (cond ((or (equal bytes '(8)) (equal bytes '(127)))
+                       (zellij-pane-rename-pop old))
+                      (t (let ((decoded (zellij-pane-rename-decoded bytes)))
+                           (and decoded (concatenate 'string old
+                                                     (zellij-pane-rename-filter decoded))))))))
+        (when new
+          (list (ekko/extensions:action :rename :pane id :text new)))))))
+
+(defun zellij-pane-rename-previous-action (snapshot)
+  (let* ((pane (zellij-pane-focused snapshot))
+         (id (and pane (getf pane :id)))
+         (state (zellij-pane-state-for-panes
+                 (or (zellij-pane-state-value snapshot) nil)
+                 (getf snapshot :panes)))
+         (entry (and id (find id state :key #'first :test #'eql))))
+    (when pane
+      (list (ekko/extensions:action :rename :pane id
+                                    :text (or (and entry (second entry)) ""))
+            (ekko/extensions:action :set-keymap :name :pane)))))

@@ -1,0 +1,116 @@
+{
+  "date": "2026-09-06",
+  "previous_goal_turn": "progress",
+  "scope": "Full Zellij 0.43.1 parity remains required",
+  "native_unit": {
+    "command": "XDG_CACHE_HOME=/tmp/ekko-title-native-cache EKKO_SOURCE_DIR=/home/y0usaf/dev/maintaining/ekko_v2 EKKO_PLATFORM_LIBRARY=/nix/store/03nhwcv9gcaa232dgwfs406c4ifz27cw-ekko-0.1.0/lib/libekko-platform.so /nix/store/2wqp81nbcymwk708ns8lz0n6chvc564g-sbcl-2.6.7/bin/sbcl --no-userinit --no-sysinit --non-interactive --load scripts/test.lisp",
+    "exit_code": 0,
+    "log": "native-unit.log",
+    "qualification": "native diagnostic using existing platform library; not Nix validation"
+  },
+  "native_profile_load": {
+    "exit_code": 0,
+    "log": "native-config.log"
+  },
+  "native_paired_fixture": {
+    "status": "passed",
+    "qualification": "standalone PTY fixture only; no mux involved"
+  },
+  "nix_check": {
+    "command": "nix build --no-link -L --print-out-paths 'path:.#checks.x86_64-linux.pane-titles'",
+    "exit_code": 0,
+    "output_path": "/nix/store/pgdblqz591hiyhnx5j30wcvnrmr5x6jp-ekko-pane-titles",
+    "output_log": "nix-live-output.log",
+    "live_log": "nix-live.log",
+    "suites": [
+      "pane-titles",
+      "pane-titles-bare"
+    ],
+    "qualification": "fresh Nix live verification using the current executable",
+    "previous_exit_code": 1,
+    "log": "nix-check.log"
+  },
+  "real_worker_titles": "passed regular and bare lifecycle suites in fresh Nix build",
+  "paired_titles": {
+    "report": "paired/README.md",
+    "dimensions": [
+      [
+        80,
+        24
+      ],
+      [
+        20,
+        8
+      ]
+    ],
+    "settled_input_slice_passed": true,
+    "focus_slice_passed": true,
+    "application_cell_geometry_slice_passed": false
+  },
+  "screenshots": {
+    "report": "visual/summary.json",
+    "settled_checkpoints": 13,
+    "settled_pixel_and_cell_differences": 0,
+    "startup_differing_pixels": 50672,
+    "startup_differing_cells": 1159,
+    "full_parity": false,
+    "coverage_complete": false
+  },
+  "full_parity": false,
+  "coverage_complete": false,
+  "sha256": {
+    "src/server.lisp": "10c40732b5b5d74d072c665b95dd8831d92b570609ad75931b75dc8a0b0fcdd0",
+    "src/commands.lisp": "1e8838544fced49f8060927e4a5aad3aec48b2cb8fb08d04e4000aa12bd69851",
+    "src/vt.lisp": "bca78d33e304467c2699fdab664735f1b5a5fb5d5948652301ddd9ca2d6441f5",
+    "examples/profiles/zellij.lisp": "f1666b730392bacb47a0b0721d9db8e3bce98514b6a8bc61bea445f015603f2c",
+    "examples/profiles/zellij-frames.lisp": "6cf4a67c3ba4b0ec3c3015bb2ac9c8df22e6666c434ff2be68e90229066a02f4",
+    "tests/customization.lisp": "2c4b41746a5cccd7eddf99d4c564463f0bac5d27110d246a3233a769abd20690",
+    "tests/zellij-frames.lisp": "6a1093bf5bda0b3b90fcb8e21619e6a164d07166475c8552a79e449b6daa4906",
+    "tests/pane_titles.py": "0fbf5bb8bb83dd6f3380bb3de5a0d508352e2786c5e1a5386c881e386e8138b8",
+    "tests/zellij/pane_workflow_differential.py": "df3d4ee02d442ab13af048233f37af818ba4a7d84ce04bf45ab4f5f50199f0ae",
+    "flake.nix": "2801e8ce580acc31068f0030c490e331a47a2ed7f8098d365897b5161ecf7839"
+  },
+  "historical_restricted_access": {
+    "nix_daemon": "EPERM",
+    "local_AF_UNIX_bind": "EPERM",
+    "dev_dri": "absent"
+  },
+  "current_access": {
+    "nix_daemon": "allowed, version 2.34.8",
+    "local_AF_UNIX_bind": "allowed",
+    "private_Cage_software_rendering": "capture completed"
+  },
+  "nix_build": {
+    "command": "nix build --no-link -L --print-out-paths path:.#default",
+    "exit_code": 0,
+    "output": "/nix/store/p281nhg42z1mf68krj971zigdc1rczzz-ekko-0.1.0",
+    "log": "nix-build-live.log"
+  },
+  "full_flake_check": {
+    "command": "nix flake check -L --keep-going path:.",
+    "exit_code": 1,
+    "failed_check": "zellij-pane-workflow",
+    "reason": "Reference fixture launcher used /usr/bin/env, unavailable in Nix sandbox; fixed to current pinned Python executable",
+    "log": "flake-check-live.log.gz"
+  },
+  "corrected_workflow_check": {
+    "command": "nix build --no-link -L --keep-failed --print-out-paths path:.#checks.x86_64-linux.zellij-pane-workflow",
+    "exit_code": 1,
+    "reason": "Completed scenarios; application resize-history parity gate remains false",
+    "log": "workflow-check-live.log.gz",
+    "retained_output": "nix-workflow/"
+  },
+  "sha256_current": {
+    "src/server.lisp": "10c40732b5b5d74d072c665b95dd8831d92b570609ad75931b75dc8a0b0fcdd0",
+    "src/commands.lisp": "1e8838544fced49f8060927e4a5aad3aec48b2cb8fb08d04e4000aa12bd69851",
+    "src/vt.lisp": "bca78d33e304467c2699fdab664735f1b5a5fb5d5948652301ddd9ca2d6441f5",
+    "examples/profiles/zellij.lisp": "f1666b730392bacb47a0b0721d9db8e3bce98514b6a8bc61bea445f015603f2c",
+    "examples/profiles/zellij-frames.lisp": "6cf4a67c3ba4b0ec3c3015bb2ac9c8df22e6666c434ff2be68e90229066a02f4",
+    "tests/customization.lisp": "2c4b41746a5cccd7eddf99d4c564463f0bac5d27110d246a3233a769abd20690",
+    "tests/zellij-frames.lisp": "6a1093bf5bda0b3b90fcb8e21619e6a164d07166475c8552a79e449b6daa4906",
+    "tests/pane_titles.py": "0fbf5bb8bb83dd6f3380bb3de5a0d508352e2786c5e1a5386c881e386e8138b8",
+    "tests/zellij/pane_workflow_differential.py": "41197b9f92ac0cae4252324dfbaa7ae824e898360cebdf596f57245a8d8b3a24",
+    "flake.nix": "2801e8ce580acc31068f0030c490e331a47a2ed7f8098d365897b5161ecf7839",
+    "scripts/oracle/zellij-visual-compare.py": "f09357221dd2c370956d05e7e243eed82b22ad4ec1290cb5dc543c1a6aca2349"
+  }
+}

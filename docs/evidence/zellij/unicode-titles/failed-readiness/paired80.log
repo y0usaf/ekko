@@ -1,0 +1,24 @@
+these 2 derivations will be built:
+  /nix/store/dd0522r3wsplmakmj9kp6q2lkxgyd2md-ekko-0.1.0.drv
+  /nix/store/8wi9xkzqaq7r5ydldv88k4kv6mwbzsin-ekko-zellij-pane-workflow.drv
+building '/nix/store/dd0522r3wsplmakmj9kp6q2lkxgyd2md-ekko-0.1.0.drv'...
+building '/nix/store/8wi9xkzqaq7r5ydldv88k4kv6mwbzsin-ekko-zellij-pane-workflow.drv'...
+Traceback (most recent call last):
+  File "/nix/store/cbwc0y70rd3vdgfhjkslkdinl7y535l6-zellij/pane_workflow_differential.py", line 932, in <module>
+    main()
+  File "/nix/store/cbwc0y70rd3vdgfhjkslkdinl7y535l6-zellij/pane_workflow_differential.py", line 869, in main
+    candidate_stages = run_side(
+                       ^^^^^^^^^
+  File "/nix/store/cbwc0y70rd3vdgfhjkslkdinl7y535l6-zellij/pane_workflow_differential.py", line 693, in run_side
+    state, status = wait_for(candidate_ready, terminal)
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/nix/store/cbwc0y70rd3vdgfhjkslkdinl7y535l6-zellij/pane_workflow_differential.py", line 213, in wait_for
+    value = predicate()
+            ^^^^^^^^^^^
+  File "/nix/store/cbwc0y70rd3vdgfhjkslkdinl7y535l6-zellij/pane_workflow_differential.py", line 673, in candidate_ready
+    if expected_name is not None and next(
+                                     ^^^^^
+  File "/nix/store/cbwc0y70rd3vdgfhjkslkdinl7y535l6-zellij/pane_workflow_differential.py", line 675, in <genexpr>
+    if pane["id"] == state["focus"]) != expected_name:
+                     ~~~~~^^^^^^^^^
+KeyError: 'focus'

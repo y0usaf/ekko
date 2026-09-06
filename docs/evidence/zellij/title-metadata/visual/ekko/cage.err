@@ -1,0 +1,6 @@
+00:00:00.000 [ERROR] [xwayland/sockets.c:64] Failed to bind socket @/tmp/.X11-unix/X0: Address already in use
+00:00:00.000 [ERROR] [xwayland/sockets.c:64] Failed to bind socket @/tmp/.X11-unix/X1: Address already in use
+[0.033] [glfw error 65544]: Failed to connect to DBUS session bus. DBUS error: Failed to connect to socket /tmp/ekko-zellij-visual-o2jm6kmr/session/no-session-bus: No such file or directory
+[0.116] [glfw error 65544]: Failed to connect to DBUS session bus. DBUS error: Failed to connect to socket /tmp/ekko-zellij-visual-o2jm6kmr/session/no-session-bus: No such file or directory
+[0.118] Failed to open systemd user bus with error: No such file or directory
+[10.627] [glfw error 65544]: Wayland: fatal display error: Broken pipe

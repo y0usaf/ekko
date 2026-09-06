@@ -5,6 +5,107 @@ through an optional, replaceable public Lisp profile, while preserving Ekko's
 independent daemon, transactional reload, reversible ownership, and graphics
 isolation. The full acceptance gate is in GOAL.md; it remains open.
 
+RenamePane and public input/state slice (2026-09-06): ordinary Lisp now implements
+rename entry, incremental input, delete, filtered paste, commit, and undo.
+Public named keymap fallbacks receive original input through the isolated worker;
+component-owned daemon state preserves undo across detach, reload, and worker
+restart, and is removed with its owner. State validation and snapshot copying
+preserve the transactional action boundary. Regular/bare real-child contracts
+cover input routing, paste bounds, failed reload, and lifecycle preservation.
+All 19 checks other than the still-failing `zellij-pane-workflow` passed before
+the last inspect JSON encoding correction; afterward core tests and
+`nix build --no-link -L --print-out-paths 'path:.#checks.x86_64-linux.pane-rename'
+'path:.#checks.x86_64-linux.keymap-input'` passed again. Paired 80×24 and 20×8
+rename stages match input deltas, focus, and full PTY cell/pixel histories;
+startup input and terminal content differences remain. Nine settled visual
+checkpoints match exactly; startup differs by 50,706 pixels and 1,159 cells.
+See [rename evidence](docs/evidence/zellij/rename-mode/README.md).
+Unicode frame width, 512-character names, 4096-byte fallback paste, bounded
+component state, remaining shared transitions, and the complete unimplemented
+reference surface remain required. Full parity and the full Nix gate are open.
+The next Unicode investigation is recorded in
+[title-width findings](docs/zellij/unicode-title-investigation.md); existing VT
+scalar widths are not yet proven equivalent to pinned Zellij string widths.
+Fresh parent access checks pass for the Nix daemon, AF_UNIX bind/listen, and
+both GPU render nodes; no earlier sandbox blocker is being carried forward.
+
+Move-mode slice (2026-09-06): ordinary Lisp now implements tiled cyclic and
+directional swaps through `:set-layout`, with reference mode bindings and
+fullscreen no-op behavior. Regular/bare real-child tests verify swap/inverse
+rectangles, focus/PIDs, input suppression, exits, and reload/reattach. All 17
+other Nix checks passed; after the final fullscreen guard, core, Move, keymap,
+and pane-workflow checks passed again. Final paired tiled runs at 80×24 and
+20×8 and fullscreen at 80×24 match input deltas, focus, and complete PTY
+cell/pixel histories for their movement stages. Startup differences remain.
+Nine settled private Move screenshot checkpoints match exactly; startup and
+small-terminal output do not. Rejected pixel-refresh and pre-guard fullscreen
+results remain archived. See [Move evidence](docs/evidence/zellij/move-mode/README.md).
+Floating/stacked/grouped movement, remaining shared modes and bars/hints, and
+the entire unimplemented reference surface remain required; full parity is open.
+
+Public layout replacement (2026-09-06): added ordinary `:set-layout :tree`
+action for arrangements of existing stable pane IDs. It validates shape,
+percentages, exact pane membership, and bounded traversal before applying the
+batch, preserves focus/fullscreen, and resizes existing PTYs without replacing
+children. The accepted layout survives detach and component removal/reload.
+Nix checks `pane-layouts`, `pane-pixels`, and `pane-workflow` pass, including
+regular/bare real-child lifecycle tests; the candidate's core unit tests pass.
+See [layout replacement evidence](docs/evidence/zellij/layout-replacement/README.md).
+A corrected standalone query-order probe also ran through Nix: gated replies
+follow all three FIRST observations, and raw histories are preserved. Immediate
+Zellij FIRST pixels differ between corrected runs; this remains an ordering gap.
+See [query-order evidence](docs/evidence/zellij/startup-query-order/README.md).
+This provides a needed public layout mechanism, not automatic-layout parity.
+The full reference discrepancies and remaining surface stay required.
+
+Reported PTY pixels and access recovery (2026-09-06): Nix daemon access,
+AF_UNIX bind/listen, and direct opens of both GPU render nodes now pass. Earlier
+sandbox blockers below are historical. Public `:pty-pixel-source` separates
+physical rendering metrics from terminal-reported PTY metrics; reported facts
+survive profile removal/reload, and packet 15 (wire version 6) records replies
+without immediately resizing applications. Ordinary focus no longer causes an
+unnecessary PTY resize when pane rectangles are unchanged. The optional profile
+uses reported metrics through the public API. Core Nix tests and
+`nix build --no-link --print-out-paths 'path:.#checks.x86_64-linux.pane-notes'
+'path:.#checks.x86_64-linux.pane-pixels'` pass, including regular/bare real-child
+pixel observations and profile removal/restoration. The pane-note test now reads
+one snapshot per predicate, avoiding a race at note expiry without changing its
+deadline. Fresh visual evidence matches all 13 settled checkpoints exactly
+(zero differing pixels/cells); startup differs by 50,794 pixels and 1,159 cells.
+Both visual sessions cleaned up with no remaining child PIDs.
+
+All 15 other Nix checks pass on the current candidate, including runtime, daily,
+regular/bare profile contracts, startup geometry, routing, and pane differential
+checks. The exact command and outputs are in
+[check evidence](docs/evidence/zellij/reported-pixels/checks/result.json).
+The full Nix gate remains failing: Zellij can receive terminal metrics before
+children first observe their PTYs, whereas Ekko currently starts them with zero
+reported pixels. Earlier samples with zero initial pixels do not establish a
+universal startup order. Preserve both outcomes and every WINCH event. Automatic
+layouts at 120×24 and failed no-preference spawning at 20×8 also remain gaps.
+See [reported-pixel evidence](docs/evidence/zellij/reported-pixels/README.md).
+Full parity and the complete remaining surface are still required.
+
+Title metadata slice (2026-09-06): public pane snapshots and inspect output now
+expose launch arguments/kind, immutable creation position, explicit rename, and
+OSC title. Absent and empty OSC titles are distinct; the former 120-character
+title cap is removed while the bounded parser remains. The ordinary profile
+selects rename, OSC title, command argv, or `Pane #N`, with temporary notes still
+overriding the frame. Added a regular/bare real-worker regression and paired
+OSC 0/2, empty, long, and whitespace-title stages. With full access restored,
+`nix build --no-link -L --print-out-paths path:.#default` and the corresponding
+`checks.x86_64-linux.pane-titles` command passed, including regular/bare lifecycle
+tests. The private visual workflow now matches exactly at all 13 settled
+checkpoints (zero differing pixels/cells), including the failed-split flash and
+restoration; startup release notes still differ. Paired 80×24/20×8 runs retain
+startup-input/small-terminal output and PTY resize-history discrepancies.
+`nix flake check -L --keep-going path:.` failed the workflow fixture launcher;
+after fixing its Nix-sandbox interpreter path, the workflow check reaches its
+real resize-history parity failure. Full Nix and full parity are not green.
+See [title evidence](docs/evidence/zellij/title-metadata/README.md).
+Unicode frame widths, title stacks/layout names, resize-history timing, and the
+complete remaining surface stay required.
+
 Reboot recovery (2026-09-06): the previous goal turn made implementation and
 verification progress; the complete goal remains active. The worktree and stored
 Nix packages survived. Background jobs and the latest temporary paired/Kitty

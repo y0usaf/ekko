@@ -1,0 +1,6 @@
+{
+  "date": "2026-09-06",
+  "store_output": "/nix/store/nh96axfbvhw6j0bg55sap4xr7hvkbczz-ekko-zellij-pane-workflow",
+  "status": "failed paired check; raw output retained",
+  "qualification": "bounded workflow evidence, not a full parity claim"
+}

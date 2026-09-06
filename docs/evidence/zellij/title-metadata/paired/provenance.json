@@ -1,0 +1,17 @@
+{
+  "date": "2026-09-06",
+  "commands": [
+    "nix run 'path:.#zellij-pane-workflow' -- --output /tmp/ekko-title-paired-80 --cols 80 --rows 24 --only titles --only new-n --only new-d --only new-r --only fullscreen-navigation",
+    "nix run 'path:.#zellij-pane-workflow' -- --output /tmp/ekko-title-paired-20 --cols 20 --rows 8 --only titles --only new-r"
+  ],
+  "workflow_package": "/nix/store/2kgk9kp0lkvrxlz4jkzdwwyixx6b21i3-ekko-zellij-pane-workflow",
+  "workflow_binary_sha256": "98051e8570eb251cd1903c5c1ec8158387e64b327a048b0958aaa11cc780784c",
+  "ekko_package": "/nix/store/p281nhg42z1mf68krj971zigdc1rczzz-ekko-0.1.0",
+  "ekko_binary_sha256": "d5c0aeddbf76e91b38f7fd572a5320ce1192c4aacd6aaa1631e2d4ba07bdc85e",
+  "flake_lock_sha256": "4d2e6479a8ddfcac55415775af8cc3a61289e7aa4b9f425346ba10e2b377db09",
+  "runner_sha256": "41197b9f92ac0cae4252324dfbaa7ae824e898360cebdf596f57245a8d8b3a24",
+  "profile_sha256": "f1666b730392bacb47a0b0721d9db8e3bce98514b6a8bc61bea445f015603f2c",
+  "reference_pin_sha256": "05f5a11c71102927adaa8d19ff80352778bea1837f2f3d871fe875928c72e0ab",
+  "nix_version": "2.34.8",
+  "exit_codes": {"80x24": 1, "20x8": 1}
+}

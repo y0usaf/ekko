@@ -1,0 +1,13 @@
+{
+  "date": "2026-09-06",
+  "candidate": "/nix/store/z8hwiia1mp59lgcyda7ivhw8h3r35axf-ekko-0.1.0",
+  "command": "nix build --no-link -L --print-out-paths 'path:.#checks.x86_64-linux.pane-layouts' 'path:.#checks.x86_64-linux.pane-pixels' 'path:.#checks.x86_64-linux.pane-workflow'",
+  "exit_code": 0,
+  "outputs": [
+    "/nix/store/j89q8nwkcs8ljg8iffr9yfyvaynnnscd-ekko-pane-layouts",
+    "/nix/store/b915zjbdai0dc6f6xsmda7x7vsbn5cqh-ekko-pane-pixels",
+    "/nix/store/54d5ij8vz59mpp2y4h9ksf7f0hl2rkn7-ekko-pane-workflow"
+  ],
+  "scope": "Generic public layout replacement, reported PTY pixels, existing profile pane workflow; regular and bare. This is not complete Zellij layout parity.",
+  "full_parity": false
+}

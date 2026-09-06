@@ -1,0 +1,17 @@
+{
+  "command": "nix run 'path:.#zellij-visual' -- compare --zellij /nix/store/wxjfyl2ksqkh263zwikp2igqh2a23y8r-zellij-0.43.1/bin/zellij --ekko /nix/store/6n968w7m2rpb2vnj03jhn3ml6v1k2dg4-ekko-0.1.0/bin/ekko --profile /home/y0usaf/dev/maintaining/ekko_v2/examples/profiles/zellij.lisp --reference /home/y0usaf/dev/maintaining/ekko_v2/tests/zellij/reference --output /tmp/ekko-move-final-visual --scenario move-workflow",
+  "scenario": "move-workflow",
+  "candidate": "/nix/store/6n968w7m2rpb2vnj03jhn3ml6v1k2dg4-ekko-0.1.0/bin/ekko",
+  "reference": "/nix/store/wxjfyl2ksqkh263zwikp2igqh2a23y8r-zellij-0.43.1/bin/zellij",
+  "profile": "/home/y0usaf/dev/maintaining/ekko_v2/examples/profiles/zellij.lisp",
+  "candidate_sha256": "b41cf0e8244eee5225e797db827e673e818d71d87ee25ea28c555e4f9aeb2543",
+  "reference_sha256": "74b8a5da42b75b162685b6a26d13898b6955226d24fb2fe54c86454de805adc0",
+  "profile_sha256": "59e93d0fe638c3386dac57439fc6c62d36118240376aed54011db8f0df86274b",
+  "settled_checkpoints": 9,
+  "settled_pixel_differences": 0,
+  "settled_cell_differences": 0,
+  "startup_screen_pixel_differences": 50794,
+  "startup_screen_cell_differences": 1159,
+  "cleanup_remaining_pids": 0,
+  "full_parity": false
+}
