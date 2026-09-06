@@ -171,11 +171,28 @@
                       esc (1+ row) (+ x column 1) esc attributes text))))))
     ;; Chrome policy is supplied by Lisp hooks as bounded spans. The server
     ;; clips these before publication, and the client merely places them.
-    (dolist (decoration (getf metadata :decorations))
+    (dolist (decoration (append (getf metadata :decorations) (getf metadata :overlays)))
       (let ((y (second decoration)))
         (when (and (integerp y) (<= 0 y) (< y rows))
           (render-decoration (aref output y) cols rows decoration))))
     (map 'vector #'get-output-stream-string output)))
+
+(defun overlay-image-crops (crop overlays cw ch)
+  "Subtract opaque cell spans from a pixel crop, preserving source offsets."
+  (when crop
+    (destructuring-bind (x y sx sy w h) crop
+      (let ((pieces (list (ekko/scene:make-rect x y w h))))
+        (dolist (span overlays)
+          (destructuring-bind (ox oy text sgr) span
+            (declare (ignore sgr))
+            (let ((width (ekko/text:display-width text)))
+              (when (plusp width)
+                (let ((cut (ekko/scene:make-rect (* ox cw) (* oy ch) (* width cw) ch)))
+                  (setf pieces (mapcan (lambda (piece) (ekko/scene:rect-subtract piece cut)) pieces)))))))
+        (loop for piece in pieces collect
+          (let ((px (ekko/scene:rect-x piece)) (py (ekko/scene:rect-y piece)))
+            (list px py (+ sx (- px x)) (+ sy (- py y))
+                  (ekko/scene:rect-width piece) (ekko/scene:rect-height piece))))))))
 
 (defun render-scene (viewer)
   (let ((scene (viewer-scene viewer)) (esc (code-char 27))
@@ -190,7 +207,9 @@
           (let* ((key (list (first pane) (first placement)))
                  (asset (gethash key (viewer-assets viewer)))
                  (crop (when asset (clipped-image pane placement asset cw ch))))
-            (when crop (setf (gethash key wanted) (list asset crop))))))
+            (loop for fragment in (overlay-image-crops crop (getf metadata :overlays) cw ch)
+                  for index from 0 do
+                    (setf (gethash (append key (list index)) wanted) (list asset fragment))))))
       (maphash (lambda (key old)
                  (let ((new (gethash key wanted)))
                    (unless (and new (= (second old) (first (first new))))
@@ -217,12 +236,12 @@
                (unless (and (equal (third old) crop) (= (fourth old) cw) (= (fifth old) ch))
                  (place-outer viewer (first old) crop cw ch)
                  (setf (third old) crop (fourth old) cw (fifth old) ch))
-               (let ((id (ekko/client:allocate-outer-id (viewer-ids viewer) (first key) 1 (second key) 0)))
+               (let ((id (ekko/client:allocate-outer-id (viewer-ids viewer) (first key) 1 (second key) 0 (third key))))
                  (upload-outer viewer id asset crop cw ch)
                  (setf (gethash key (viewer-drawn viewer)) (list id (first asset) crop cw ch))))))
        wanted)
       (let ((active (find focus panes :key #'first)))
-        (when (and active (nth 9 active))
+        (when (and active (nth 9 active) (null (getf metadata :overlays)))
           (terminal-write viewer (format nil "~C[~D;~DH~C[?25h" esc
                                          (+ (third active) (nth 8 active) 1)
                                          (+ (second active) (nth 7 active) 1) esc))))

@@ -54,7 +54,7 @@
   (registration-phase)
   (when (stringp unbound) (setf unbound (name-string unbound)))
   (unless (and (keywordp name) name (not (member name '(:prefix :copy)))
-               (or (member unbound '(:forward :ignore)) (stringp unbound)))
+               (or (member unbound '(:forward :ignore :copy)) (stringp unbound)))
     (error "Invalid keymap name or unbound policy"))
   (name-string name)
   (let ((owner (owner component)))

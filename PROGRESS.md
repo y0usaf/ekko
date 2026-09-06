@@ -5,6 +5,22 @@ through an optional, replaceable public Lisp profile, while preserving Ekko's
 independent daemon, transactional reload, reversible ownership, and graphics
 isolation. The full acceptance gate is in GOAL.md; it remains open.
 
+Shared-runtime continuation (2026-09-06): integrated the existing Finix opaque
+overlay, graphics-cropping, explicit input and copy-fallback changes through the
+same public runtime. Both profiles can use unpatched wire 11, retaining supported
+legacy attachments. The main Finix config, live runtime patch and sessions were
+preserved. `nix flake check -L path:.` exited 0 with 24 checks and 14 workflow
+scenarios. The unpatched candidate also passes existing menu, frame, viewer-exit
+and launcher tests. Its private Kitty menu capture passes graphics occlusion,
+exact pixel restoration, live output, lock and split checks. An older-Pillow
+harness failure and the compatibility-only copied-test fix are retained.
+[Evidence](docs/evidence/zellij/shared-overlays/README.md).
+[Startup UI source findings](docs/zellij/startup-ui-investigation.md) explain the
+seen-marker timing and small-viewport popup exclusion. Release notes remain
+unimplemented. Next bounded action: a transactional owner initialization contract
+before input routing, with durable state and pointer/floating UI handled through
+public mechanisms. Full parity remains the active unfinished goal.
+
 Session/exit continuation (2026-09-06): added ordinary Lisp Session entry/exits,
 locking, single-client detach and Quit in the five supported unlocked modes.
 The paired lifecycle test verifies restored termios, stable child PIDs through
@@ -433,3 +449,5 @@ Graphics support is deliberately limited to the benchmark's native direct
 RGB/RGBA subset. Full PNG, placeholders, remaining transfer adapters, scaled placement,
 animation, compositor layers, and the remaining GOAL.md gates remain open.
 Slack authentication beyond the displayed sign-in screen is user-controlled.
+
+Shared runtime frame capture: all 14 settled screenshots and native Kitty text/cursor exports match exactly; initial startup remains 50,578 pixels / 1,159 modeled cells different. Raw evidence: `docs/evidence/zellij/shared-overlays/frame-native/`.

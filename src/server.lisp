@@ -276,6 +276,19 @@
          (modifiers (if kitty (1- (max 1 (or (second params) 1))) 0))
          (key (if (and code (logbitp 2 modifiers) (<= 64 code 127)) (logand code 31) code))
          (pane (nth (session-focus session) (session-panes session))))
+    ;; A copy fallback opts into the builtin search editor and copy bindings.
+    ;; Other maps (notably locked maps) retain literal application forwarding.
+    (when (and (eq (getf (find (session-mode session)
+                                    (getf (session-registry session) :keymaps)
+                                    :key (lambda (m) (getf m :name))) :unbound) :copy)
+               (pane-copy-lines pane)
+               (not (key-binding session (session-mode session) (semantic-key bytes key))))
+      (if (pane-search-input pane)
+          (copy-search-input session
+                             (if (and kitty key (<= 0 key #x10ffff))
+                                 (text-bytes (string (code-char key))) bytes))
+          (dispatch-binding session :copy (semantic-key bytes key)))
+      (return-from input-key))
     (when (session-mode session)
       (let* ((map (session-mode session)) (binding (key-binding session map (semantic-key bytes key)))
              (policy (find map (reverse (getf (session-registry session) :keymaps))
@@ -378,7 +391,7 @@
               (incf cursor width))
       (flush))
     (nreverse out)))
-(defun scene-decorations (session)
+(defun scene-decorations (session &optional overlay)
   (let ((panes (visible-panes session)))
     ;; Registry component order is the layer order. Contributions are stored
     ;; by owner for replacement, so their completion order must not change
@@ -392,10 +405,10 @@
       (loop for owner in owners
             for entry = (assoc owner (session-decorations session) :test #'equal)
             when entry append (loop for span in (cdr entry)
-                                    append (loop for row from (getf span :y)
+                                    when (eq (getf span :overlay) overlay) append (loop for row from (getf span :y)
                                                   below (+ (getf span :y) (getf span :rows 1))
                                                   append (clip-decoration
-                                                           session panes
+                                                           session (unless overlay panes)
                                                            (list :x (getf span :x) :y row
                                                                  :text (getf span :text)
                                                                  :sgr (getf span :sgr)))))))))
@@ -417,7 +430,7 @@
         (multiple-value-bind (viewport pane gaps width height) (session-geometry session)
           (declare (ignore pane width height))
           (list :status (status-text session) :style (option session :status-style '(0 30 47))
-                :viewport-insets viewport :split-gaps gaps :decorations (scene-decorations session)
+                :viewport-insets viewport :split-gaps gaps :decorations (scene-decorations session) :overlays (scene-decorations session t)
                 :exit-text (option session :viewer-exit-text nil)))))
 (defun checked-startup-viewport (viewport)
   (when viewport
@@ -497,7 +510,7 @@
       (defer-input session kind data) (return-from server-packet))
     (case kind
       (1
-       (unless (and (= (length data) 20) (member (u32 data 0) (list 6 7 +wire-version+)))
+       (unless (and (= (length data) 20) (member (u32 data 0) (list 6 7 8 9 10 +wire-version+)))
          (send-packet wire 21 (text-bytes "Incompatible Ekko wire version")) (return-from server-packet))
        (when (and (session-writer session) (not (eq wire (session-writer session))))
          (send-packet wire 21 (text-bytes "This session already has an attached client")) (return-from server-packet))

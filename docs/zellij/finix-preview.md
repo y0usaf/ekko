@@ -47,12 +47,11 @@ nix flake check -L path:./previews/ekko-zellij
 The nested preview flake has its own lock and source input pointing at the
 isolated parity worktree `~/dev/maintaining/ekko-zellij-parity`. It does not change
 Finix's main Ekko input, system configuration, deployed menu, or running sessions.
-Its separate `runtime.patch` retains the existing overlay, graphics clipping,
-copy-input and scrollback fixes. The two already-integrated geometry fixes are
-omitted, and the metadata/protocol hunks are ported onto base wire 9, using wire
-10 for this combined preview. The original custom menu also passes its existing
-Nix-backed integration test against this candidate. The
-live `modules/shell/ekko/runtime.patch` remains untouched.
+The shared runtime now includes the existing generic overlay, graphics clipping,
+copy-input and scrollback fixes, with wire version 11. This preview needs no
+additional runtime patch. The original custom menu passes its integration test
+and private Kitty visual checks against the shared runtime. The live
+`modules/shell/ekko/runtime.patch` remains untouched.
 
 Frames, modes, bindings and geometry choices are replaceable Lisp. Generic
 runtime actions validate contributions, enforce ownership, resize PTYs, and clip
@@ -60,3 +59,5 @@ graphics. Zellij is used only as the pinned independent test oracle. The
 [frame evidence](../evidence/zellij/frame-toggle/README.md) includes screenshots
 of the actual Finix patched binary. A useful preview does not pass the full
 acceptance gate in GOAL.md.
+
+[Shared runtime and native cell evidence](../evidence/zellij/shared-overlays/README.md).

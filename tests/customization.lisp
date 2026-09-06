@@ -328,6 +328,15 @@
                                       (string= (third span) "chrome"))) spans)
             (not (some (lambda (span) (string= (third span) "content")) spans)))
        "scene decorations are clipped away from app content"))
+    (ekko/runtime::apply-actions session :test
+      '((:decorate :spans ((:x 0 :y 1 :text "overlay" :sgr (0 30 46) :overlay t)))) nil nil)
+    (customization-check
+     (equal (getf (nth 7 (ekko/runtime::scene-data session)) :overlays)
+            '((0 1 "overlay" (0 30 46))))
+     "explicit overlay is published over application content")
+    (ekko/runtime::apply-actions session :test '((:decorate :spans nil)) nil nil)
+    (customization-check (null (getf (nth 7 (ekko/runtime::scene-data session)) :overlays))
+                         "replacement removes owned overlay")
     (setf (getf (ekko/runtime::session-registry session) :components)
           (list (list :id "early") (list :id "late"))
           (ekko/runtime::session-decorations session)

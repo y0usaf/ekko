@@ -107,7 +107,8 @@ Later components shadow earlier ones. Removal or reload reconstructs those
 contributions, restoring underlying defaults. A keymap name is a keyword other
 than the built-in `:prefix` and `:copy`; its `:unbound` policy is
 `:forward` (send an unbound key to the focused pane), `:ignore` (discard it),
-or a registered command-name string (receive the input event as described below).
+`:copy` (use the existing copy search editor and `:copy` bindings while the
+focused pane has copy state), or a registered command-name string (receive the input event as described below).
 `register-keymap` records the component as the map's owner. A `bind-key` map may
 be `:prefix`, `:copy`, or a custom registered map; custom map references are
 validated when the complete registry is installed, so an unknown map rejects the
@@ -123,11 +124,13 @@ contributions, disabled hooks, and the last error. Builtins use the same API in
 and tested with no builtins and an externally loaded command.
 
 These keymap additions are additive to public API version 1; `(api-version)`
-continues to return `1`. Attachment wire version `9` adds optional viewer exit
-text to the scene metadata. Version `8` is reserved for the existing separate
-Finix overlay runtime; the isolated combined preview uses version `10`.
-The base runtime accepts versions `6`, `7`, and `9` and publishes the requested
-version in each scene. Older viewers can ignore the additive exit-text field.
+continues to return `1`. Attachment wire version `11` provides shared opaque
+overlays, explicit input actions, and viewer exit text. Versions `8` and `10`
+were the separately patched Finix variants; those generic capabilities are now
+part of the shared runtime. Versions `6` through `11` are accepted and the
+requested version is published in each scene. Older viewers retain their
+existing supported behavior; they can ignore additive metadata and do not gain
+new rendering capabilities without updating.
 Geometry metadata includes outer rectangles, decoration spans, and separate
 reported-cell metrics. Packet 15 carries two
 big-endian unsigned 32-bit values (cell width 1–128 and height 1–256) from the
@@ -217,8 +220,17 @@ counting repetitions. Worker message limits also apply. An empty span list
 clears that owner's contribution. Invalid batches preserve previous contributions.
 
 Later registered components paint above earlier components, independent of
-callback completion order. The daemon clips spans to the terminal and excludes
-all visible application content before publication. Wide glyphs crossing a
+callback completion order. By default the daemon clips spans to the terminal
+and excludes visible application content before publication. An explicit
+`:overlay t` marks opaque UI cells allowed over application content; normal
+decorations paint first, then overlays in component registration order. Literal
+spaces are opaque too. The viewer subtracts those cell rectangles from visible
+Kitty image crops and preserves the source offsets of each fragment. Removing
+or replacing the contribution reveals current application text and graphics;
+applications continue running behind it. Overlays hide the application cursor.
+The same span count, text size, validation, and owner teardown rules apply.
+This flag controls appearance only; profiles must implement their own input
+routing through keymaps/actions. It is not a floating-pane or plugin runtime. Wide glyphs crossing a
 boundary are dropped; combining marks stay with an accepted base glyph.
 Reload clears accepted contributions and schedules the new hooks. The default
 titles, split dividers, and status line use this same API in `ekko/builtins`.
@@ -297,6 +309,7 @@ primary action made before raising are not rolled back.
 | `:set-keymap` | `:name` registered custom keymap |
 | `:status` | `:text`, owned by the returning component |
 | `:pane-note` | `:pane` ID, printable `:text` up to 512 characters, `:sgr` up to 16 integers 0–255, `:duration` 1–60000 milliseconds |
+| `:send-input` | `:bytes` list of at most 4,096 octets, sent literally to the focused PTY through its bounded input queue; a primary session action |
 | `:copy-move` | `:delta` rows |
 | `:copy-edge` | `:edge :start` or `:end` |
 | `:focus-next`, `:zoom`, `:swap`, `:detach`, `:stop`, `:reload`, `:help` | None |
