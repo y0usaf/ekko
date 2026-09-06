@@ -5,6 +5,27 @@ through an optional, replaceable public Lisp profile, while preserving Ekko's
 independent daemon, transactional reload, reversible ownership, and graphics
 isolation. The full acceptance gate is in GOAL.md; it remains open.
 
+Initialization continuation (2026-09-06): added documented public
+`register-component :initialize` callbacks. They return only owned state, keymap,
+status and decoration actions, validated as a group on a detached session before
+configuration commit. Startup callbacks run before child spawn; reload callbacks
+receive immutable committed snapshots and reject stale declared dependencies.
+Seven invalid/error/timeout candidates leave generation, state, mode and child PID
+unchanged; deferred application bytes replay through the old map on failure.
+Regular and bare real-daemon checks pass, including removal/reinstallation and
+failed startup without child execution. Aggregate-limit/freshness checks also
+pass. The final Nix suite passed all 25 named checks and 14 workflow scenarios
+(the Nix build queue reports 26 checks). Logs and exact sources are recorded
+with the evidence.
+[Evidence](docs/evidence/zellij/initialization/README.md).
+The Finix shared-runtime preview passed its four checks at pinned source
+`01ab2dee4eab6d89a26f220a7519e4b9c7b83174`, with no separate patch and the custom
+menu preserved. The live main Finix inputs/configuration/patch remain untouched.
+Next bounded action: public durable namespaced state with atomic updates and
+failure reporting, sufficient for version markers without direct profile file
+writes. Then implement startup floating/plugin presentation and input against
+the pinned oracle. Release notes and full parity remain unimplemented/open.
+
 Shared-runtime continuation (2026-09-06): integrated the existing Finix opaque
 overlay, graphics-cropping, explicit input and copy-fallback changes through the
 same public runtime. Both profiles can use unpatched wire 11, retaining supported

@@ -371,3 +371,11 @@ Session screenshots match in 10 checkpoints. Post-quit screenshot and native
 Kitty styled-text/wrap/cursor exports match exactly. Pyte's post-exit grids remain
 in the evidence as model limitations; raw data is not changed. Startup and the
 remaining surface are still required. [Evidence](../evidence/zellij/session-mode/README.md).
+
+## Startup mechanism continuation (2026-09-06)
+
+Public Lisp initialization is now implemented and transaction-tested before child
+spawn/configuration commit. It supplies owned state, keymap, status and decoration
+actions. This is a runtime capability, not a completed Zellij feature row. Release
+notes, tips, durable marker semantics and floating/plugin input remain unimplemented.
+[Mechanism evidence](../evidence/zellij/initialization/README.md).

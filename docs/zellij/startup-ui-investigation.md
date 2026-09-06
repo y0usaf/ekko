@@ -55,3 +55,13 @@ Tests must cover fresh cache, existing marker, unwritable cache, tiny viewports,
 explicit-tab and welcome layouts, dismissal, subpage navigation, failed reload,
 unchanged child PIDs/geometry, and later startup-tip selection. Keep all raw
 startup input, cells, native terminal exports and screenshots in the gate.
+
+## Initialization mechanism implemented
+
+The public `register-component :initialize` callback now stages state, mode,
+status and opaque decoration actions before configuration commit, or before child
+spawn at startup. Invalid later callbacks roll back the whole group. Its immutable
+snapshot and declared-dependency freshness check are documented in
+[customization](../customization.md). This closes the initialization mechanism
+requirement only. The Zellij profile does not yet use it to display release notes;
+durable version markers, pointer routing and floating/plugin behavior remain open.

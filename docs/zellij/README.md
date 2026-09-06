@@ -293,5 +293,7 @@ The shared runtime now includes the generic Finix opaque-overlay/input/copy
 capabilities; both Lisp profiles can use one executable without a patch. The
 existing custom menu's native-graphics capture and Nix checks pass. This does
 not implement release notes: [startup findings](startup-ui-investigation.md)
-identify the remaining initialization, durable state, pointer and floating UI
-contracts. [Shared-runtime evidence](../evidence/zellij/shared-overlays/README.md).
+identify the startup requirements. Transactional initialization is now available;
+durable state, pointer and floating UI contracts remain. [Shared-runtime evidence](../evidence/zellij/shared-overlays/README.md).
+
+[Public initialization evidence](../evidence/zellij/initialization/README.md) covers startup before child spawn, candidate rollback, retained state and input replay. No additional Zellij feature row is marked complete by this mechanism.

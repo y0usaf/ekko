@@ -853,4 +853,44 @@
        (equal (getf (getf (ekko/runtime::context-data session) :geometry) :pane-insets)
               '(0 1 1 0))
        "geometry snapshot is a nested copy")))
+  ;; Initializer staging cannot resize live terminals or partially retain an
+  ;; earlier owner's state when a later owner exceeds the aggregate bound.
+  (let* ((pane (ekko/runtime::make-pane :id 1 :vt (ekko/vt:make-terminal :cols 10 :rows 4)))
+         (session (ekko/runtime::make-session :panes (list pane) :tree 1 :cols 10 :rows 4))
+         (registry '(:api-version 1
+                     :components ((:id "first" :initialize t :reads (:viewport))
+                                  (:id "second" :initialize t))
+                     :keymaps ((:name :popup :owner "first" :unbound :ignore))
+                     :options (:pane-insets (2 2 2 2))))
+         (worker (ekko/runtime::make-extension-worker :registry registry))
+         (before (ekko/runtime::context-data session)))
+    (ekko/runtime::stage-initialization
+     session registry '((:owner "first" :actions ((:set-state :value (:ready t))
+                                                (:set-keymap :name :popup)))
+                        (:owner "second" :actions nil)))
+    (customization-check (equal before (ekko/runtime::context-data session))
+                         "staging preserves live mode, state and terminal geometry")
+    (customization-check
+     (customization-signals-error-p
+      (lambda ()
+        (ekko/runtime::stage-initialization
+         session registry
+         (loop for owner in '("first" "second") collect
+           (list :owner owner :actions
+                 (list (list :set-state :value (make-string 9000 :initial-element #\a))))))))
+     "initializer group aggregate state limit")
+    (customization-check (equal before (ekko/runtime::context-data session))
+                         "failed group does not retain its first owner's state")
+    (setf (ekko/runtime::extension-worker-initialization-context worker)
+          (ekko/runtime::initialization-context session registry))
+    (setf (ekko/runtime::pane-name pane) "new title")
+    (customization-check (ekko/runtime::initialization-current-p session worker)
+                         "unread pane data does not invalidate initialization")
+    (incf (ekko/runtime::session-cols session))
+    (customization-check (not (ekko/runtime::initialization-current-p session worker))
+                         "changed declared viewport invalidates initialization")
+    (decf (ekko/runtime::session-cols session))
+    (setf (ekko/runtime::session-component-state session) '(("first" :changed t)))
+    (customization-check (not (ekko/runtime::initialization-current-p session worker))
+                         "intervening retained state is never overwritten"))
   (format t "Customization, split layout and scrollback tests passed~%") t)
