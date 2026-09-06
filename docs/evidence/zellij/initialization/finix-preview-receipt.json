@@ -1,0 +1,20 @@
+{
+  "pinned_source": "a9a129c6ee99a4b725b9cdf465726c763ece7e17",
+  "command": "nix flake check -L path:./previews/ekko-zellij",
+  "cwd": "/home/y0usaf/finix",
+  "exit": 0,
+  "checks": [
+    "initialization",
+    "viewer-exit",
+    "launcher",
+    "frames"
+  ],
+  "source_sha256": {
+    "flake.nix": "9e9f253cc5226bb9a30e1808a9952240ade045ddaa71a5dc0884178e5187d3a3",
+    "launch.sh": "184b242f5e9c7253814b50071cc7e33cf3dc1772789813237be3de376a0117c4",
+    "flake.lock": "839fad9e3a76705156d8b8ac63c10dcfe7d3f7661ba28da39f9d1947e4fec8da",
+    "launcher-test.py": "97049e0e6b8ff2496534a9c0910a65959e0ae76ad5ab07a194686a0c44589c98",
+    "README.md": "3f03eb29fd3db2cb2808d5d4366cee7f6cb20342e05b10397dbd7f0c9fd9b0d6"
+  },
+  "live_patch_sha256": "af4784db3873398e4c8fdad6f508d72ad1681942b2604d17ce666edcdae6769b"
+}

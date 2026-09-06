@@ -5,6 +5,15 @@ through an optional, replaceable public Lisp profile, while preserving Ekko's
 independent daemon, transactional reload, reversible ownership, and graphics
 isolation. The full acceptance gate is in GOAL.md; it remains open.
 
+Current isolated Finix preview: pinned to
+`a9a129c6ee99a4b725b9cdf465726c763ece7e17`. Final nested `nix flake check`
+passes initialization, viewer-exit, launcher and frame checks (regular/bare where
+applicable). `cd ~/finix && nix run path:./previews/ekko-zellij` launches the
+separate Lisp profile; add `-- --keep-session` for explicit detach/reattach.
+[Launch/review instructions](docs/zellij/finix-preview.md).
+[Final receipt](docs/evidence/zellij/initialization/finix-preview-receipt.json).
+This is an intermediate deliverable; full parity remains active.
+
 Initialization continuation (2026-09-06): added documented public
 `register-component :initialize` callbacks. They return only owned state, keymap,
 status and decoration actions, validated as a group on a detached session before
