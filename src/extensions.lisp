@@ -98,6 +98,12 @@
             (:prefix (and (integerp (key-code value)) (<= 1 (key-code value) 26)))
             (:shell (and (listp value) (<= 1 (length value) 64) (every (lambda (s) (and (stringp s) (<= (length s) 4096) (not (find #\Null s)))) value)
                          (plusp (length (first value)))))
+            (:viewer-exit-text
+             (or (null value)
+                 (and (stringp value) (<= (length value) 512)
+                      (every (lambda (character)
+                               (let ((code (char-code character)))
+                                 (or (<= 32 code 126) (<= 160 code)))) value))))
             (:status-text (and (stringp value) (<= (length value) 512)))
             (:status-style (and (listp value) (<= (length value) 16)
                                 (every (lambda (n) (and (integerp n) (<= 0 n 255))) value)))

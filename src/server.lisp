@@ -417,7 +417,8 @@
         (multiple-value-bind (viewport pane gaps width height) (session-geometry session)
           (declare (ignore pane width height))
           (list :status (status-text session) :style (option session :status-style '(0 30 47))
-                :viewport-insets viewport :split-gaps gaps :decorations (scene-decorations session)))))
+                :viewport-insets viewport :split-gaps gaps :decorations (scene-decorations session)
+                :exit-text (option session :viewer-exit-text nil)))))
 (defun checked-startup-viewport (viewport)
   (when viewport
     (unless (and (listp viewport) (= (length viewport) 4)
@@ -496,7 +497,7 @@
       (defer-input session kind data) (return-from server-packet))
     (case kind
       (1
-       (unless (and (= (length data) 20) (member (u32 data 0) (list 6 +wire-version+)))
+       (unless (and (= (length data) 20) (member (u32 data 0) (list 6 7 +wire-version+)))
          (send-packet wire 21 (text-bytes "Incompatible Ekko wire version")) (return-from server-packet))
        (when (and (session-writer session) (not (eq wire (session-writer session))))
          (send-packet wire 21 (text-bytes "This session already has an attached client")) (return-from server-packet))

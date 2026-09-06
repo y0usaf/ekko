@@ -77,6 +77,7 @@ def integration(binary, profile, bare=False):
                         ("locked", "forward", "zellij-modes"),
                         ("pane", "ignore", "zellij-modes"),
                         ("move", "ignore", "zellij-modes"),
+                        ("session", "ignore", "zellij-modes"),
                         ("rename", "rename-input", "zellij-modes")}
             assert {c["name"] for c in state["commands"]} >= {"lock", "unlock"}
 

@@ -354,3 +354,20 @@ input/cell gate remains false. Stacked/floating/borderless/grouped/multiplayer
 frames, arbitrary layout junctions, and remaining tiny-viewport variants need
 coverage; no screenshot result promotes those rows. Original startup differences
 remain. [Evidence and failures](../evidence/zellij/frame-toggle/README.md).
+
+
+## Session and exit measured slice (2026-09-06)
+
+Session mode is **Partial**: entry/exits, locking, transitions to Pane/Move,
+single-client Detach and Quit from the five supported unlocked modes are covered.
+The same children survive explicit detach/reattach; quit terminates them and
+restores host termios. The mode's bundled-plugin launchers and other shared mode
+transitions are still unimplemented. Reattachment after involuntary viewer loss,
+non-Normal configured defaults, and multi-client Quit behavior require separate
+coverage. This does not establish session CLI or resurrection parity.
+
+A generic Lisp `:viewer-exit-text` option supplies the farewell. Actual settled
+Session screenshots match in 10 checkpoints. Post-quit screenshot and native
+Kitty styled-text/wrap/cursor exports match exactly. Pyte's post-exit grids remain
+in the evidence as model limitations; raw data is not changed. Startup and the
+remaining surface are still required. [Evidence](../evidence/zellij/session-mode/README.md).

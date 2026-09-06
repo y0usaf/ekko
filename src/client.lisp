@@ -6,7 +6,7 @@
 (defparameter *terminal-leave*
   (format nil "~C[?2026l~C[<u~C[?1003l~C[?1006l~C[?1016l~C[?1004l~C[?2004l~C[0m~C[?25h~C[?1049l"
           #1=(code-char 27) #1# #1# #1# #1# #1# #1# #1# #1# #1#))
-(defstruct viewer io connection scene (assets (make-hash-table :test 'equal))
+(defstruct viewer io connection scene exit-text (assets (make-hash-table :test 'equal))
   (pending-assets (make-hash-table :test 'equal))
   (transport :unknown) probe-deadline awaiting-scene
   (uploads (make-hash-table))
@@ -247,8 +247,15 @@
                                          :size (* (u32 packet 13) (u32 packet 17) (/ (u32 packet 21) 8)))
                        (subseq packet 25))))))
     (12 (when (viewer-awaiting-scene viewer) (error "Overlapping scenes"))
-        (setf (viewer-awaiting-scene viewer) t)
-        (setf (viewer-scene viewer) (decode-scene (subseq packet 1)))
+        (let* ((scene (decode-scene (subseq packet 1)))
+               (exit-text (getf (nth 7 scene) :exit-text)))
+          (unless (or (null exit-text)
+                      (and (stringp exit-text) (<= (length exit-text) 512)
+                           (valid-decoration-text-p exit-text)))
+            (error "Invalid viewer exit text"))
+          (setf (viewer-awaiting-scene viewer) t
+                (viewer-scene viewer) scene
+                (viewer-exit-text viewer) exit-text))
         (maphash (lambda (key asset) (setf (gethash key (viewer-assets viewer)) asset)) (viewer-pending-assets viewer))
         (clrhash (viewer-pending-assets viewer)))
     (21 (error "~A" (bytes-text (subseq packet 1))))
@@ -412,6 +419,9 @@
             (flush-wire (viewer-io viewer)) (when (wire-queue (viewer-io viewer)) (poll-fds '((1 . 4)) 10))))
         (maphash (lambda (key value) (declare (ignore key)) (delete-outer viewer (first value))) (viewer-drawn viewer))
         (terminal-write viewer *terminal-leave*)
+        (when (viewer-exit-text viewer)
+          (terminal-write viewer (format nil "~A~C~C" (viewer-exit-text viewer)
+                                         #\Return #\Newline)))
         (loop repeat 20 while (wire-queue (viewer-io viewer)) do (flush-wire (viewer-io viewer)) (poll-fds '((1 . 4)) 10)))
       (restore) (close-wire (viewer-connection viewer)) (ekko/client:attachment-teardown (viewer-ids viewer))))
   0)

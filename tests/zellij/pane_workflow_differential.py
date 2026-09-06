@@ -87,7 +87,19 @@ UNICODE_TITLE_PER_KEY_STAGES = STAGES[:2] + [
     ('rename-long', b'\xe7\x95\x8cCafe\xcc\x81-\xe7\x95\x8cCafe\xcc\x81-\xe7\x95\x8cCafe\xcc\x81-\xe7\x95\x8cCafe\xcc\x81-\xe7\x95\x8cCafe\xcc\x81-\xe7\x95\x8cCafe\xcc\x81-\xe7\x95\x8cCafe\xcc\x81-\xe7\x95\x8cCafe\xcc\x81-\xe7\x95\x8cCafe\xcc\x81-\xe7\x95\x8cCafe\xcc\x81-\xe7\x95\x8cCafe\xcc\x81-\xe7\x95\x8cCafe\xcc\x81-'),
     ('rename-commit-long', b'\r'),
 ]
+SESSION_STAGES = STAGES[:2] + [
+    ("session-enter", b"\x0f"), ("session-unbound", b"q"),
+    ("session-lock", b"\x07"), ("session-locked-key", b"\x0f"),
+    ("session-unlock", b"\x07"), ("session-enter-toggle", b"\x0f"),
+    ("session-exit-toggle", b"\x0f"), ("session-enter-escape", b"\x0f"),
+    ("session-exit-escape", b"\x1b"), ("session-enter-return", b"\x0f"),
+    ("session-exit-return", b"\r"), ("session-enter-pane", b"\x0f"),
+    ("session-to-pane", b"\x10"), ("session-from-pane", b"\x0f"),
+    ("session-to-move", b"\x08"), ("session-from-move", b"\x0f"),
+]
+
 SCENARIOS = {
+    "session-routing": SESSION_STAGES,
     "frame-toggle": STAGES[:3] + [
         ("frames-off", b"z"), ("frames-pane", b"\x10"),
         ("direction-right", b"l"), ("frames-on", b"z"),
@@ -687,6 +699,14 @@ def run_side(kind, binary, profile, reference, root, output, shell,
                     state = inspect_candidate(binary, env)
                     status = status_candidate(binary, env)
                     mode = state["mode"]
+                    if stage.startswith("session-"):
+                        wanted_mode = ("normal" if stage.startswith("session-exit") or stage == "session-unlock"
+                                       else "locked" if stage in ("session-lock", "session-locked-key")
+                                       else "pane" if stage == "session-to-pane"
+                                       else "move" if stage == "session-to-move"
+                                       else "session")
+                        if mode != wanted_mode:
+                            return None
                     rename_mode = {
                         "rename-enter": "rename", "rename-first": "rename",
                         "rename-commit": "normal", "rename-pane": "pane",

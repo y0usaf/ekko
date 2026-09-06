@@ -278,3 +278,12 @@ runtime with its overlay/copy/input patch. Startup, application content in the
 PTY fixture, and unimplemented surfaces remain differences. See
 [frame evidence](../evidence/zellij/frame-toggle/README.md) and
 [Finix preview instructions](finix-preview.md).
+
+
+Session/exit work (2026-09-06): Ctrl-o enters Session and `d` detaches; Ctrl-q
+quits in the supported unlocked modes. The public Lisp profile chooses these
+bindings and its exit text. Paired regular/bare lifecycle checks verify real
+child survival/termination and termios restoration. Ten settled Session
+screenshots match, and post-quit screenshot plus native Kitty text/cursor exports
+match. Startup, plugin launchers, other modes and multi-client/persistence
+semantics remain open. [Session evidence](../evidence/zellij/session-mode/README.md).

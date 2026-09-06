@@ -51,6 +51,7 @@ class Terminal:
         self.decoder = codecs.getincrementaldecoder('utf-8')('replace')
         self.raw = bytearray()
         self.fd, slave = pty.openpty()
+        self.termios_before = termios.tcgetattr(slave)
         try:
             fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack('HHHH', rows, cols, cols*8, rows*16))
             self.process = subprocess.Popen(argv, stdin=slave, stdout=slave, stderr=slave,
