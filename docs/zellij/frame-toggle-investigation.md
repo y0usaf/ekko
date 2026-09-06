@@ -1,8 +1,9 @@
 # Zellij pane-frame toggle investigation
 
-This is a source-only investigation against the pinned checkout
+The original source investigation below is against the pinned checkout
 `/nix/store/2q437kxp07ki50dkh6a4nmmcc4nlylqw-source` (Zellij 0.43.1). It makes
-no implementation or parity claim.
+no whole-surface parity claim. The tiled implementation and measured follow-up
+are recorded in [frame-toggle evidence](../evidence/zellij/frame-toggle/README.md).
 
 ## Pinned behavior
 

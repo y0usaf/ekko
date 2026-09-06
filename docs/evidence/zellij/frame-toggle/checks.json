@@ -1,0 +1,39 @@
+{
+  "commands": [
+    {
+      "argv": "nix flake check -L path:.",
+      "cwd": "/home/y0usaf/dev/maintaining/ekko-zellij-parity",
+      "exit": 0,
+      "checks": 22,
+      "workflow_scenarios": 13,
+      "log": "ekko-frame-full-check-second.log.gz"
+    },
+    {
+      "argv": "nix run path:.#zellij-pane-workflow -- --only frame-toggle --require-parity --output /tmp/ekko-frame-strict",
+      "exit": 1,
+      "log": "ekko-frame-strict.log.gz"
+    },
+    {
+      "argv": "nix flake check -L path:/home/y0usaf/finix/previews/ekko-zellij",
+      "exit": 0,
+      "log": "finix-zellij-launcher-final-check.log.gz"
+    }
+  ],
+  "binaries": {
+    "final_checked": "/nix/store/12jwhv91cgv3bb6p3si97w2kjcn6ysyn-ekko-0.1.0",
+    "visual": "/nix/store/whq4xajw5m5zciaxlhx2wlj3rh45hgsb-ekko-0.1.0",
+    "finix_visual": "/nix/store/fvbdh5jrgxls09h4i745zzcsaqhmq0qa-ekko-0.1.0"
+  },
+  "notes": [
+    "Final checked package differs from graphical package only by the pane_modes.py inspector assertion update.",
+    "Runtime and profile implementations are the same; Finix additionally applies the separately retained runtime patch."
+  ],
+  "full_parity": false,
+  "coverage_complete": false,
+  "source_sha256": {
+    "src/commands.lisp": "050e5783761e9f6bccd6d9c389c681d73bd7eed6e2a753a4ad59c6e59f44dda6",
+    "examples/profiles/zellij.lisp": "b4823db132db5234c52aef0f0feff27c035aeb1d32a8e0f7c2125daee88ff5c5",
+    "examples/profiles/zellij-frames.lisp": "2f421fdd0469f7eba62423556496e48ba91bda20d3ac8518db62ad97da53f913",
+    "tests/pane_frames.py": "c28590cee7f3cb811454b1526c225439fedbfd0c23626089ec6d7ec6c826bc2d"
+  }
+}

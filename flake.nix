@@ -223,6 +223,10 @@
           python ${./tests}/pane_rename.py ${self.packages.${pkgs.system}.default}/bin/ekko ${./examples/profiles}/zellij.lisp > $out
           python ${./tests}/pane_rename.py ${self.packages.${pkgs.system}.default}/bin/ekko-bare ${./examples/profiles}/zellij.lisp bare >> $out
         '';
+        pane-frames = pkgs.runCommand "ekko-pane-frames" { nativeBuildInputs = [ pkgs.python3 ]; } ''
+          python ${./tests}/pane_frames.py ${self.packages.${pkgs.system}.default}/bin/ekko ${./examples/profiles}/zellij.lisp > $out
+          python ${./tests}/pane_frames.py ${self.packages.${pkgs.system}.default}/bin/ekko-bare ${./examples/profiles}/zellij.lisp >> $out
+        '';
         pane-moves = pkgs.runCommand "ekko-pane-moves" { nativeBuildInputs = [ pkgs.python3 ]; } ''
           python ${./tests}/pane_moves.py ${self.packages.${pkgs.system}.default}/bin/ekko ${./examples/profiles}/zellij.lisp > $out
           python ${./tests}/pane_moves.py ${self.packages.${pkgs.system}.default}/bin/ekko-bare ${./examples/profiles}/zellij.lisp bare >> $out

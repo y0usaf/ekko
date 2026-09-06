@@ -804,7 +804,7 @@
     (customization-check
      (equal (mapcar (lambda (rect) (subseq rect 0 5))
                     (ekko/runtime::session-rectangles session nil))
-            '((1 0 0 39 24) (2 40 0 40 11) (3 40 12 40 12)))
+            '((1 0 0 40 24) (2 40 0 40 12) (3 40 12 40 12)))
      "edge content geometry preserves split rectangles")
     ;; A later registered owner shadows only fields it supplies.  Removing it
     ;; restores the earlier owner, and removing that owner restores defaults.

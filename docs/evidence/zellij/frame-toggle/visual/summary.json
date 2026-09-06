@@ -1,0 +1,191 @@
+{
+  "scenario": "frame-workflow",
+  "capture_complete": true,
+  "full_parity": false,
+  "coverage_complete": false,
+  "workflow_coverage_complete": true,
+  "normalizations": [],
+  "limitations": [
+    "workflow checkpoints settle at fixed delays",
+    "hardware display latency is not measured"
+  ],
+  "cleanup": {
+    "zellij": {
+      "stop_exit_code": 0,
+      "stop_error": null,
+      "remaining_pids": []
+    },
+    "ekko": {
+      "stop_exit_code": 0,
+      "stop_error": null,
+      "remaining_pids": []
+    }
+  },
+  "checkpoints": [
+    {
+      "stage": "startup-screen",
+      "differing_pixels": 50698,
+      "same_pixels": false,
+      "cell_report": {
+        "file": "startup-screen-cell-report.json",
+        "dimensions_equal": true,
+        "cursor_equal": false,
+        "differing_cells": 1159
+      }
+    },
+    {
+      "stage": "startup",
+      "differing_pixels": 0,
+      "same_pixels": true,
+      "cell_report": {
+        "file": "startup-cell-report.json",
+        "dimensions_equal": true,
+        "cursor_equal": true,
+        "differing_cells": 0
+      }
+    },
+    {
+      "stage": "pane-enter",
+      "differing_pixels": 0,
+      "same_pixels": true,
+      "cell_report": {
+        "file": "pane-enter-cell-report.json",
+        "dimensions_equal": true,
+        "cursor_equal": true,
+        "differing_cells": 0
+      }
+    },
+    {
+      "stage": "frames-off",
+      "differing_pixels": 0,
+      "same_pixels": true,
+      "cell_report": {
+        "file": "frames-off-cell-report.json",
+        "dimensions_equal": true,
+        "cursor_equal": true,
+        "differing_cells": 0
+      }
+    },
+    {
+      "stage": "frames-pane",
+      "differing_pixels": 0,
+      "same_pixels": true,
+      "cell_report": {
+        "file": "frames-pane-cell-report.json",
+        "dimensions_equal": true,
+        "cursor_equal": true,
+        "differing_cells": 0
+      }
+    },
+    {
+      "stage": "frames-right",
+      "differing_pixels": 0,
+      "same_pixels": true,
+      "cell_report": {
+        "file": "frames-right-cell-report.json",
+        "dimensions_equal": true,
+        "cursor_equal": true,
+        "differing_cells": 0
+      }
+    },
+    {
+      "stage": "frames-on",
+      "differing_pixels": 0,
+      "same_pixels": true,
+      "cell_report": {
+        "file": "frames-on-cell-report.json",
+        "dimensions_equal": true,
+        "cursor_equal": true,
+        "differing_cells": 0
+      }
+    },
+    {
+      "stage": "frames-pane-again",
+      "differing_pixels": 0,
+      "same_pixels": true,
+      "cell_report": {
+        "file": "frames-pane-again-cell-report.json",
+        "dimensions_equal": true,
+        "cursor_equal": true,
+        "differing_cells": 0
+      }
+    },
+    {
+      "stage": "frames-off-again",
+      "differing_pixels": 0,
+      "same_pixels": true,
+      "cell_report": {
+        "file": "frames-off-again-cell-report.json",
+        "dimensions_equal": true,
+        "cursor_equal": true,
+        "differing_cells": 0
+      }
+    },
+    {
+      "stage": "frames-zoom-pane",
+      "differing_pixels": 0,
+      "same_pixels": true,
+      "cell_report": {
+        "file": "frames-zoom-pane-cell-report.json",
+        "dimensions_equal": true,
+        "cursor_equal": true,
+        "differing_cells": 0
+      }
+    },
+    {
+      "stage": "frames-zoom",
+      "differing_pixels": 0,
+      "same_pixels": true,
+      "cell_report": {
+        "file": "frames-zoom-cell-report.json",
+        "dimensions_equal": true,
+        "cursor_equal": true,
+        "differing_cells": 0
+      }
+    },
+    {
+      "stage": "frames-zoom-reenter",
+      "differing_pixels": 0,
+      "same_pixels": true,
+      "cell_report": {
+        "file": "frames-zoom-reenter-cell-report.json",
+        "dimensions_equal": true,
+        "cursor_equal": true,
+        "differing_cells": 0
+      }
+    },
+    {
+      "stage": "frames-zoom-on",
+      "differing_pixels": 0,
+      "same_pixels": true,
+      "cell_report": {
+        "file": "frames-zoom-on-cell-report.json",
+        "dimensions_equal": true,
+        "cursor_equal": true,
+        "differing_cells": 0
+      }
+    },
+    {
+      "stage": "frames-restore-pane",
+      "differing_pixels": 0,
+      "same_pixels": true,
+      "cell_report": {
+        "file": "frames-restore-pane-cell-report.json",
+        "dimensions_equal": true,
+        "cursor_equal": true,
+        "differing_cells": 0
+      }
+    },
+    {
+      "stage": "frames-restore",
+      "differing_pixels": 0,
+      "same_pixels": true,
+      "cell_report": {
+        "file": "frames-restore-cell-report.json",
+        "dimensions_equal": true,
+        "cursor_equal": true,
+        "differing_cells": 0
+      }
+    }
+  ]
+}

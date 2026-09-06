@@ -147,6 +147,8 @@ def integration(binary, profile, bare=False):
             assert reloaded["mode"] == "normal" and reloaded["zoom"]
             assert reloaded["geometry"] == {
                 "pane-insets": [1, 1, 1, 1],
+                "boundary-insets": None,
+                "contributions": None,
                 "viewport-insets": [0, 0, 0, 0],
                 "split-gaps": [0, 0],
             }

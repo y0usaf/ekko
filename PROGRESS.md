@@ -5,6 +5,30 @@ through an optional, replaceable public Lisp profile, while preserving Ekko's
 independent daemon, transactional reload, reversible ownership, and graphics
 isolation. The full acceptance gate is in GOAL.md; it remains open.
 
+Frame-toggle continuation (2026-09-06, session 01a076eb-d25e-74b3-a610-fe3d78b2fa45):
+work is isolated in `../ekko-zellij-parity` on `zellij-parity-01a076eb`, starting
+from the existing `1736077` implementation. Concurrent Finix/menu changes and
+running sessions were inspected and preserved. The interrupted geometry code
+failed a fresh Nix build; fixed its outer/content assertion and duplicate-key
+validation, then corrected ordinary Lisp shared-boundary color/junctions and
+binding ownership. Regular/bare live frame tests pass inverse toggles, exact
+child WINCH, unchanged PIDs, reload/rollback, detach, and component removal.
+`nix flake check -L path:.` exited 0 with 22 checks and 13 paired workflow
+scenarios. Paired 80×24 and 20×8 frame runs pass the named functional slice;
+full input/cell parity and coverage remain false. Fourteen settled screenshots
+match exactly in both base and Finix patched runtimes. Startup differs by
+50,698 / 50,612 pixels respectively, with 1,159 modeled cells; child pixel
+startup ordering and the separate PTY fixture's content/cursor differences
+remain recorded. [Exact evidence](docs/evidence/zellij/frame-toggle/README.md).
+A separate `~/finix/previews/ekko-zellij` flake builds the selectable Lisp profile
+with the preserved overlay/copy/input fixes. Its frame and real-PTY launcher
+checks pass. [Launch/reload/review instructions](docs/zellij/finix-preview.md).
+The user's main Finix flake, live runtime patch, custom menu, and existing
+sessions remain untouched by this continuation. The preview is intermediate;
+full Zellij parity is still the active goal. Next bounded action: public Lisp
+session-mode routing and quit/detach with real-child and terminal-restoration
+comparison; the entire unimplemented ledger remains in scope.
+
 Original-read input context (2026-09-06): public fallback events now expose
 optional `:read-bytes` separately from decoded-key bytes. The first semantic
 event consumes the original read; later events explicitly carry nil. The
