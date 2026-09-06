@@ -28,3 +28,5 @@ is durable namespaced state with atomic updates and failure semantics; pointer,
 floating, release-note and tip behavior are separate required work.
 
 Final `nix flake check -L path:.` exited 0: 25 named checks and 14 paired workflow scenarios. The Nix queue reports 26 build checks; `checks.json` lists all named attributes. Runtime: `/nix/store/9cjxh7999gfhrb98ynkcrxrw7pfdv5dh-ekko-0.1.0`.
+
+The final Finix preview is pinned to `a9a129c6ee99a4b725b9cdf465726c763ece7e17`. Its initialization, viewer-exit, launcher and frame checks pass; see `finix-preview-receipt.json` and `finix-zellij-initialize-final-check.log.gz`.
