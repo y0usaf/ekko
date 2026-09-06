@@ -357,8 +357,18 @@ UNICODE_TITLE_PER_KEY_STAGES = WORKFLOW_STAGES[:2] + (
     ('rename-commit-long', b'\r', .5),
 )
 
+FRAME_STAGES = WORKFLOW_STAGES[:3] + (
+    ("frames-off", b"z", .5), ("frames-pane", b"\x10", .4),
+    ("frames-right", b"l", .4), ("frames-on", b"z", .5),
+    ("frames-pane-again", b"\x10", .4), ("frames-off-again", b"z", .5),
+    ("frames-zoom-pane", b"\x10", .4), ("frames-zoom", b"f", .5),
+    ("frames-zoom-reenter", b"\x10", .4), ("frames-zoom-on", b"z", .5),
+    ("frames-restore-pane", b"\x10", .4), ("frames-restore", b"f", .5),
+)
+
+
 def workflow_stages(args):
-    return {"move-workflow": MOVE_STAGES, "rename-workflow": RENAME_STAGES,
+    return {"frame-workflow": FRAME_STAGES, "move-workflow": MOVE_STAGES, "rename-workflow": RENAME_STAGES,
             "unicode-title-batched-workflow": UNICODE_TITLE_STAGES,
             "unicode-title-workflow": UNICODE_TITLE_PER_KEY_STAGES}.get(
         args.scenario, WORKFLOW_STAGES)
@@ -743,7 +753,7 @@ def main():
     parser.add_argument("--profile", type=Path, required=True)
     parser.add_argument("--reference", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
-    parser.add_argument("--scenario", choices=("startup", "pane-workflow", "move-workflow", "rename-workflow", "unicode-title-workflow", "unicode-title-batched-workflow"), default="startup")
+    parser.add_argument("--scenario", choices=("startup", "frame-workflow", "pane-workflow", "move-workflow", "rename-workflow", "unicode-title-workflow", "unicode-title-batched-workflow"), default="startup")
     parser.add_argument("--require-parity", action="store_true")
     args = parser.parse_args()
     args.output = args.output.resolve()
@@ -763,7 +773,7 @@ def main():
         raise RuntimeError("font mismatch")
     root = Path(tempfile.mkdtemp(prefix="ekko-zellij-visual-"))
     # Retain runtime state on failure so cleanup can be diagnosed/retried.
-    if args.scenario in ("pane-workflow", "move-workflow", "rename-workflow", "unicode-title-workflow", "unicode-title-batched-workflow"):
+    if args.scenario in ("frame-workflow", "pane-workflow", "move-workflow", "rename-workflow", "unicode-title-workflow", "unicode-title-batched-workflow"):
         for kind in ("zellij", "ekko"):
             run_workflow_side(kind, args, root)
         workflow_report(args, root)

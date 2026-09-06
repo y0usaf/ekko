@@ -133,6 +133,7 @@ attached writer. Older attachment versions reject explicitly.
 | --- | --- |
 | `:pty-pixel-source` | `:effective` (default) or `:reported`; selects application PTY pixel metrics independently of rendering |
 | `:pane-insets` | `(top right bottom left)`, each integer 0–16; default `(1 0 0 0)` |
+| `:boundary-insets` | Optional `(top right bottom left)` override applied only where a pane meets the content viewport; each integer 0–16, default `nil` |
 | `:viewport-insets` | Same order/range; default `(0 0 1 0)` |
 | `:split-gaps` | `(column-gap row-gap)`, each integer 0–16; default `(1 0)` |
 | `:erase-display-history` | Lisp boolean, default `nil`; ED2 transfers materialized main-screen rows into history when true |
@@ -155,6 +156,44 @@ viewport, top and left insets take priority, followed by bottom and right, with
 all sides capped to leave content within the outer rectangle. Hidden panes keep
 their state. `inspect` exposes resolved geometry options. These primitives reserve
 space; ordinary decoration components supply frame text and style policy.
+
+A command can replace its owner's runtime geometry contribution:
+
+```lisp
+(action :set-geometry
+        :value '(:pane-insets (0 1 1 0)
+                 :boundary-insets (0 0 0 0)
+                 :split-gaps (0 0)))
+(action :set-geometry :value nil) ; remove only this owner's override
+```
+
+The value is a property list with unique keys from `:pane-insets`,
+`:boundary-insets`, `:viewport-insets`, and `:split-gaps`, using the ranges
+above. An empty value removes the contribution. Each action replaces the whole
+contribution for its registered owner. For each field the last registered
+contributing component wins; runtime contributions override static options.
+Fields omitted by an owner continue resolving through other owners and then
+static options. `:boundary-insets` substitutes only viewport-facing edges,
+after the viewport inset is applied. Outer split rectangles remain distinct
+from application content rectangles. Minimum-size calculation respects the
+boundary edges of each tree leaf.
+
+Geometry is a primary action (at most one primary per batch), and can be
+combined with `:set-state` and `:set-keymap`. Change hooks cannot change geometry.
+Validation precedes every effect, and rejected batches preserve the previous
+contributions and state. The host recomputes content geometry and resizes only
+PTYs whose effective dimensions changed; pane processes and graphics ownership
+remain intact. Owner geometry survives worker replacement, reload retaining the
+owner, and viewer detach. Removing the owner reveals the next contribution or
+static option; it also removes that owner's component state. The detached
+`:geometry` snapshot exposes resolved fields, and `inspect` additionally lists
+owner contributions. Declare `:geometry` when a hook reads it.
+
+`tests/pane_frames.py` exercises the public profile on regular and bare runtimes
+with real child size histories, inverse toggles, unchanged PIDs, successful and
+failed reload, detach/reattach, and owner removal. The profile chooses its
+frame state, edge offsets, keybindings, glyphs, and colors in ordinary Lisp;
+the runtime contains no Zellij frame-toggle action or renderer branch.
 
 A command or hook can replace its owner's decoration contribution:
 

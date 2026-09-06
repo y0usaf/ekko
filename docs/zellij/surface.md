@@ -341,3 +341,16 @@ WebSocket reconnect, and host-specific rendering. The current differential
 check covers only the startup and settled Normal/Locked stages in its harness and retains raw ANSI;
 there is no physical-terminal screenshot parity result. No Zellij parity claim
 is made by this document or by the profile.
+
+
+## Frame-toggle measured slice (2026-09-06)
+
+`TogglePaneFrames` is **Partial**: ordinary tiled on/off/on, focus changes,
+fullscreen transitions, and exact child size histories are exercised at 80×24
+and 20×8. Regular/bare lifecycle checks cover owner removal and reload without
+restarting children. Fourteen settled graphical checkpoints match exactly in
+the base runtime and in the isolated Finix patched runtime. The complete
+input/cell gate remains false. Stacked/floating/borderless/grouped/multiplayer
+frames, arbitrary layout junctions, and remaining tiny-viewport variants need
+coverage; no screenshot result promotes those rows. Original startup differences
+remain. [Evidence and failures](../evidence/zellij/frame-toggle/README.md).

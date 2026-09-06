@@ -358,11 +358,13 @@
   (unless (or (null value) (and (listp value) (evenp (length value))
                                 (<= (length value) 8)))
     (error "Geometry value must be a proper property list"))
-  (loop for (key item) on value by #'cddr do
+  (loop with seen = nil
+        for (key item) on value by #'cddr do
     (unless (member key '(:pane-insets :boundary-insets :viewport-insets :split-gaps))
       (error "Unknown geometry field: ~S" key))
-    (when (member key (loop for (k v) on (subseq value 0 (- (length value) 2)) by #'cddr collect k))
+    (when (member key seen)
       (error "Duplicate geometry field: ~S" key))
+    (push key seen)
     (unless (or (and (member key '(:pane-insets :boundary-insets :viewport-insets))
                      (bounded-geometry-p item 4))
                 (and (eq key :split-gaps) (bounded-geometry-p item 2)))

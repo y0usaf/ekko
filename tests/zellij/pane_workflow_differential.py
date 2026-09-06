@@ -88,6 +88,13 @@ UNICODE_TITLE_PER_KEY_STAGES = STAGES[:2] + [
     ('rename-commit-long', b'\r'),
 ]
 SCENARIOS = {
+    "frame-toggle": STAGES[:3] + [
+        ("frames-off", b"z"), ("frames-pane", b"\x10"),
+        ("direction-right", b"l"), ("frames-on", b"z"),
+        ("frames-pane-again", b"\x10"), ("frames-off-again", b"z"),
+        ("frames-fullscreen-pane", b"\x10"), ("fullscreen-on", b"f"),
+        ("frames-fullscreen-reenter", b"\x10"), ("frames-fullscreen-on", b"z"),
+        ("frames-restore-pane", b"\x10"), ("fullscreen-off", b"f")],
     "rename": STAGES[:3] + [
         ("rename-enter", b"c"), ("rename-first", b"ABC"),
         ("rename-commit", b"\r"), ("rename-pane", b"\x10"),
@@ -509,13 +516,22 @@ def assert_initial_geometry(kind, paths, inspect, cols, rows):
 def assert_candidate_geometry(state):
     """Validate every settled candidate rectangle and its PTY content size."""
     pane_insets = state["geometry"]["pane-insets"]
-    top, right, bottom, left = pane_insets
     viewport = state["viewport"]
     viewport_insets = viewport["insets"]
     viewport_width = viewport["cols"] - viewport_insets[1] - viewport_insets[3]
     viewport_height = viewport["rows"] - viewport_insets[0] - viewport_insets[2]
     for pane in state["panes"]:
         outer = pane["outer_rect"]
+        offsets = list(pane_insets)
+        boundary = state["geometry"].get("boundary-insets")
+        if boundary:
+            edges = [outer[1] == viewport_insets[0],
+                     outer[0] + outer[2] == viewport_insets[3] + viewport_width,
+                     outer[1] + outer[3] == viewport_insets[0] + viewport_height,
+                     outer[0] == viewport_insets[3]]
+            offsets = [outside if edge else inside
+                       for inside, outside, edge in zip(offsets, boundary, edges)]
+        top, right, bottom, left = offsets
         assert len(outer) == 4 and outer[2] > 0 and outer[3] > 0, state
         assert 0 <= outer[0] and 0 <= outer[1], state
         assert outer[0] + outer[2] <= viewport_width, state
@@ -648,7 +664,7 @@ def run_side(kind, binary, profile, reference, root, output, shell,
                 expected_focus = {
                     "direction-right": 3,
                     "switch-focus": 1,
-                    "fullscreen-on": 1,
+                    "fullscreen-on": stages[-1]["status"]["focus"] if stages else 1,
                     "fullscreen-reenter": 1,
                     "fullscreen-focus-right": 3,
                     "fullscreen-off": stages[-1]["status"]["focus"] if stages else None,

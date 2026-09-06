@@ -75,7 +75,7 @@
                       :set-state :value (unless hidden '(:hidden t)))))))
 (ekko/extensions:register-component
  :id :zellij-modes :reads '(:mode :focus :panes :viewport :zoom :layout :component-state))
-(ekko/extensions:bind-key :component :zellij-modes :map :pane
+(ekko/extensions:bind-key :component :zellij-frames :map :pane
                            :key "z" :command "toggle-frames")
 (dolist (mode '(:normal :locked :pane :move :rename))
   (ekko/extensions:register-keymap :component :zellij-modes :name mode

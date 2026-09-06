@@ -266,3 +266,15 @@ settled batched-title screenshots match. Version-6 viewers remain supported
 by the version-7 daemon. [Read-context evidence](../evidence/zellij/read-context/README.md)
 retains startup, small-terminal, and cursor differences. Mixed mode-switch
 reads and the rest of the reference surface still require coverage.
+
+
+Frame-toggle work (2026-09-06): Pane z now toggles ordinary tiled frames and
+returns to Normal through public owner geometry/state actions. Boundary glyphs,
+focus colors, and geometry policy remain Lisp. The regular/bare lifecycle check
+covers child WINCH, inverse toggles, reload, detach, and removal. Paired 80×24
+and 20×8 input/focus/PTY histories pass the exercised functional slice. Fourteen
+settled private Kitty screenshots match exactly, including the separate Finix
+runtime with its overlay/copy/input patch. Startup, application content in the
+PTY fixture, and unimplemented surfaces remain differences. See
+[frame evidence](../evidence/zellij/frame-toggle/README.md) and
+[Finix preview instructions](finix-preview.md).
