@@ -1,7 +1,7 @@
 (in-package #:ekko/runtime)
 
 (defconstant +extension-packet-limit+ 65536)
-(defstruct extension-worker process input output source path registry request deadline recovery)
+(defstruct extension-worker process input output source path registry request deadline recovery initialization-context initialization-actions)
 (defun config-path ()
   (or (uiop:getenv "EKKO_CONFIG")
       (format nil "~A/ekko/init.lisp" (or (uiop:getenv "XDG_CONFIG_HOME")
@@ -100,6 +100,13 @@
                           (*default-pathname-defaults* (uiop:pathname-directory-pathname path)))
                      (load (make-string-input-stream (second request)) :verbose nil :print nil))
                    (extension-send output (list :ready (ekko/extensions::registry))))
+                  (:initialize
+                   (extension-send output
+                     (list :initialized
+                       (loop for c in (getf (ekko/extensions::registry) :components)
+                             when (getf c :initialize) collect
+                             (ekko/extensions::dispatch :initialize (getf c :id)
+                                                       (second request) (third request))))))
                   (:dispatch
                    (extension-send output
                      (list :result (apply #'ekko/extensions::dispatch (rest request)))))

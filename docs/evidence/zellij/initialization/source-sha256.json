@@ -1,0 +1,8 @@
+{
+  "src/commands.lisp": "72b1b24d090f9c2d5c5f16877069359822ef27d718131350e4e9cc2fc9ea1ab8",
+  "src/extensions.lisp": "8703ef54f1d913b80469620c54b4db1d2b01fcac1cf3126e1f05bbd9afc8267d",
+  "src/server.lisp": "b7c5ee6b72783e88924b7509f6527f8fa7447a3b909ce5fce2a738edcf91fe85",
+  "src/worker.lisp": "0c19c4b5d3637883e17c6cd941fd64a844d29bfdc283a9207b84e6bb99226c90",
+  "tests/initialization.py": "94ad09740fa0b2028f53bf7f9050d3c3298c3f2cce1e1a50cfc32c5c680c414a",
+  "tests/customization.lisp": "283a1f4f8ecc4a0181ed18013fc4c5574f6cfccb083bc6f7d1d7c1e67a94ebb5"
+}

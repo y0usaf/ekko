@@ -648,6 +648,7 @@
                  (setf (session-tree session) (ekko/layout:split-pane (session-tree session) (pane-id previous) (pane-id pane) :columns))))
            (record-activation session (focused-pane session))
            (layout session)
+           (initialize-startup session buffer)
            (loop for argv in commands for pane in (session-panes session) do
              (let ((vt (pane-vt pane)))
                (multiple-value-bind (fd pid)

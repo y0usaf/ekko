@@ -32,7 +32,8 @@ name. Its exports are:
 
 ```lisp
 (api-version) ; => 1
-(register-component :id :name :api-version 1 :reads '(:focus) :handler function)
+(register-component :id :name :api-version 1 :reads '(:focus)
+                    :handler function :initialize initialization-function)
 (unregister-component :name)
 (register-command :component :name :name "command" :handler function)
 (register-keymap :component :name :name :normal :unbound :forward)
@@ -101,6 +102,49 @@ them. Hooks with no declared reads run once after installation. Hooks may
 only return `:status` or `:decorate` contributions, preventing reactive action loops. A timed-out
 hook is disabled until explicit reload. After worker failure, Ekko reconstructs
 registrations from the accepted init source; worker-local variables reset.
+
+A component may also supply `:initialize`, a `(snapshot event)` function returning
+only `:set-state`, `:set-keymap`, `:status` and `:decorate` actions. Initialization
+runs once per accepted configuration generation, including startup and worker
+recovery. The event is `(:type :initialize :reason :startup)`, `:reload` or
+`:recovery`. The entire initializer group has the ordinary 50 ms callback deadline.
+Registrations remain load-only. Commands, PTY writes, geometry changes, process
+creation and other session actions are rejected in initialization.
+
+At startup, initialization runs after the inert pane tree receives its geometry
+and before any child process or listening socket exists; pane PIDs are `nil`.
+During reload, callbacks see a detached snapshot of the last committed geometry,
+mode and pane state, with removed owners filtered out of `:component-state`.
+They do not see candidate option geometry or other initializers' proposed state.
+All callbacks use the same snapshot and run in registration order; later owners'
+mode choices win. State survives successful owner-preserving reload, so an
+initializer can distinguish first installation from later generations:
+
+```lisp
+(ekko/extensions:register-component
+ :id :welcome :reads '(:component-state)
+ :initialize
+ (lambda (snapshot event)
+   (declare (ignore event))
+   (unless (assoc "welcome" (ekko/extensions:value snapshot :component-state)
+                  :test #'equal)
+     (list (ekko/extensions:action :set-state :value '(:initialized t))))))
+```
+
+Every returned batch and aggregate ownership limit is checked on a detached
+session before the candidate replaces the live registry. An invalid later owner,
+callback error or timeout rejects the entire candidate. Child output continues;
+viewer input arriving during initialization is queued and replayed through the
+accepted map on success, or the previous map on rejection. If a declared snapshot
+dependency, retained component state or mode changed during the callback, reload
+fails with a retry message instead of applying stale results. No PTY is restarted.
+Ordinary change hooks run after commit and may replace their owner's initialized
+status/decorations. Removing an owner removes its state and decorations; removing
+the active keymap restores normal registry fallback rules. Initialization does
+not provide durable storage. Like configuration loading itself, trusted Lisp can
+perform arbitrary external I/O; the transaction covers returned public actions,
+not direct filesystem/process side effects in user code. `config check` validates
+registration data; it does not execute these session-dependent callbacks.
 
 Components own their commands, bindings, keymaps, options, status contributions, and decorations.
 Later components shadow earlier ones. Removal or reload reconstructs those

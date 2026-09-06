@@ -1,0 +1,2 @@
+{"status": "pass", "binary": "/nix/store/9cjxh7999gfhrb98ynkcrxrw7pfdv5dh-ekko-0.1.0/bin/ekko", "input_hex": "61626263", "atomic_rejections": 7, "startup_before_spawn": true, "reload_preserved_child_pid": true, "owner_removal": true}
+{"status": "pass", "binary": "/nix/store/9cjxh7999gfhrb98ynkcrxrw7pfdv5dh-ekko-0.1.0/bin/ekko-bare", "input_hex": "61626263", "atomic_rejections": 7, "startup_before_spawn": true, "reload_preserved_child_pid": true, "owner_removal": true}

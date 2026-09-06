@@ -239,6 +239,10 @@
           python ${./tests}/viewer_exit.py ${self.packages.${pkgs.system}.default}/bin/ekko > $out
           python ${./tests}/viewer_exit.py ${self.packages.${pkgs.system}.default}/bin/ekko-bare >> $out
         '';
+        initialization = pkgs.runCommand "ekko-initialization" { nativeBuildInputs = [ pkgs.python3 ]; } ''
+          python ${./tests}/initialization.py ${self.packages.${pkgs.system}.default}/bin/ekko > $out
+          python ${./tests}/initialization.py ${self.packages.${pkgs.system}.default}/bin/ekko-bare >> $out
+        '';
         pane-frames = pkgs.runCommand "ekko-pane-frames" { nativeBuildInputs = [ pkgs.python3 ]; } ''
           python ${./tests}/pane_frames.py ${self.packages.${pkgs.system}.default}/bin/ekko ${./examples/profiles}/zellij.lisp > $out
           python ${./tests}/pane_frames.py ${self.packages.${pkgs.system}.default}/bin/ekko-bare ${./examples/profiles}/zellij.lisp >> $out
