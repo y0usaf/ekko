@@ -9,6 +9,7 @@ let
     mesa-demos
     fontconfig
     dejavu_fonts
+    noto-fonts-cjk-sans
     (python3.withPackages (p: [ p.pillow p.pyte ]))
     coreutils
     gnugrep
@@ -19,6 +20,7 @@ let
     <!DOCTYPE fontconfig SYSTEM "urn:fontconfig:fonts.dtd">
     <fontconfig>
       <dir>${pkgs.dejavu_fonts}</dir>
+      <dir>${pkgs.noto-fonts-cjk-sans}</dir>
       <cachedir prefix="xdg">fontconfig</cachedir>
     </fontconfig>
   '';
