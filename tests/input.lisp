@@ -10,10 +10,12 @@
               :initial-contents values))
 
 (defun packet-payloads (wire)
-  (mapcar (lambda (packet) (subseq packet 5)) (ekko/runtime::wire-queue wire)))
+  (loop for packet in (ekko/runtime::wire-queue wire)
+        unless (= (aref packet 4) 16) collect (subseq packet 5)))
 
 (defun packet-types (wire)
-  (mapcar (lambda (packet) (aref packet 4)) (ekko/runtime::wire-queue wire)))
+  (loop for packet in (ekko/runtime::wire-queue wire)
+        unless (= (aref packet 4) 16) collect (aref packet 4)))
 
 (defun make-input-viewer ()
   (let ((wire (ekko/runtime::make-wire :fd -1)))
@@ -73,6 +75,38 @@
     (check (equalp (packet-payloads wire)
                    (list (bytes 27 91 57 56 59 53 117) (bytes 122)))
            "kitty prefix command"))
+  ;; Original read context is announced once, before its parsed events.
+  (multiple-value-bind (viewer wire) (make-input-viewer)
+    (ekko/runtime::input-feed viewer (bytes 65 2 66) 3)
+    (check (equal (mapcar (lambda (p) (aref p 4)) (ekko/runtime::wire-queue wire))
+                  '(16 2 2 2)) "one read marker before multiple events")
+    (check (equalp (subseq (first (ekko/runtime::wire-queue wire)) 5)
+                   (bytes 65 2 66)) "read marker preserves all original bytes"))
+  (multiple-value-bind (viewer wire) (make-input-viewer)
+    (ekko/runtime::input-feed viewer (bytes 27 91) 2)
+    (check (null (ekko/runtime::wire-queue wire)) "incomplete escape has no event")
+    (ekko/runtime::input-feed viewer (bytes 65 66) 2)
+    (check (equal (mapcar (lambda (p) (aref p 4)) (ekko/runtime::wire-queue wire))
+                  '(16 2 2)) "fragmented escape announces accumulated reads once")
+    (check (equalp (subseq (first (ekko/runtime::wire-queue wire)) 5)
+                   (bytes 27 91 65 66)) "fragmented escape read bytes preserved"))
+  (multiple-value-bind (viewer wire) (make-input-viewer)
+    (ekko/runtime::input-feed viewer (bytes 27 91 48 110) 4)
+    (ekko/runtime::input-feed viewer (bytes 65) 1)
+    (check (equalp (subseq (first (ekko/runtime::wire-queue wire)) 5) (bytes 65))
+           "filtered reply does not contaminate next read"))
+  ;; Deferred input belongs to the writer that supplied it. Replacing the
+  ;; viewer must not replay an old read marker into the new attachment.
+  (let* ((old (ekko/runtime::make-wire :fd -1 :attached t))
+         (new (ekko/runtime::make-wire :fd -1 :attached t))
+         (session (ekko/runtime::make-session :writer old)))
+    (ekko/runtime::defer-input session 16 (bytes 65))
+    (setf (ekko/runtime::session-writer session) new)
+    (ekko/runtime::replay-input session)
+    (check (and (null (ekko/runtime::session-input-read-framed session))
+                (null (ekko/runtime::session-input-queue session))
+                (zerop (ekko/runtime::session-input-bytes session)))
+           "old writer input cannot become new writer context"))
   ;; Actual asynchronous focus/input ordering is exercised through real PTYs.
   ;; A drained queue must release its tail so the next append starts a fresh
   ;; list and does not splice into the retired one.

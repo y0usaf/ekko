@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Generate src/text-width.lisp from the pinned unicode-width crate."""
 import argparse
+import hashlib
 import pathlib
 import subprocess
 import tempfile
@@ -45,6 +46,12 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.'''
 
+EXPECTED_FILES = {
+    "src/lib.rs": "38c44436eac069bd8d11203f31ecfef8adfe92da1fce19ba00bdd25aa3fbbe20",
+    "src/tables.rs": "c6ddb420c289517bb92973199fd2987b9608f29fc10bb33b5290f39b301ce92f",
+    "LICENSE-MIT": "7b63ecd5f1902af1b63729947373683c32745c16a10e8e6292e2e2dcd7e90ae0",
+}
+
 
 def main():
     parser = argparse.ArgumentParser()
@@ -55,6 +62,11 @@ def main():
     source = args.crate / "src/lib.rs"
     if not source.is_file():
         raise SystemExit(f"missing crate source: {source}")
+    for relative, expected in EXPECTED_FILES.items():
+        path = args.crate / relative
+        digest = hashlib.sha256(path.read_bytes()).hexdigest()
+        if digest != expected:
+            raise SystemExit(f"unexpected unicode-width 0.1.10 file hash: {path}")
     with tempfile.TemporaryDirectory() as temp:
         temp = pathlib.Path(temp)
         library = temp / "libunicode_width.rlib"

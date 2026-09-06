@@ -84,7 +84,7 @@ owned files and negotiates file delivery with the outer terminal; hosts without
 local-file access receive inline frames. No frame-rate or resolution cap is imposed.
 Set `TERMINAL_BROWSER_FRAMES=inline` to compare the older transport.
 
-Attachment IPC is now version 6, including separate reported cell metrics. Existing daemons keep their executable;
+Attachment IPC is now version 7, including original-read input context; version-6 viewers remain supported. Existing daemons keep their executable;
 start a **new session name** to use these features. Incompatible attachments
 are rejected explicitly.
 

@@ -252,3 +252,17 @@ current name, Enter/Ctrl-c commit, and Escape restores the saved name and
 returns to Pane. Paired ASCII/paste editing and private screenshots are
 recorded in [rename evidence](../evidence/zellij/rename-mode/README.md).
 Unicode frame width and size limits remain required discrepancies.
+
+Unicode frame titles now use the public `display-width` function with shared,
+checksum-pinned scalar width tables. Wide and combining titles, per-key delete,
+empty rename placeholders, and mixed Unicode truncation have paired captures
+and 20 settled matching screenshots with CJK font coverage. Batched DEL remains
+a required input discrepancy; startup and small-terminal differences remain.
+See [Unicode evidence](../evidence/zellij/unicode-titles/README.md).
+
+Original stdin-read context is now public input metadata. The rename profile
+uses it to match batched DEL as well as separately delivered keys; fifteen
+settled batched-title screenshots match. Version-6 viewers remain supported
+by the version-7 daemon. [Read-context evidence](../evidence/zellij/read-context/README.md)
+retains startup, small-terminal, and cursor differences. Mixed mode-switch
+reads and the rest of the reference surface still require coverage.

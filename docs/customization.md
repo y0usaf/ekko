@@ -355,3 +355,39 @@ failed registry validation leave the prior state intact. State updates may
 accompany one primary action and one mode transition, and commit only after the
 primary succeeds. Change hooks cannot emit state updates. This state is visible
 to other components that declare the snapshot key; it is not private storage.
+
+`(ekko/extensions:display-width value)` measures a character or string in terminal
+cells. The pure public function is available in isolated workers as well as
+regular and bare builds. It uses the ordinary Unicode scalar widths from the
+MIT-licensed `unicode-width` 0.1.10 tables: ambiguous scalars occupy one cell,
+wide scalars two, combining marks zero, and controls zero. String measurement
+adds scalar widths; it does not perform grapheme or emoji-ZWJ shaping. A zero
+width does not make a control character valid decoration text.
+
+The VT, copy clipping, and decoration clipping use the same measurements.
+Profiles retain their own fitting/truncation policy. `checks.x86_64-linux.text-width`
+compares every Unicode scalar with the pinned Rust crate as a build-time oracle;
+Ekko itself has no Rust or Zellij runtime dependency for text measurement.
+
+For viewers that announce original stdin reads, named fallback events also have
+`:read-bytes`. The first completed semantic event consumes all accumulated raw
+read bytes; later events from that read carry explicit `nil`. This field is
+independent of `:bytes`, which always describes the decoded key. Bound or
+ignored keys, mouse events, focus events, and paste routing also consume read
+context. Paste callbacks retain their dedicated `:paste` and payload `:bytes`
+contract. Legacy direct key packets omit `:read-bytes` entirely.
+
+The client retains incomplete escape input across reads; the daemon retains
+incomplete modal UTF-8 keys. Completely filtered terminal replies do not become
+later key context. Original read buffers are bounded to 64 KiB, and pending
+input retains the existing 64 KiB transport bound, including read metadata.
+Framing follows the attached writer, survives ordinary viewport resize, and
+resets on replacement or disconnect. Deferred input from a replaced writer is
+discarded. Profile removal can clear an unfinished key but does not change the
+writer's framing capability.
+
+Wire version 7 adds packet 16 for original-read context. The daemon continues
+to accept version-6 attachments and emits scene version 6 for those viewers;
+version-7 viewers receive scene version 7. The optional profile uses
+`(getf event :read-bytes (getf event :bytes))` to reproduce the reference's
+rename batching while preserving legacy key clients.

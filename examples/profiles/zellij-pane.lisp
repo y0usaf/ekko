@@ -280,7 +280,9 @@ are the fallback when width is over ten.  There is no alternate-pane search."
   (let* ((pane (zellij-pane-focused snapshot))
          (id (and pane (getf pane :id)))
          (old (and pane (or (getf pane :name) "")))
-         (bytes (getf event :bytes)))
+         ;; The reference assigns all original stdin-read bytes to its first
+         ;; semantic event. Legacy clients and paste retain per-event bytes.
+         (bytes (getf event :read-bytes (getf event :bytes))))
     (when (and pane (listp bytes) (every (lambda (byte) (typep byte '(integer 0 255))) bytes))
       (let ((new (cond ((or (equal bytes '(8)) (equal bytes '(127)))
                        (zellij-pane-rename-pop old))

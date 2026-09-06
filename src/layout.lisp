@@ -7,7 +7,7 @@
 ;; A leaf's minimum is supplied by the caller so layout can reserve the
 ;; pane's requested frame and still keep one cell for application content.
 (defun minimum-size (tree &key (leaf-min '(1 2)) (column-gap 1) (row-gap 0))
-  (if (integerp tree) (copy-list leaf-min)
+  (if (integerp tree) (copy-list (if (functionp leaf-min) (funcall leaf-min tree) leaf-min))
       (destructuring-bind (axis ratio a b) tree
         (declare (ignore ratio))
         (destructuring-bind (aw ah) (minimum-size a :leaf-min leaf-min :column-gap column-gap :row-gap row-gap)

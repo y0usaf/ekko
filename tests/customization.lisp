@@ -772,4 +772,76 @@
      session (list :api-version 1 :components nil :commands nil :bindings nil :keymaps nil :options nil))
     (customization-check (null (ekko/runtime::session-component-state session))
                          "removed component state is pruned on reload"))
+  ;; Geometry is a replaceable contribution per registered owner.  A nil
+  ;; contribution removes only that owner's override and restores the option
+  ;; resolver's prior value.
+  (let* ((a (ekko/runtime::make-pane :id 1 :vt (ekko/vt:make-terminal)))
+         (b (ekko/runtime::make-pane :id 2 :vt (ekko/vt:make-terminal)))
+         (c (ekko/runtime::make-pane :id 3 :vt (ekko/vt:make-terminal)))
+         (registry (list :api-version 1
+                         :components (list (list :id "geometry-a" :reads nil :hook nil)
+                                            (list :id "geometry-b" :reads nil :hook nil))
+                         :commands nil :bindings nil :keymaps nil
+                         :options (list :pane-insets '(0 0 0 0)
+                                        :boundary-insets '(0 0 0 0)
+                                        :viewport-insets '(0 0 0 0)
+                                        :split-gaps '(0 0))))
+         (session (ekko/runtime::make-session
+                   :panes (list a b c) :tree '(:columns 50 1 (:rows 50 2 3))
+                   :cols 80 :rows 24 :registry registry)))
+    (ekko/runtime::layout session)
+    (ekko/runtime::apply-actions
+     session "geometry-a"
+     '((:set-geometry :value (:pane-insets (0 1 1 0)))) nil nil)
+    (customization-check
+     (equal (getf (getf (ekko/runtime::context-data session) :geometry) :pane-insets)
+            '(0 1 1 0))
+     "geometry snapshot exposes owner contribution")
+    (customization-check
+     (equal (multiple-value-list (ekko/runtime::content-size session 40 24 0 0))
+            '(39 24))
+     "edge content size applies pane inset only at the requested edge")
+    (customization-check
+     (equal (mapcar (lambda (rect) (subseq rect 0 5))
+                    (ekko/runtime::session-rectangles session nil))
+            '((1 0 0 39 24) (2 40 0 40 11) (3 40 12 40 12)))
+     "edge content geometry preserves split rectangles")
+    ;; A later registered owner shadows only fields it supplies.  Removing it
+    ;; restores the earlier owner, and removing that owner restores defaults.
+    (ekko/runtime::apply-actions
+     session "geometry-b"
+     '((:set-geometry :value (:pane-insets (2 2 2 2) :split-gaps (1 0)))) nil nil)
+    (let ((geometry (getf (ekko/runtime::context-data session) :geometry)))
+      (customization-check (equal (getf geometry :pane-insets) '(2 2 2 2))
+                           "later geometry owner shadows pane insets")
+      (customization-check (equal (getf geometry :split-gaps) '(1 0))
+                           "geometry owner contributes independent field"))
+    (ekko/runtime::apply-actions session "geometry-b"
+                                 '((:set-geometry :value nil)) nil nil)
+    (customization-check
+     (equal (getf (getf (ekko/runtime::context-data session) :geometry) :pane-insets)
+            '(0 1 1 0))
+     "removing later owner restores earlier geometry")
+    (let ((before (copy-tree (ekko/runtime::context-data session)))
+          (before-contributions (copy-tree (ekko/runtime::session-geometry-contributions session))))
+      (dolist (bad (list '(:unknown (1 2))
+                       '(:pane-insets (0 0 0 0) :pane-insets (1 1 1 1))
+                       '(:pane-insets (17 0 0 0))
+                       '(:split-gaps (0))))
+        (customization-check
+         (customization-signals-error-p
+          (lambda () (ekko/runtime::apply-actions
+                      session "geometry-a" (list (list :set-geometry :value bad)) nil nil)))
+         "invalid geometry batch rejected before effects")
+        (customization-check
+         (and (equal before (ekko/runtime::context-data session))
+              (equal before-contributions (ekko/runtime::session-geometry-contributions session)))
+         "invalid geometry batch preserves state and effective geometry")))
+    ;; Public snapshots are detached, including nested geometry lists.
+    (let ((snapshot (ekko/runtime::context-data session)))
+      (setf (first (getf (getf snapshot :geometry) :pane-insets)) 16)
+      (customization-check
+       (equal (getf (getf (ekko/runtime::context-data session) :geometry) :pane-insets)
+              '(0 1 1 0))
+       "geometry snapshot is a nested copy")))
   (format t "Customization, split layout and scrollback tests passed~%") t)

@@ -18,7 +18,10 @@
   (let ((focus (ekko/extensions:value snapshot :focus))
         (mode (ekko/extensions:value snapshot :mode))
         (notes (ekko/extensions:value snapshot :pane-notes)))
-    (list
+    (if (zellij-frame-hidden-p snapshot)
+        (list (ekko/extensions:action
+               :decorate :spans (zellij-frame-boundary-spans snapshot)))
+        (list
      (ekko/extensions:action
       :decorate :spans
       (loop for pane in (ekko/extensions:value snapshot :panes)
@@ -42,12 +45,12 @@
                        ;; part of the public snapshot.
                        :scroll (list 0 (getf pane :history-rows 0))
                        :focus (eql (getf pane :id) focus)
-                       :mode mode))))))))
+                       :mode mode)))))))))
 
 (ekko/extensions:unregister-component :defaults)
 (ekko/extensions:register-component
  :id :zellij-decoration
- :reads '(:focus :mode :panes :viewport :zoom :pane-notes)
+ :reads '(:focus :mode :panes :viewport :zoom :pane-notes :component-state)
  :handler #'zellij-decoration-hook)
 (ekko/extensions:set-option :component :zellij-decoration :name :pane-insets :value '(1 1 1 1))
 (ekko/extensions:set-option :component :zellij-decoration :name :viewport-insets :value '(1 0 1 0))
@@ -55,7 +58,25 @@
 (ekko/extensions:set-option :component :zellij-decoration :name :erase-display-history :value t)
 (ekko/extensions:set-option :component :zellij-decoration :name :pty-pixel-source :value :reported)
 (ekko/extensions:register-component
+ :id :zellij-frames :reads '(:component-state)
+ :handler (lambda (snapshot event) (declare (ignore snapshot event)) nil))
+(ekko/extensions:register-command :component :zellij-frames :name "toggle-frames"
+  :handler (lambda (snapshot event)
+             (declare (ignore event))
+             (let ((hidden (zellij-frame-hidden-p snapshot)))
+               (list (ekko/extensions:action
+                      :set-geometry
+                      :value (unless hidden
+                               '(:pane-insets (0 1 1 0)
+                                 :boundary-insets (0 0 0 0)
+                                 :split-gaps (0 0))))
+                     (ekko/extensions:action :set-keymap :name :normal)
+                     (ekko/extensions:action
+                      :set-state :value (unless hidden '(:hidden t)))))))
+(ekko/extensions:register-component
  :id :zellij-modes :reads '(:mode :focus :panes :viewport :zoom :layout :component-state))
+(ekko/extensions:bind-key :component :zellij-modes :map :pane
+                           :key "z" :command "toggle-frames")
 (dolist (mode '(:normal :locked :pane :move :rename))
   (ekko/extensions:register-keymap :component :zellij-modes :name mode
                                     :unbound (cond ((eq mode :rename) "rename-input")

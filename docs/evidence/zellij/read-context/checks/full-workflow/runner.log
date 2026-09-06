@@ -1,0 +1,7 @@
+these 2 derivations will be built:
+  /nix/store/jiqwd6sv63xgdcz5x3vg7bgbl1aw9zrw-ekko-zellij-pane-workflow.drv
+  /nix/store/6anp7cnd3c74p3q96kipxrsld0h8r57x-ekko-zellij-pane-workflow.drv
+building '/nix/store/jiqwd6sv63xgdcz5x3vg7bgbl1aw9zrw-ekko-zellij-pane-workflow.drv'...
+building '/nix/store/6anp7cnd3c74p3q96kipxrsld0h8r57x-ekko-zellij-pane-workflow.drv'...
+ekko-zellij-pane-workflow> {"scenario": "three-pane-pane-workflow-matrix", "scenarios": ["rename", "titles", "navigation", "new-n", "new-d", "new-r", "close-x", "fullscreen-navigation", "move", "unicode-title-batched", "unicode-title", "move-fullscreen"], "dimensions": [80, 24], "output": "/nix/store/pzl0b2f55zg7q31r1krk7vnjcrba0590-ekko-zellij-pane-workflow"}
+/nix/store/pzl0b2f55zg7q31r1krk7vnjcrba0590-ekko-zellij-pane-workflow

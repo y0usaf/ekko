@@ -171,6 +171,9 @@
         } ''
           mkdir crate
           tar -xf $unicodeWidthCrate -C crate
+          python ${./scripts/generate-text-width.py} \
+            crate/unicode-width-0.1.10 --rustc rustc --output generated.lisp
+          cmp generated.lisp ${./src/text-width.lisp}
           rustc --crate-name unicode_width --crate-type lib --edition=2018 \
             crate/unicode-width-0.1.10/src/lib.rs -o libunicode_width.rlib
           rustc ${./scripts/text-width-oracle.rs} \
@@ -197,6 +200,8 @@
         keymap-input = pkgs.runCommand "ekko-keymap-input" { nativeBuildInputs = [ pkgs.python3 ]; } ''
           python ${./tests}/keymap_input.py ${self.packages.${pkgs.system}.default}/bin/ekko > $out
           python ${./tests}/keymap_input.py ${self.packages.${pkgs.system}.default}/bin/ekko-bare bare >> $out
+          python ${./tests}/keymap_input.py --read-bytes ${self.packages.${pkgs.system}.default}/bin/ekko >> $out
+          python ${./tests}/keymap_input.py --read-bytes ${self.packages.${pkgs.system}.default}/bin/ekko-bare >> $out
         '';
         keymaps = pkgs.runCommand "ekko-keymaps" { nativeBuildInputs = [ pkgs.python3 ]; } ''
           python ${./tests}/keymaps.py ${self.packages.${pkgs.system}.default}/bin/ekko ${./examples/profiles}/zellij.lisp > $out
