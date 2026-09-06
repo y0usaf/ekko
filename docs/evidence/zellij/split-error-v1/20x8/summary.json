@@ -1,0 +1,328 @@
+{
+  "case": "small-20x8",
+  "dimensions": [
+    20,
+    8
+  ],
+  "source_binary": "/nix/store/wxjfyl2ksqkh263zwikp2igqh2a23y8r-zellij-0.43.1/bin/zellij",
+  "source_tree": "/nix/store/2q437kxp07ki50dkh6a4nmmcc4nlylqw-source",
+  "pin": "tests/zellij/reference/pin.json; verify_reference passed before each case",
+  "failure_samples": [
+    {
+      "stage": "split-fail+0.01",
+      "cursor": [
+        4,
+        2,
+        false
+      ],
+      "rows": [],
+      "frame_cell_0": {
+        "data": "┌",
+        "fg": "d75f00",
+        "bg": "default",
+        "bold": true,
+        "italics": false,
+        "underscore": false,
+        "strikethrough": false,
+        "reverse": false,
+        "blink": false
+      }
+    },
+    {
+      "stage": "split-fail+0.05",
+      "cursor": [
+        4,
+        2,
+        false
+      ],
+      "rows": [
+        [
+          0,
+          "┌ C[..]! ┐┌ B ── 0 ┐"
+        ]
+      ],
+      "frame_cell_0": {
+        "data": "┌",
+        "fg": "af0000",
+        "bg": "default",
+        "bold": true,
+        "italics": false,
+        "underscore": false,
+        "strikethrough": false,
+        "reverse": false,
+        "blink": false
+      }
+    },
+    {
+      "stage": "split-fail+0.20",
+      "cursor": [
+        4,
+        2,
+        false
+      ],
+      "rows": [
+        [
+          0,
+          "┌ C[..]! ┐┌ B ── 0 ┐"
+        ]
+      ],
+      "frame_cell_0": {
+        "data": "┌",
+        "fg": "af0000",
+        "bg": "default",
+        "bold": true,
+        "italics": false,
+        "underscore": false,
+        "strikethrough": false,
+        "reverse": false,
+        "blink": false
+      }
+    },
+    {
+      "stage": "split-fail+0.50",
+      "cursor": [
+        4,
+        2,
+        false
+      ],
+      "rows": [
+        [
+          0,
+          "┌ C[..]! ┐┌ B ── 0 ┐"
+        ]
+      ],
+      "frame_cell_0": {
+        "data": "┌",
+        "fg": "af0000",
+        "bg": "default",
+        "bold": true,
+        "italics": false,
+        "underscore": false,
+        "strikethrough": false,
+        "reverse": false,
+        "blink": false
+      }
+    },
+    {
+      "stage": "split-fail+0.95",
+      "cursor": [
+        4,
+        2,
+        false
+      ],
+      "rows": [
+        [
+          0,
+          "┌ C[..]! ┐┌ B ── 0 ┐"
+        ]
+      ],
+      "frame_cell_0": {
+        "data": "┌",
+        "fg": "af0000",
+        "bg": "default",
+        "bold": true,
+        "italics": false,
+        "underscore": false,
+        "strikethrough": false,
+        "reverse": false,
+        "blink": false
+      }
+    },
+    {
+      "stage": "split-fail+1.10",
+      "cursor": [
+        4,
+        2,
+        false
+      ],
+      "rows": [],
+      "frame_cell_0": {
+        "data": "┌",
+        "fg": "afff00",
+        "bg": "default",
+        "bold": true,
+        "italics": false,
+        "underscore": false,
+        "strikethrough": false,
+        "reverse": false,
+        "blink": false
+      }
+    },
+    {
+      "stage": "split-fail+1.50",
+      "cursor": [
+        4,
+        2,
+        false
+      ],
+      "rows": [],
+      "frame_cell_0": {
+        "data": "┌",
+        "fg": "afff00",
+        "bg": "default",
+        "bold": true,
+        "italics": false,
+        "underscore": false,
+        "strikethrough": false,
+        "reverse": false,
+        "blink": false
+      }
+    },
+    {
+      "stage": "post-fail-q",
+      "cursor": [
+        4,
+        2,
+        false
+      ],
+      "rows": [],
+      "frame_cell_0": {
+        "data": "┌",
+        "fg": "afff00",
+        "bg": "default",
+        "bold": true,
+        "italics": false,
+        "underscore": false,
+        "strikethrough": false,
+        "reverse": false,
+        "blink": false
+      }
+    },
+    {
+      "stage": "fullscreen-after-fail",
+      "cursor": [
+        12,
+        2,
+        false
+      ],
+      "rows": [],
+      "frame_cell_0": {
+        "data": "┌",
+        "fg": "afff00",
+        "bg": "default",
+        "bold": true,
+        "italics": false,
+        "underscore": false,
+        "strikethrough": false,
+        "reverse": false,
+        "blink": false
+      }
+    },
+    {
+      "stage": "pane-enter-fullscreen-fail",
+      "cursor": [
+        12,
+        2,
+        false
+      ],
+      "rows": [],
+      "frame_cell_0": {
+        "data": "┌",
+        "fg": "d75f00",
+        "bg": "default",
+        "bold": true,
+        "italics": false,
+        "underscore": false,
+        "strikethrough": false,
+        "reverse": false,
+        "blink": false
+      }
+    },
+    {
+      "stage": "split-fail-from-fullscreen+0.05",
+      "cursor": [
+        4,
+        2,
+        false
+      ],
+      "rows": [
+        [
+          0,
+          "┌ C[..]! ┐┌ B ── 0 ┐"
+        ]
+      ],
+      "frame_cell_0": {
+        "data": "┌",
+        "fg": "af0000",
+        "bg": "default",
+        "bold": true,
+        "italics": false,
+        "underscore": false,
+        "strikethrough": false,
+        "reverse": false,
+        "blink": false
+      }
+    },
+    {
+      "stage": "split-fail-from-fullscreen+1.10",
+      "cursor": [
+        4,
+        2,
+        false
+      ],
+      "rows": [],
+      "frame_cell_0": {
+        "data": "┌",
+        "fg": "afff00",
+        "bg": "default",
+        "bold": true,
+        "italics": false,
+        "underscore": false,
+        "strikethrough": false,
+        "reverse": false,
+        "blink": false
+      }
+    },
+    {
+      "stage": "post-fullscreen-fail-q",
+      "cursor": [
+        4,
+        2,
+        false
+      ],
+      "rows": [],
+      "frame_cell_0": {
+        "data": "┌",
+        "fg": "afff00",
+        "bg": "default",
+        "bold": true,
+        "italics": false,
+        "underscore": false,
+        "strikethrough": false,
+        "reverse": false,
+        "blink": false
+      }
+    }
+  ],
+  "source_semantics": {
+    "error_text": "CAN'T SPLIT!",
+    "flash_duration_ms": 1000,
+    "error_sgr": "38;5;124 (pyte af0000), bold, default background",
+    "target": "active pane frame title/color override",
+    "failed_new_pane_closed": true,
+    "pty_geometry_changed_on_failure": false,
+    "explicit_split_compound": "NewPane Down/Right then SwitchToMode Normal"
+  },
+  "cleanup": {
+    "argv": [
+      "/nix/store/wxjfyl2ksqkh263zwikp2igqh2a23y8r-zellij-0.43.1/bin/zellij",
+      "kill-session",
+      "pane-split-error"
+    ],
+    "returncode": 0,
+    "stdout": "",
+    "stderr": ""
+  },
+  "settled_behavior": {
+    "post_fail_q_input_delta": "71",
+    "fullscreen_on_events": "READY 8x6\nREAD-71 8x6\nWINCH 18x6\n",
+    "failed_split_from_fullscreen_events": "READY 8x6\nREAD-71 8x6\nWINCH 18x6\nWINCH 8x6\n",
+    "failed_split_from_fullscreen_cursor": [
+      4,
+      2,
+      false
+    ],
+    "failed_split_from_fullscreen_restored_frame": "┌ A ── 0 ┐┌ B ── 0 ┐",
+    "fullscreen_off_events": "READY 8x6\nREAD-71 8x6\nWINCH 18x6\nWINCH 8x6\nREAD-71 8x6\nWINCH 18x6\n"
+  }
+}

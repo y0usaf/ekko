@@ -1,0 +1,27 @@
+{
+  "date": "2026-09-05",
+  "package": "/nix/store/w31i5slxl8l6n6rgicr6d52wsqrfnr7l-ekko-0.1.0",
+  "binary_sha256": "ed3dec09d0596a26515679942a9de2c03ff725a2b0b00b63e671f39cc9b2e882",
+  "build_exit_code": 0,
+  "flake_check_exit_code": 0,
+  "checks": {
+    "build": "/nix/store/w31i5slxl8l6n6rgicr6d52wsqrfnr7l-ekko-0.1.0",
+    "daily": "/nix/store/qw4rl22w5vrcxa7qc7rmw8m73r7vj771-ekko-daily",
+    "decorations": "/nix/store/j5kx9ifi4c7vnmzcvgwn6a57llnbzx9c-ekko-decorations",
+    "fake-host": "/nix/store/hbdcwhvzq9bvnkmh73pbv81lx6vp1xl5-ekko-fake-host",
+    "keymaps": "/nix/store/wh6v430w7lq73p1rwp4r3g8qgcvlh30r-ekko-keymaps",
+    "packaged-smoke": "/nix/store/59p2jrld8dzn458vij567plm51gaz2x7-ekko-packaged-smoke",
+    "pane-modes": "/nix/store/0z41bq80bxj24pjp9lyb2y7b84sxycng-ekko-pane-modes",
+    "runtime": "/nix/store/dbh2dca87dmyr4zn4w880hbp78xlibld-ekko-runtime",
+    "startup-geometry": "/nix/store/ki108jgm8lvwx1rvsrc49nac7cigg3xk-ekko-startup-geometry",
+    "zellij-pane-differential": "/nix/store/hqh01lynv5fvc3xyijvbk0k196zf6xpw-ekko-zellij-pane-differential",
+    "zellij-routing": "/nix/store/37gdm9pkng4lr9wba9bjfwry21mwz7ji-ekko-zellij-routing"
+  },
+  "strict_gate_exit_code": 1,
+  "full_parity": false,
+  "coverage_complete": false,
+  "normalizations": [],
+  "prior_failure": "Full-context stale hook validation could lose a focus-only contribution after unrelated pane output; fixed with declared-read validation and deterministic regressions.",
+  "visual_evidence": "../wayland-startup-v5/report.json",
+  "reference_small_startup_evidence": "../small-startup/provenance.json"
+}

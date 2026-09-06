@@ -1,0 +1,37 @@
+{
+  "commands": [
+    {
+      "command": "nix build -L",
+      "exit_code": 0
+    },
+    {
+      "command": "nix flake check -L",
+      "exit_code": 0,
+      "check_count": 9
+    },
+    {
+      "command": "nix run .#zellij-pane-differential -- --cols 20 --rows 8 --output /tmp/ekko-pane-strict-final --require-parity",
+      "exit_code": 1,
+      "reason": "Parity gate incomplete or differences remain"
+    }
+  ],
+  "paired_output": "/nix/store/li964pm2948234wj7ln2acixl3wzxi7d-ekko-zellij-pane-differential",
+  "full_parity": false,
+  "hashes": {
+    "20x8/ekko.ansi": "32f494b0d151624c06fb65688d6eb9f0296ebcabb8dc5ebcbf20ac74d86db040",
+    "20x8/ekko.json.gz": "c845d2d427796d6fa1dfa370fc4e57a64c43746a13ac1343768b6cb01acb6229",
+    "20x8/report.json.gz": "4422a9751d34338b101dbe5e7489e5a1651e8bc0be6d68abacd9509b66240e72",
+    "20x8/summary.json": "4d47cd57e2ea22e3686d5f694c150460a066e71bf47969b28d145cafeadd98b8",
+    "20x8/zellij.ansi": "86a48b77e40d3696dff90b281b013101441c13b5329c538218964452f062f536",
+    "20x8/zellij.json.gz": "7057fc9a10a103f25c62571d5c4767df26a04c29a29389bd6ead2f990ec8fa63",
+    "80x24/ekko.ansi": "3c32a74f26318b9343d72007301876bcb6e8228edd51945f2a6982a4646fd951",
+    "80x24/ekko.json.gz": "9640f9e762e2f39bed41a14c937ab9f18ac04d035c2f79b7b124bfcf775bc374",
+    "80x24/report.json.gz": "adba5bfea0ca414414e0856307fe7b7101391aadb964c1b2fdf008ac7a516379",
+    "80x24/summary.json": "fe2c372065d080f298d0fc6e9cc3d1846f8ec904c4f2fcd70589d0a88badebeb",
+    "80x24/zellij.ansi": "e4d9916f1bec70a27ac24beef9207e60951a7760acad9e70f43b21832358b978",
+    "80x24/zellij.json.gz": "ba2569671751e97901ecbd3837a7701004cd424380b08a327f2f02dd891690a7",
+    "build.log.gz": "c6bbc10a20bd10d94550cd924c640695405ff622f8697d9a506ca91ecba2caad",
+    "check.log.gz": "e3ec1d826d22afe9bc232b327c545ee2ef699697c1f9a42d15e6caefe671f782",
+    "strict.log.gz": "944c5fc70118dea3facd6eeda04f82cda4f672d2ca78792f13b76f2795efea21"
+  }
+}

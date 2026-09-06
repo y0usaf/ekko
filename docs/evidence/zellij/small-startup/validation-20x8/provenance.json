@@ -1,0 +1,28 @@
+{
+  "scenario": "pinned-zellij-0.43.1-small-startup-harness-validation",
+  "dimensions": [
+    20,
+    8
+  ],
+  "case": "text-only",
+  "normalizations": [],
+  "reference_verification": "small_probe.py invokes pane_differential.verify_reference; passed",
+  "binary": "/nix/store/wxjfyl2ksqkh263zwikp2igqh2a23y8r-zellij-0.43.1/bin/zellij",
+  "files": [
+    {
+      "file": "report.json.gz",
+      "sha256": "e93ac2f9d777a3f89c450e291eaec9354cdd266845031422db16297e4342368a",
+      "source_bytes": 14902
+    },
+    {
+      "file": "text-only.ansi.gz",
+      "sha256": "3b8f89a4c4b928c4f740df4b35bba276646dd7ef3785cd96827b3ce57fbbedbe",
+      "source_bytes": 5853
+    },
+    {
+      "file": "text-only.cleanup.json.gz",
+      "sha256": "d02209dc37208c30073d8b95d2decc6192c8dd21e32a77b8e08c6c71a8b8db13",
+      "source_bytes": 233
+    }
+  ]
+}

@@ -1,0 +1,19 @@
+{
+  "date": "2026-09-06",
+  "previous_goal_turn": "progress",
+  "scope": "Full pinned Zellij functional and visual parity remains active",
+  "worktree_recovered": true,
+  "old_background_jobs_reused": false,
+  "lost_temporary_evidence": [
+    "/tmp/ekko-workflow-gated-80",
+    "/tmp/ekko-workflow-gated-20",
+    "/tmp/ekko-visual-pane-workflow10"
+  ],
+  "fresh_nix_build": {
+    "command": "XDG_CACHE_HOME=/tmp/ekko-recovery-nix-cache nix build --no-link -L",
+    "exit_code": 1,
+    "blocker": "Nix daemon socket connection denied by current sandbox"
+  },
+  "full_parity": false,
+  "coverage_complete": false
+}

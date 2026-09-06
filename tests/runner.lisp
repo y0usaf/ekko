@@ -15,6 +15,8 @@
   (ekko-test "SGR reset restores defaults"
              (equal (ekko/vt::update-rendition '(0 1 38 2 0 24 30) '(39 22)) '(0)))
   (ekko/graphics-demo-tests::run-graphics-demo-tests)
+  (run-zellij-frame-tests)
+  (run-erase-history-tests)
   (run-geometry-tests)
   (ekko/client-tests::run-presentation-tests)
   (ekko/runtime-tests::run-input-tests)

@@ -1,0 +1,8 @@
+{
+  "settled_input_slice_passed": true,
+  "full_parity": false,
+  "coverage_complete": false,
+  "modeled_cell_parity": false,
+  "application_input_parity": false,
+  "internal_ekko_mode_zoom_assertions": true
+}

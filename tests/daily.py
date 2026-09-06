@@ -41,7 +41,7 @@ class Attachment:
         self.sock.connect(str(path))
         self.buffer = b""
         self.scenes = []
-        self.send(1, struct.pack(">IIIII", 3, 120, 40, 8, 16))
+        self.send(1, struct.pack(">IIIII", 5, 120, 40, 8, 16))
         self.pump(.05)
 
     def send(self, kind, data=b""):

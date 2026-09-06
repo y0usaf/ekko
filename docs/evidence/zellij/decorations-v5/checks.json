@@ -1,0 +1,26 @@
+{
+  "date": "2026-09-05",
+  "build_exit_code": 0,
+  "flake_check_exit_code": 0,
+  "flake_check_count": 11,
+  "package": "/nix/store/l746zv84mbnbvfgfj3pcah0gisa1i9wb-ekko-0.1.0",
+  "binary_sha256": "ec5838dd042257e6eea41c0d410665122b0a9a68fce8d6eea2956ca4cef656bf",
+  "checks": {
+    "build": "/nix/store/l746zv84mbnbvfgfj3pcah0gisa1i9wb-ekko-0.1.0",
+    "daily": "/nix/store/cwznjryrcaykv0l4fh6qk2lhqs73lf9m-ekko-daily",
+    "decorations": "/nix/store/h3177h1c622i6s6l1c39hz5fyny10zbs-ekko-decorations",
+    "fake-host": "/nix/store/pc8z78v4bzcvclgsdkychyj0wb1g3xl8-ekko-fake-host",
+    "keymaps": "/nix/store/ffv5pmw09mza4ajkh67jzf7db81kvp52-ekko-keymaps",
+    "packaged-smoke": "/nix/store/wlp5ls1ap0nsxmlrqqg1rn14j7rrbxga-ekko-packaged-smoke",
+    "pane-modes": "/nix/store/5gwmlir2hsa7cv20356b2r5jrk628l4m-ekko-pane-modes",
+    "runtime": "/nix/store/b12x9srah5am05g93p3jzlw6wqbx7qd3-ekko-runtime",
+    "zellij-pane-differential": "/nix/store/7sgkrijiqclasdhb492q60x4q8nzg092-ekko-zellij-pane-differential",
+    "zellij-routing": "/nix/store/5c9qz8k4da7ds6hidhwj022acifx524d-ekko-zellij-routing"
+  },
+  "full_parity": false,
+  "coverage_complete": false,
+  "visual_evidence": "../wayland-paired-v5/report.json",
+  "visual_candidate_differs_from_final_build": true,
+  "strict_gate_exit_code": 1,
+  "strict_gate_failed_for_known_parity_gaps": true
+}

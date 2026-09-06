@@ -1,0 +1,564 @@
+{
+  "scenario": "three-pane-L (A left; B/C right stacked horizontally)",
+  "dimensions": [
+    20,
+    8
+  ],
+  "binary": "/nix/store/wxjfyl2ksqkh263zwikp2igqh2a23y8r-zellij-0.43.1/bin/zellij",
+  "raw_and_cells": "compressed report contains raw_hex, modeled cells, displays, input deltas, events and cursors",
+  "normalizations": [],
+  "cases": {
+    "navigation": [
+      {
+        "stage": "startup",
+        "cursor": [
+          4,
+          2,
+          false
+        ],
+        "pane_input_delta_hex": {
+          "A": "",
+          "B": "",
+          "C": ""
+        },
+        "pane_events": {
+          "A": "READY 8x6\n",
+          "B": "READY 8x2\n",
+          "C": "READY 8x2\n"
+        }
+      },
+      {
+        "stage": "pane-enter",
+        "cursor": [
+          4,
+          2,
+          false
+        ],
+        "pane_input_delta_hex": {
+          "A": "",
+          "B": "",
+          "C": ""
+        },
+        "pane_events": {
+          "A": "READY 8x6\n",
+          "B": "READY 8x2\n",
+          "C": "READY 8x2\n"
+        }
+      },
+      {
+        "stage": "edge-left",
+        "cursor": [
+          4,
+          2,
+          false
+        ],
+        "pane_input_delta_hex": {
+          "A": "",
+          "B": "",
+          "C": ""
+        },
+        "pane_events": {
+          "A": "READY 8x6\n",
+          "B": "READY 8x2\n",
+          "C": "READY 8x2\n"
+        }
+      },
+      {
+        "stage": "move-right",
+        "cursor": [
+          14,
+          6,
+          false
+        ],
+        "pane_input_delta_hex": {
+          "A": "",
+          "B": "",
+          "C": ""
+        },
+        "pane_events": {
+          "A": "READY 8x6\n",
+          "B": "READY 8x2\n",
+          "C": "READY 8x2\n"
+        }
+      },
+      {
+        "stage": "move-down",
+        "cursor": [
+          14,
+          6,
+          false
+        ],
+        "pane_input_delta_hex": {
+          "A": "",
+          "B": "",
+          "C": ""
+        },
+        "pane_events": {
+          "A": "READY 8x6\n",
+          "B": "READY 8x2\n",
+          "C": "READY 8x2\n"
+        }
+      },
+      {
+        "stage": "move-up",
+        "cursor": [
+          14,
+          2,
+          false
+        ],
+        "pane_input_delta_hex": {
+          "A": "",
+          "B": "",
+          "C": ""
+        },
+        "pane_events": {
+          "A": "READY 8x6\n",
+          "B": "READY 8x2\n",
+          "C": "READY 8x2\n"
+        }
+      },
+      {
+        "stage": "switch-focus",
+        "cursor": [
+          14,
+          6,
+          false
+        ],
+        "pane_input_delta_hex": {
+          "A": "",
+          "B": "",
+          "C": ""
+        },
+        "pane_events": {
+          "A": "READY 8x6\n",
+          "B": "READY 8x2\n",
+          "C": "READY 8x2\n"
+        }
+      },
+      {
+        "stage": "edge-right",
+        "cursor": [
+          14,
+          6,
+          false
+        ],
+        "pane_input_delta_hex": {
+          "A": "",
+          "B": "",
+          "C": ""
+        },
+        "pane_events": {
+          "A": "READY 8x6\n",
+          "B": "READY 8x2\n",
+          "C": "READY 8x2\n"
+        }
+      }
+    ],
+    "new-n": [
+      {
+        "stage": "startup",
+        "cursor": [
+          4,
+          2,
+          false
+        ],
+        "pane_input_delta_hex": {
+          "A": "",
+          "B": "",
+          "C": ""
+        },
+        "pane_events": {
+          "A": "READY 8x6\n",
+          "B": "READY 8x2\n",
+          "C": "READY 8x2\n"
+        }
+      },
+      {
+        "stage": "pane-enter",
+        "cursor": [
+          4,
+          2,
+          false
+        ],
+        "pane_input_delta_hex": {
+          "A": "",
+          "B": "",
+          "C": ""
+        },
+        "pane_events": {
+          "A": "READY 8x6\n",
+          "B": "READY 8x2\n",
+          "C": "READY 8x2\n"
+        }
+      },
+      {
+        "stage": "new-default",
+        "cursor": [
+          4,
+          2,
+          false
+        ],
+        "pane_input_delta_hex": {
+          "A": "",
+          "B": "",
+          "C": ""
+        },
+        "pane_events": {
+          "A": "READY 8x6\n",
+          "B": "READY 8x2\n",
+          "C": "READY 8x2\n"
+        }
+      },
+      {
+        "stage": "post-new-q",
+        "cursor": [
+          4,
+          2,
+          false
+        ],
+        "pane_input_delta_hex": {
+          "A": "71",
+          "B": "",
+          "C": ""
+        },
+        "pane_events": {
+          "A": "READY 8x6\nREAD-71 8x6\n",
+          "B": "READY 8x2\n",
+          "C": "READY 8x2\n"
+        }
+      }
+    ],
+    "new-d": [
+      {
+        "stage": "startup",
+        "cursor": [
+          4,
+          2,
+          false
+        ],
+        "pane_input_delta_hex": {
+          "A": "",
+          "B": "",
+          "C": ""
+        },
+        "pane_events": {
+          "A": "READY 8x6\n",
+          "B": "READY 8x2\n",
+          "C": "READY 8x2\n"
+        }
+      },
+      {
+        "stage": "pane-enter",
+        "cursor": [
+          4,
+          2,
+          false
+        ],
+        "pane_input_delta_hex": {
+          "A": "",
+          "B": "",
+          "C": ""
+        },
+        "pane_events": {
+          "A": "READY 8x6\n",
+          "B": "READY 8x2\n",
+          "C": "READY 8x2\n"
+        }
+      },
+      {
+        "stage": "new-down",
+        "cursor": [
+          4,
+          2,
+          false
+        ],
+        "pane_input_delta_hex": {
+          "A": "",
+          "B": "",
+          "C": ""
+        },
+        "pane_events": {
+          "A": "READY 8x6\n",
+          "B": "READY 8x2\n",
+          "C": "READY 8x2\n"
+        }
+      },
+      {
+        "stage": "post-new-q",
+        "cursor": [
+          4,
+          2,
+          false
+        ],
+        "pane_input_delta_hex": {
+          "A": "71",
+          "B": "",
+          "C": ""
+        },
+        "pane_events": {
+          "A": "READY 8x6\nREAD-71 8x6\n",
+          "B": "READY 8x2\n",
+          "C": "READY 8x2\n"
+        }
+      }
+    ],
+    "new-r": [
+      {
+        "stage": "startup",
+        "cursor": [
+          4,
+          2,
+          false
+        ],
+        "pane_input_delta_hex": {
+          "A": "",
+          "B": "",
+          "C": ""
+        },
+        "pane_events": {
+          "A": "READY 8x6\n",
+          "B": "READY 8x2\n",
+          "C": "READY 8x2\n"
+        }
+      },
+      {
+        "stage": "pane-enter",
+        "cursor": [
+          4,
+          2,
+          false
+        ],
+        "pane_input_delta_hex": {
+          "A": "",
+          "B": "",
+          "C": ""
+        },
+        "pane_events": {
+          "A": "READY 8x6\n",
+          "B": "READY 8x2\n",
+          "C": "READY 8x2\n"
+        }
+      },
+      {
+        "stage": "new-right",
+        "cursor": [
+          8,
+          3,
+          false
+        ],
+        "pane_input_delta_hex": {
+          "A": "",
+          "B": "",
+          "C": ""
+        },
+        "pane_events": {
+          "A": "READY 8x6\nWINCH 3x6\n",
+          "B": "READY 8x2\n",
+          "C": "READY 8x2\n"
+        }
+      },
+      {
+        "stage": "post-new-q",
+        "cursor": [
+          6,
+          4,
+          false
+        ],
+        "pane_input_delta_hex": {
+          "A": "",
+          "B": "",
+          "C": ""
+        },
+        "pane_events": {
+          "A": "READY 8x6\nWINCH 3x6\n",
+          "B": "READY 8x2\n",
+          "C": "READY 8x2\n"
+        }
+      }
+    ],
+    "close-x": [
+      {
+        "stage": "startup",
+        "cursor": [
+          4,
+          2,
+          false
+        ],
+        "pane_input_delta_hex": {
+          "A": "",
+          "B": "",
+          "C": ""
+        },
+        "pane_events": {
+          "A": "READY 8x6\n",
+          "B": "READY 8x2\n",
+          "C": "READY 8x2\n"
+        }
+      },
+      {
+        "stage": "pane-enter",
+        "cursor": [
+          4,
+          2,
+          false
+        ],
+        "pane_input_delta_hex": {
+          "A": "",
+          "B": "",
+          "C": ""
+        },
+        "pane_events": {
+          "A": "READY 8x6\n",
+          "B": "READY 8x2\n",
+          "C": "READY 8x2\n"
+        }
+      },
+      {
+        "stage": "close-focused",
+        "cursor": [
+          12,
+          6,
+          false
+        ],
+        "pane_input_delta_hex": {
+          "A": "",
+          "B": "",
+          "C": ""
+        },
+        "pane_events": {
+          "A": "READY 8x6\n",
+          "B": "READY 8x2\nWINCH 18x2\n",
+          "C": "READY 8x2\nWINCH 18x2\n"
+        }
+      },
+      {
+        "stage": "post-close-q",
+        "cursor": [
+          12,
+          6,
+          false
+        ],
+        "pane_input_delta_hex": {
+          "A": "",
+          "B": "",
+          "C": "71"
+        },
+        "pane_events": {
+          "A": "READY 8x6\n",
+          "B": "READY 8x2\nWINCH 18x2\n",
+          "C": "READY 8x2\nWINCH 18x2\nREAD-71 18x2\n"
+        }
+      }
+    ]
+  },
+  "fullscreen_navigation": [
+    {
+      "stage": "startup",
+      "cursor": [
+        4,
+        2,
+        false
+      ],
+      "pane_input_delta_hex": {
+        "A": "",
+        "B": "",
+        "C": ""
+      },
+      "pane_events": {
+        "A": "READY 8x6\n",
+        "B": "READY 8x2\n",
+        "C": "READY 8x2\n"
+      }
+    },
+    {
+      "stage": "pane-enter",
+      "cursor": [
+        4,
+        2,
+        false
+      ],
+      "pane_input_delta_hex": {
+        "A": "",
+        "B": "",
+        "C": ""
+      },
+      "pane_events": {
+        "A": "READY 8x6\n",
+        "B": "READY 8x2\n",
+        "C": "READY 8x2\n"
+      }
+    },
+    {
+      "stage": "fullscreen-on",
+      "cursor": [
+        12,
+        2,
+        false
+      ],
+      "pane_input_delta_hex": {
+        "A": "",
+        "B": "",
+        "C": ""
+      },
+      "pane_events": {
+        "A": "READY 8x6\nWINCH 18x6\n",
+        "B": "READY 8x2\n",
+        "C": "READY 8x2\n"
+      }
+    },
+    {
+      "stage": "pane-enter-fullscreen",
+      "cursor": [
+        12,
+        2,
+        false
+      ],
+      "pane_input_delta_hex": {
+        "A": "",
+        "B": "",
+        "C": ""
+      },
+      "pane_events": {
+        "A": "READY 8x6\nWINCH 18x6\n",
+        "B": "READY 8x2\n",
+        "C": "READY 8x2\n"
+      }
+    },
+    {
+      "stage": "hidden-right-noop",
+      "cursor": [
+        12,
+        2,
+        false
+      ],
+      "pane_input_delta_hex": {
+        "A": "",
+        "B": "",
+        "C": ""
+      },
+      "pane_events": {
+        "A": "READY 8x6\nWINCH 18x6\nWINCH 8x6\n",
+        "B": "READY 8x2\n",
+        "C": "READY 8x2\nWINCH 18x6\n"
+      }
+    },
+    {
+      "stage": "fullscreen-off",
+      "cursor": [
+        14,
+        6,
+        false
+      ],
+      "pane_input_delta_hex": {
+        "A": "",
+        "B": "",
+        "C": ""
+      },
+      "pane_events": {
+        "A": "READY 8x6\nWINCH 18x6\nWINCH 8x6\n",
+        "B": "READY 8x2\n",
+        "C": "READY 8x2\nWINCH 18x6\nWINCH 8x2\n"
+      }
+    }
+  ]
+}

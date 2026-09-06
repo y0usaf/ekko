@@ -19,11 +19,22 @@
   (input-state :ground) (input (make-array 0 :element-type '(unsigned-byte 8) :adjustable t :fill-pointer 0))
   (input-at 0) (paste nil) (done nil) size (cw 8) (ch 16))
 (defun terminal-write (viewer text) (queue-bytes (viewer-io viewer) (text-bytes text)))
+(defun terminal-viewport ()
+  "Return a validated viewport for a detached server, or NIL without a tty."
+  (handler-case
+      (destructuring-bind (cols rows pixel-cols pixel-rows) (terminal-size 0)
+        (when (and (plusp cols) (plusp rows))
+          (let ((cw (if (plusp pixel-cols) (floor pixel-cols cols) 8))
+                (ch (if (plusp pixel-rows) (floor pixel-rows rows) 16)))
+            (list (max 5 (min 500 cols)) (max 4 (min 300 rows))
+                  (max 1 (min 128 cw)) (max 1 (min 256 ch))))))
+    (error () nil)))
 (defun send-size (viewer &optional queried-cw queried-ch)
   (let* ((size (terminal-size 0)) (cols (first size)) (rows (second size))
          (cw (or queried-cw (and (plusp cols) (plusp (third size)) (floor (third size) cols)) (viewer-cw viewer)))
          (ch (or queried-ch (and (plusp rows) (plusp (fourth size)) (floor (fourth size) rows)) (viewer-ch viewer))))
-    (setf cols (max 5 (min 500 cols)) rows (max 4 (min 300 rows)) cw (max 1 cw) ch (max 1 ch))
+    (setf cols (max 5 (min 500 cols)) rows (max 4 (min 300 rows))
+          cw (max 1 (min 128 cw)) ch (max 1 (min 256 ch)))
     (when (or (not (equal size (viewer-size viewer))) (/= cw (viewer-cw viewer)) (/= ch (viewer-ch viewer)))
       (setf (viewer-size viewer) size (viewer-cw viewer) cw (viewer-ch viewer) ch)
       (send-packet (viewer-connection viewer) 1 (integers (list +wire-version+ cols rows cw ch))))))
@@ -119,10 +130,17 @@
       (terminal-write viewer (format nil "~C[~D;~DH~C_Ga=p,i=~D,p=1,C=1,q=2,x=~D,y=~D,w=~D,h=~D,X=~D,Y=~D;~C\\"
                                      esc (1+ (floor y ch)) (1+ (floor x cw)) esc id
                                      sx sy w h (mod x cw) (mod y ch) esc)))))
-(defun fit-label (text width)
-  (let ((safe (remove-if (lambda (c) (or (< (char-code c) 32) (> (char-code c) 126))) text)))
-    (format nil "~VA" width (subseq safe 0 (min width (length safe))))))
+(defun render-decoration (stream cols rows decoration)
+  (destructuring-bind (x y text sgr) decoration
+    (when (and (integerp x) (integerp y) (stringp text)
+               (<= 0 x) (< x cols) (<= 0 y) (< y rows))
+      ;; The server clips spans at cell boundaries and never publishes a
+      ;; decoration over app content. Keep this renderer deliberately small:
+      ;; it only emits the already validated, published cells.
+      (format stream "~C[~D;~DH~C[~{~D~^;~}m~A~C[0m"
+              (code-char 27) (1+ y) (1+ x) (code-char 27) sgr text (code-char 27)))))
 (defun scene-text-rows (cols rows focus panes &optional metadata)
+  (declare (ignore focus))
   (let ((output (map 'vector (lambda (ignored) (declare (ignore ignored))
                               (make-string-output-stream)) (make-array rows)))
         (esc (code-char 27)))
@@ -130,24 +148,19 @@
       (format (aref output row) "~C[0m~C[~D;1H~A" esc esc (1+ row)
               (make-string cols :initial-element #\Space)))
     (dolist (pane panes)
-      (destructuring-bind (id x y width height label status cursor-x cursor-y visible lines placements) pane
-        (declare (ignore height cursor-x cursor-y visible placements))
-        (format (aref output (1- y)) "~C[~D;~DH~C[~Am~A~C[0m" esc y (1+ x) esc
-                (if (= id focus) "30;46" "37;44")
-                (fit-label (format nil " ~D  ~A~A" id label
-                                   (if status (format nil " [exit ~D]" status) "")) width) esc)
+      (destructuring-bind (id x y width height label status cursor-x cursor-y visible lines placements outer) pane
+        (declare (ignore id width height label status cursor-x cursor-y visible placements outer))
         (loop for line in lines for row from y do
           (dolist (run line)
             (destructuring-bind (column text attributes) run
               (format (aref output row) "~C[~D;~DH~C[~{~D~^;~}m~A"
                       esc (1+ row) (+ x column 1) esc attributes text))))))
-    (dolist (pane panes)
-      (let ((divider (+ (second pane) (fourth pane))))
-        (when (< divider cols)
-          (loop for row from (1- (third pane)) below (+ (third pane) (fifth pane)) do
-            (format (aref output row) "~C[~D;~DH~C[0;36m│" esc (1+ row) (1+ divider) esc)))))
-    (format (aref output (1- rows)) "~C[~D;1H~C[~{~D~^;~}m~A~C[0m" esc rows esc
-            (getf metadata :style '(0 30 47)) (fit-label (getf metadata :status "") (1- cols)) esc)
+    ;; Chrome policy is supplied by Lisp hooks as bounded spans. The server
+    ;; clips these before publication, and the client merely places them.
+    (dolist (decoration (getf metadata :decorations))
+      (let ((y (second decoration)))
+        (when (and (integerp y) (<= 0 y) (< y rows))
+          (render-decoration (aref output y) cols rows decoration))))
     (map 'vector #'get-output-stream-string output)))
 
 (defun render-scene (viewer)
@@ -397,8 +410,12 @@
     (when (minusp fd)
       (unless (member fd '(-2 -111)) (checked fd "connect"))
       (let* ((binary (car sb-ext:*posix-argv*)) (log (concatenate 'string path ".log"))
+             (viewport (terminal-viewport))
              (process (sb-ext:run-program binary
                                           (append (list "--serve" name)
+                                                  (when viewport
+                                                    (append (list "--viewport")
+                                                            (mapcar (lambda (value) (format nil "~D" value)) viewport)))
                                                   (loop for argv in commands for first = t then nil
                                                         append (if first argv (cons ":::" argv))))
                                           :wait nil :input nil :output log :error :output :if-output-exists :append))

@@ -20,6 +20,30 @@
     (values (ekko/runtime::make-viewer :connection wire) wire)))
 
 (defun run-input-tests ()
+  (dolist (entry '(("[D" :left 57350) ("[C" :right 57351)
+                   ("[A" :up 57352) ("[B" :down 57353)
+                   ("OD" :left 57350) ("OC" :right 57351)
+                   ("OA" :up 57352) ("OB" :down 57353)))
+    (destructuring-bind (suffix semantic codepoint) entry
+      (check (eq semantic
+                 (ekko/runtime::semantic-key
+                  (ekko/runtime::text-bytes (concatenate 'string (string #\Esc) suffix)) nil))
+             "arrow escape sequence semantic key")
+      (check (eq semantic (ekko/runtime::semantic-key (bytes) codepoint))
+             "Kitty arrow semantic key")))
+  ;; Modal dispatch must treat UTF-8 as one code point: the lead byte alone
+  ;; is incomplete and must never be mistaken for the registered character.
+  (check (= (ekko/runtime::utf8-width #xc3) 2) "UTF-8 width")
+  (check (null (ekko/runtime::utf8-codepoint (bytes #xc3))) "incomplete UTF-8 key")
+  (check (= (ekko/runtime::utf8-codepoint (bytes #xc3 #xa9)) 233) "UTF-8 code point")
+  (check (= (ekko/runtime::key-width (bytes #xc3 #xa9)) 2) "UTF-8 key boundary")
+  (check (not (= (ekko/runtime::key-width (bytes #xc3 #xa9)) #xc3))
+         "UTF-8 lead byte is not a key")
+  ;; Framing preserves the original bytes for the daemon's :forward policy.
+  (multiple-value-bind (viewer wire) (make-input-viewer)
+    (ekko/runtime::input-feed viewer (bytes #xc3 #xa9) 2)
+    (check (equalp (packet-payloads wire) (list (bytes #xc3 #xa9)))
+           "UTF-8 forwarding bytes"))
   ;; Coalescing must stop at the earliest protocol delimiter, and complete
   ;; escape sequences must remain one event.
   (multiple-value-bind (viewer wire) (make-input-viewer)

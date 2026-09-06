@@ -11,10 +11,37 @@
       forEachSystem = f: nixpkgs.lib.genAttrs systems (system: f nixpkgs.legacyPackages.${system});
     in {
       packages = forEachSystem (pkgs: {
+        zellij-reference = let pin = builtins.fromJSON (builtins.readFile ./tests/zellij/reference/pin.json); in
+          assert pkgs.zellij.version == pin.release;
+          assert pkgs.zellij.src.outputHash == pin.source_nar_hash;
+          assert nixpkgs.rev == pin.nixpkgs_revision;
+          pkgs.zellij;
+        zellij-pane-probe = pkgs.writeShellScriptBin "ekko-zellij-pane-probe" ''
+          exec ${pkgs.python3.withPackages (p: [ p.pyte ])}/bin/python ${./tests/zellij}/pane_probe.py \
+            --zellij ${self.packages.${pkgs.system}.zellij-reference}/bin/zellij "$@"
+        '';
+        zellij-pane-differential = pkgs.writeShellScriptBin "ekko-zellij-pane-differential" ''
+          exec ${pkgs.python3.withPackages (p: [ p.pyte ])}/bin/python ${./tests/zellij}/pane_differential.py \
+            --zellij ${self.packages.${pkgs.system}.zellij-reference}/bin/zellij \
+            --ekko ${self.packages.${pkgs.system}.default}/bin/ekko \
+            --profile ${./examples/profiles}/zellij.lisp "$@"
+        '';
+        zellij-pane-workflow = pkgs.writeShellScriptBin "ekko-zellij-pane-workflow" ''
+          exec ${pkgs.python3.withPackages (p: [ p.pyte ])}/bin/python ${./tests/zellij}/pane_workflow_differential.py \
+            --zellij ${self.packages.${pkgs.system}.zellij-reference}/bin/zellij \
+            --ekko ${self.packages.${pkgs.system}.default}/bin/ekko \
+            --profile ${./examples/profiles}/zellij.lisp \
+            --reference ${./tests/zellij}/reference "$@"
+        '';
+        zellij-differential = pkgs.writeShellScriptBin "ekko-zellij-differential" ''
+          exec ${pkgs.python3.withPackages (p: [ p.pyte ])}/bin/python ${./tests/zellij}/differential.py \
+            --zellij ${self.packages.${pkgs.system}.zellij-reference}/bin/zellij \
+            --ekko ${self.packages.${pkgs.system}.default}/bin/ekko \
+            --profile ${./examples/profiles}/zellij.lisp "$@"
+        '';
         browser-source = pkgs.stdenvNoCC.mkDerivation {
           name = "ekko-terminal-browser-source";
           src = terminal-browser;
-          patches = [ ./patches/terminal-browser-session-transport.patch ];
           dontConfigure = true;
           dontBuild = true;
           installPhase = "cp -R . $out";
@@ -39,6 +66,7 @@
           '';
         };
         kitty-oracle = import ./nix/kitty-oracle.nix { inherit pkgs; };
+        zellij-visual = import ./nix/zellij-visual.nix { inherit pkgs; };
         default = pkgs.stdenv.mkDerivation {
           pname = "ekko";
           version = "0.1.0";
@@ -46,6 +74,8 @@
             root = ./.;
             fileset = pkgs.lib.fileset.unions [
               ./ekko.asd
+              ./examples/profiles/zellij-frames.lisp
+              ./examples/profiles/zellij-pane.lisp
               (pkgs.lib.fileset.fileFilter (file: file.hasExt "lisp" || file.hasExt "c") ./src)
               (pkgs.lib.fileset.fileFilter (file: file.hasExt "lisp" || file.hasExt "py") ./tests)
               ./scripts/build.sh ./scripts/build.lisp ./scripts/build-demo.lisp
@@ -83,6 +113,21 @@
         };
       });
       apps = forEachSystem (pkgs: {
+        zellij-pane-probe = {
+          type = "app";
+          meta.description = "Observe pinned Zellij Pane mode and batched input";
+          program = "${self.packages.${pkgs.system}.zellij-pane-probe}/bin/ekko-zellij-pane-probe";
+        };
+        zellij-pane-differential = {
+          type = "app";
+          meta.description = "Settled Pane-mode PTY differential; visual parity remains open";
+          program = "${self.packages.${pkgs.system}.zellij-pane-differential}/bin/ekko-zellij-pane-differential";
+        };
+        zellij-differential = {
+          type = "app";
+          meta.description = "Differential Zellij reference runner; full parity remains open";
+          program = "${self.packages.${pkgs.system}.zellij-differential}/bin/ekko-zellij-differential";
+        };
         performance = {
           type = "app";
           meta.description = "Measure deterministic PTY workloads and emit JSON";
@@ -108,9 +153,55 @@
           meta.description = "Isolated real Kitty red-pixel precursor (not P0 acceptance)";
           program = "${self.packages.${pkgs.system}.kitty-oracle}/bin/ekko-kitty-red-pixel";
         };
+        zellij-visual = {
+          type = "app";
+          meta.description = "Private Wayland Kitty visual capture precursor";
+          program = "${self.packages.${pkgs.system}.zellij-visual}/bin/ekko-zellij-visual";
+        };
         default = { type = "app"; meta.description = "Ekko terminal multiplexer CLI"; program = "${self.packages.${pkgs.system}.default}/bin/ekko"; };
       });
       checks = forEachSystem (pkgs: {
+        pane-modes = pkgs.runCommand "ekko-pane-modes" { nativeBuildInputs = [ pkgs.python3 ]; } ''
+          python ${./tests}/pane_modes.py ${self.packages.${pkgs.system}.default}/bin/ekko ${./examples/profiles}/zellij.lisp > $out
+          python ${./tests}/pane_modes.py ${self.packages.${pkgs.system}.default}/bin/ekko-bare ${./examples/profiles}/zellij.lisp bare >> $out
+        '';
+        pane-workflow = pkgs.runCommand "ekko-pane-workflow" { nativeBuildInputs = [ pkgs.python3 ]; } ''
+          python ${./tests}/pane_workflow.py ${self.packages.${pkgs.system}.default}/bin/ekko ${./examples/profiles}/zellij.lisp regular 80 24 > $out
+          python ${./tests}/pane_workflow.py ${self.packages.${pkgs.system}.default}/bin/ekko ${./examples/profiles}/zellij.lisp regular 20 8 >> $out
+          python ${./tests}/pane_workflow.py ${self.packages.${pkgs.system}.default}/bin/ekko-bare ${./examples/profiles}/zellij.lisp bare 80 24 >> $out
+          python ${./tests}/pane_workflow.py ${self.packages.${pkgs.system}.default}/bin/ekko-bare ${./examples/profiles}/zellij.lisp bare 20 8 >> $out
+        '';
+        keymaps = pkgs.runCommand "ekko-keymaps" { nativeBuildInputs = [ pkgs.python3 ]; } ''
+          python ${./tests}/keymaps.py ${self.packages.${pkgs.system}.default}/bin/ekko ${./examples/profiles}/zellij.lisp > $out
+          python ${./tests}/keymaps.py ${self.packages.${pkgs.system}.default}/bin/ekko-bare ${./examples/profiles}/zellij.lisp bare >> $out
+        '';
+        decorations = pkgs.runCommand "ekko-decorations" { nativeBuildInputs = [ pkgs.python3 ]; } ''
+          python ${./tests}/decorations.py ${self.packages.${pkgs.system}.default}/bin/ekko ${./examples/profiles}/zellij.lisp > $out
+          python ${./tests}/decorations.py ${self.packages.${pkgs.system}.default}/bin/ekko-bare ${./examples/profiles}/zellij.lisp bare >> $out
+        '';
+        pane-notes = pkgs.runCommand "ekko-pane-notes" { nativeBuildInputs = [ pkgs.python3 ]; } ''
+          python ${./tests}/pane_notes.py ${self.packages.${pkgs.system}.default}/bin/ekko ${./examples/profiles}/zellij.lisp > $out
+          python ${./tests}/pane_notes.py ${self.packages.${pkgs.system}.default}/bin/ekko-bare ${./examples/profiles}/zellij.lisp bare >> $out
+        '';
+        startup-geometry = pkgs.runCommand "ekko-startup-geometry" { nativeBuildInputs = [ pkgs.python3 ]; } ''
+          python ${./tests}/startup_geometry.py ${self.packages.${pkgs.system}.default}/bin/ekko ${./examples/profiles}/zellij.lisp regular 80 24 > $out
+          python ${./tests}/startup_geometry.py ${self.packages.${pkgs.system}.default}/bin/ekko ${./examples/profiles}/zellij.lisp regular 20 8 >> $out
+          python ${./tests}/startup_geometry.py ${self.packages.${pkgs.system}.default}/bin/ekko-bare ${./examples/profiles}/zellij.lisp bare 80 24 >> $out
+          python ${./tests}/startup_geometry.py ${self.packages.${pkgs.system}.default}/bin/ekko-bare ${./examples/profiles}/zellij.lisp bare 20 8 >> $out
+        '';
+        zellij-pane-workflow = pkgs.runCommand "ekko-zellij-pane-workflow" {} ''
+          mkdir -p $out
+          ${self.packages.${pkgs.system}.zellij-pane-workflow}/bin/ekko-zellij-pane-workflow --output $out
+        '';
+        zellij-routing = pkgs.runCommand "ekko-zellij-routing" {} ''
+          ${self.packages.${pkgs.system}.zellij-differential}/bin/ekko-zellij-differential --output $out/80x24
+          ${self.packages.${pkgs.system}.zellij-differential}/bin/ekko-zellij-differential --cols 20 --rows 8 --output $out/20x8
+        '';
+        zellij-pane-differential = pkgs.runCommand "ekko-zellij-pane-differential" {} ''
+          ${self.packages.${pkgs.system}.zellij-pane-differential}/bin/ekko-zellij-pane-differential --output $out/80x24
+          ${self.packages.${pkgs.system}.zellij-pane-differential}/bin/ekko-zellij-pane-differential --cols 20 --rows 8 --output $out/20x8
+        '';
+
         daily = pkgs.runCommand "ekko-daily" { nativeBuildInputs = [ pkgs.python3 ]; } ''
           python ${./tests/daily.py} ${self.packages.${pkgs.system}.default}/bin/ekko > $out
           python ${./tests/daily.py} ${self.packages.${pkgs.system}.default}/bin/ekko-bare bare >> $out

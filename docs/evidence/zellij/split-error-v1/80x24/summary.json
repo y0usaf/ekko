@@ -1,0 +1,149 @@
+{
+  "case": "repeated-80x24",
+  "dimensions": [
+    80,
+    24
+  ],
+  "source_binary": "/nix/store/wxjfyl2ksqkh263zwikp2igqh2a23y8r-zellij-0.43.1/bin/zellij",
+  "source_tree": "/nix/store/2q437kxp07ki50dkh6a4nmmcc4nlylqw-source",
+  "pin": "tests/zellij/reference/pin.json; verify_reference passed before each case",
+  "failure_samples": [
+    {
+      "stage": "split-3-fail+0.01",
+      "cursor": [
+        9,
+        19,
+        false
+      ],
+      "rows": [],
+      "frame_cell_0": {
+        "data": "┌",
+        "fg": "default",
+        "bg": "default",
+        "bold": true,
+        "italics": false,
+        "underscore": false,
+        "strikethrough": false,
+        "reverse": false,
+        "blink": false
+      }
+    },
+    {
+      "stage": "split-3-fail+0.20",
+      "cursor": [
+        9,
+        19,
+        false
+      ],
+      "rows": [
+        [
+          18,
+          "┌ CAN'T SPLIT! ────────────────────────┐│                                      │"
+        ]
+      ],
+      "frame_cell_0": {
+        "data": "┌",
+        "fg": "af0000",
+        "bg": "default",
+        "bold": true,
+        "italics": false,
+        "underscore": false,
+        "strikethrough": false,
+        "reverse": false,
+        "blink": false
+      }
+    },
+    {
+      "stage": "split-3-fail+0.95",
+      "cursor": [
+        9,
+        19,
+        false
+      ],
+      "rows": [
+        [
+          18,
+          "┌ CAN'T SPLIT! ────────────────────────┐│                                      │"
+        ]
+      ],
+      "frame_cell_0": {
+        "data": "┌",
+        "fg": "af0000",
+        "bg": "default",
+        "bold": true,
+        "italics": false,
+        "underscore": false,
+        "strikethrough": false,
+        "reverse": false,
+        "blink": false
+      }
+    },
+    {
+      "stage": "split-3-fail+1.20",
+      "cursor": [
+        9,
+        19,
+        false
+      ],
+      "rows": [],
+      "frame_cell_0": {
+        "data": "┌",
+        "fg": "default",
+        "bg": "default",
+        "bold": true,
+        "italics": false,
+        "underscore": false,
+        "strikethrough": false,
+        "reverse": false,
+        "blink": false
+      }
+    },
+    {
+      "stage": "post-fail-q",
+      "cursor": [
+        10,
+        19,
+        false
+      ],
+      "rows": [],
+      "frame_cell_0": {
+        "data": "┌",
+        "fg": "default",
+        "bg": "default",
+        "bold": true,
+        "italics": false,
+        "underscore": false,
+        "strikethrough": false,
+        "reverse": false,
+        "blink": false
+      }
+    }
+  ],
+  "source_semantics": {
+    "error_text": "CAN'T SPLIT!",
+    "flash_duration_ms": 1000,
+    "error_sgr": "38;5;124 (pyte af0000), bold, default background",
+    "target": "active pane frame title/color override",
+    "failed_new_pane_closed": true,
+    "pty_geometry_changed_on_failure": false,
+    "explicit_split_compound": "NewPane Down/Right then SwitchToMode Normal"
+  },
+  "cleanup": {
+    "argv": [
+      "/nix/store/wxjfyl2ksqkh263zwikp2igqh2a23y8r-zellij-0.43.1/bin/zellij",
+      "kill-session",
+      "pane-split-error"
+    ],
+    "returncode": 0,
+    "stdout": "",
+    "stderr": ""
+  },
+  "settled_behavior": {
+    "post_fail_q_cursor": [
+      10,
+      19,
+      false
+    ],
+    "post_fail_q_display_row19": "│sh-5.3$ q                             ││                                      │"
+  }
+}

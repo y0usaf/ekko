@@ -1,0 +1,11 @@
+Traceback (most recent call last):
+  File "/nix/store/n0mzx2lgg1l9jx4lff7zymvkgkm9f019-zellij/pane_workflow_differential.py", line 814, in <module>
+    main()
+  File "/nix/store/n0mzx2lgg1l9jx4lff7zymvkgkm9f019-zellij/pane_workflow_differential.py", line 746, in main
+    reference_stages = run_side(
+                       ^^^^^^^^^
+  File "/nix/store/n0mzx2lgg1l9jx4lff7zymvkgkm9f019-zellij/pane_workflow_differential.py", line 517, in run_side
+    wait_for(lambda: all(pair[1].exists() for pair in paths.values()), terminal)
+  File "/nix/store/n0mzx2lgg1l9jx4lff7zymvkgkm9f019-zellij/pane_workflow_differential.py", line 172, in wait_for
+    raise AssertionError("condition did not become true")
+AssertionError: condition did not become true

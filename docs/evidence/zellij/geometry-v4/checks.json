@@ -1,0 +1,23 @@
+{
+  "commands": [
+    {
+      "command": "nix build -L",
+      "exit_code": 0
+    },
+    {
+      "command": "nix flake check -L",
+      "exit_code": 0,
+      "check_count": 9
+    }
+  ],
+  "package": "/nix/store/8bq9r1kk36i4vc5156pb7v5r4wjh02pi-ekko-0.1.0",
+  "pane_check": "/nix/store/pag6szflcxnc3g6176fkd91jxvqjgxyh-ekko-pane-modes",
+  "paired_check": "/nix/store/7q4j1xwnqj8npldk8g0f70vcckdqri2c-ekko-zellij-pane-differential",
+  "wire_version": 4,
+  "full_parity": false,
+  "note": "Profile remains partial. Geometry and pure frame helper tests pass; helper is not yet loaded. Screenshot provenance records its separately built v4 binary.",
+  "hashes": {
+    "build.log.gz": "477c82b9bac50f657936338952ca4ea7825ea2a563a3f4969954370c73050e9e",
+    "check.log.gz": "50df81ce02e596d9d787b15c7434b2c32c0262847a2fc466e77922ae3b7f217f"
+  }
+}

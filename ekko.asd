@@ -39,7 +39,11 @@
 (asdf:defsystem "ekko/tests"
   :depends-on ("ekko" "ekko/scene" "ekko/client" "ekko/graphics-demo")
   :serial t
-  :components ((:file "tests/geometry")
+  :components ((:file "examples/profiles/zellij-frames")
+               (:file "examples/profiles/zellij-pane")
+               (:file "tests/zellij-frames")
+               (:file "tests/erase-history")
+               (:file "tests/geometry")
                (:file "tests/presentation")
                (:file "tests/graphics-demo")
                (:file "tests/input")

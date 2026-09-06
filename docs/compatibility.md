@@ -41,8 +41,9 @@ runtime operations above. Original evidence remains in docs/evidence/m01.json.
 The browser pane runs zenbu-labs/terminal-browser at Ekko's pinned revision: `cce10b6131d15bf46a3e4b8dc827e0544ff7fc65`.
 The Slack pane runs `~/dev/sandbox/terminal-slack`, revision
 `03a8d78273159c7592b5555db36fc5f7da3b91f2`, with its pre-existing worktree state.
-The launchers apply `patches/terminal-browser-session-transport.patch` to that
-source in Nix, then reuse the terminal-slack browser build wrapper. Transport
+The launchers reuse the terminal-slack browser build wrapper. That package now
+owns `patches/terminal-browser-session-transport.patch`, so ordinary Slack launches
+receive the same correction as the benchmarks. Transport
 preferences now come from the requesting session rather than the browser daemon.
 Native Kitty RGBA frames negotiate shared memory; inline remains an explicit
 override and fallback. No application UI or frame-rate policy is patched.

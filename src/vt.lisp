@@ -4,20 +4,34 @@
            #:terminal-cw #:terminal-ch #:terminal-x #:terminal-y #:terminal-cells
            #:terminal-modes #:terminal-keyboards #:terminal-revision #:terminal-screen
            #:terminal-parser #:terminal-buffer #:terminal-visible #:terminal-title
+           #:terminal-history #:history-count #:history-text
+           #:terminal-materialized-rows #:terminal-erase-display-history
            #:parameters))
 (in-package #:ekko/vt)
 
 (defstruct (terminal (:constructor %make-terminal))
   (cols 80) (rows 24) (cw 8) (ch 16) (x 0) (y 0) (saved '(0 0))
   cells main-cells history (screen :main) (top 0) (bottom 23) (visible t)
+  ;; Zellij's Grid starts with one materialized row and grows rows as output
+  ;; reaches them. Keep this separate from the fixed-size cell array so ED2
+  ;; can transfer exactly the rows that exist, including blank rows.
+  (materialized-rows 1) (main-materialized-rows 1)
+  (erase-display-history nil)
   (rendition '(0)) (modes (make-hash-table)) (keyboards '(0))
   (parser :ground) (buffer (make-array 0 :element-type '(unsigned-byte 8)
                                      :adjustable t :fill-pointer 0))
   (utf-code 0) (utf-left 0) (utf-min 0) (revision 0) (title ""))
 (defun blank-cells (cols rows) (make-array (* cols rows) :initial-element '(" " (0))))
-(defun make-terminal (&key (cols 80) (rows 24) (cw 8) (ch 16))
+(defun make-terminal (&key (cols 80) (rows 24) (cw 8) (ch 16)
+                           (erase-display-history nil))
   (%make-terminal :cols cols :rows rows :cw cw :ch ch :bottom (1- rows)
+                  :erase-display-history erase-display-history
                   :cells (blank-cells cols rows)))
+(defun ensure-materialized-rows (vt count)
+  (when (eq (terminal-screen vt) :main)
+    (setf (terminal-materialized-rows vt)
+          (min (terminal-rows vt)
+               (max (terminal-materialized-rows vt) count)))))
 (defun resize-terminal (vt cols rows cw ch)
   (labels ((resized (old)
              (when old
@@ -32,6 +46,8 @@
     (setf (terminal-cells vt) (resized (terminal-cells vt))
           (terminal-main-cells vt) (resized (terminal-main-cells vt))
           (terminal-cols vt) cols (terminal-rows vt) rows (terminal-cw vt) cw (terminal-ch vt) ch
+          (terminal-materialized-rows vt) (min rows (terminal-materialized-rows vt))
+          (terminal-main-materialized-rows vt) (min rows (terminal-main-materialized-rows vt))
           (terminal-top vt) 0 (terminal-bottom vt) (1- rows)
           (terminal-x vt) (min (terminal-x vt) (1- cols))
           (terminal-y vt) (min (terminal-y vt) (1- rows)))
@@ -41,9 +57,59 @@
         for item = (subseq text start end)
         collect (if (zerop (length item)) 0 (or (parse-integer item :junk-allowed t) 0))
         while end))
-(defun clear-range (vt start end)
-  (fill (terminal-cells vt) (list " " (terminal-rendition vt)) :start start :end end)
+(defun clear-range-with-rendition (vt start end rendition)
+  (fill (terminal-cells vt) (list " " rendition) :start start :end end)
   (incf (terminal-revision vt)))
+(defun clear-range (vt start end)
+  (clear-range-with-rendition vt start end (terminal-rendition vt)))
+(defun erase-rendition (vt)
+  ;; Zellij's ED2 replacement character has default attributes and inherits
+  ;; only the pending background color, if one is set.
+  (let ((codes (cdr (terminal-rendition vt)))
+        (background nil))
+    (labels ((consume-color (mode)
+               (case mode
+                 (5 (when codes (list mode (pop codes))))
+                 (2 (when (>= (length codes) 3)
+                      (list mode (pop codes) (pop codes) (pop codes)))))))
+      ;; RENDITION is the canonical sequence emitted by UPDATE-RENDITION:
+      ;; standard foreground/background values are one-element groups, while
+      ;; 38/48/58 consume a mode and its color values. Consume those groups as
+      ;; we scan so a foreground RGB component such as 44 or 48 cannot be read
+      ;; as a standard background or an extended-background introducer.
+      (loop while codes
+            for code = (pop codes) do
+              (cond
+                ((= code 48)
+                 (when codes
+                   (let ((color (consume-color (pop codes))))
+                     (when color (setf background (cons 48 color))))))
+                ((member code '(38 58))
+                 (when codes (consume-color (pop codes))))
+                ((or (<= 40 code 47) (<= 100 code 107))
+                 (setf background (list code)))))
+      (if background (cons 0 background) '(0)))))
+(defun erase-display (vt)
+  "Implement ED2, optionally preserving materialized main-screen rows.
+
+Zellij's full erase transfers the rows currently present in its viewport to
+scrollback, including rows containing only blanks. Its viewport is sparse
+until output reaches a row, while Ekko's cell array is always rectangular;
+MATERIALIZED-ROWS carries that distinction."
+  (when (and (terminal-erase-display-history vt)
+             (eq (terminal-screen vt) :main))
+    (let ((cols (terminal-cols vt)))
+      (dotimes (row (terminal-materialized-rows vt))
+        (remember-row vt (subseq (terminal-cells vt)
+                                 (* row cols) (* (1+ row) cols))))))
+  (clear-range-with-rendition vt 0 (* (terminal-cols vt) (terminal-rows vt))
+                              (if (terminal-erase-display-history vt)
+                                  (erase-rendition vt)
+                                  (terminal-rendition vt)))
+  (setf (terminal-materialized-rows vt) (terminal-rows vt))
+  (when (terminal-erase-display-history vt)
+    (setf (terminal-top vt) 0
+          (terminal-bottom vt) (1- (terminal-rows vt)))))
 (defun scroll-lines (vt amount emit)
   (let* ((cols (terminal-cols vt)) (cells (terminal-cells vt))
          (top (* cols (terminal-top vt))) (end (* cols (1+ (terminal-bottom vt))))
@@ -57,16 +123,23 @@
                (clear-range vt (- end n) end))
         (progn (replace cells cells :start1 (+ top n) :end1 end :start2 top :end2 (- end n))
                (clear-range vt top (+ top n)))))
+  (when (and (plusp amount) (eq (terminal-screen vt) :main)
+             (zerop (terminal-top vt))
+             (= (terminal-bottom vt) (1- (terminal-rows vt))))
+    (ensure-materialized-rows vt (+ (terminal-materialized-rows vt) amount)))
   (funcall emit :scroll (list (terminal-top vt) (terminal-bottom vt) amount)))
 (defun newline (vt emit)
   (if (= (terminal-y vt) (terminal-bottom vt)) (scroll-lines vt 1 emit)
-      (setf (terminal-y vt) (min (1- (terminal-rows vt)) (1+ (terminal-y vt))))))
+      (progn
+        (setf (terminal-y vt) (min (1- (terminal-rows vt)) (1+ (terminal-y vt))))
+        (ensure-materialized-rows vt (1+ (terminal-y vt))))))
 (defun character-width (char)
   (cond ((member (sb-unicode:general-category char) '(:mn :me :cf)) 0)
         ((member (sb-unicode:east-asian-width char) '(:w :f)) 2) (t 1)))
 (defun put-character (vt char emit)
   (let* ((width (character-width char))
          (cols (terminal-cols vt)))
+    (ensure-materialized-rows vt (1+ (terminal-y vt)))
     (when (zerop width)
       (when (plusp (terminal-x vt))
         (let* ((index (+ (* cols (terminal-y vt)) (min (1- cols) (1- (terminal-x vt)))))
@@ -78,6 +151,7 @@
     (when (> (+ (terminal-x vt) width) cols)
       (setf (terminal-x vt) 0) (newline vt emit))
     (when (<= width cols)
+      (ensure-materialized-rows vt (1+ (terminal-y vt)))
       (let ((index (+ (* cols (terminal-y vt)) (terminal-x vt))))
         (setf (aref (terminal-cells vt) index) (list (string char) (terminal-rendition vt)))
         (when (= width 2) (setf (aref (terminal-cells vt) (1+ index)) (list "" (terminal-rendition vt)))))
@@ -132,17 +206,21 @@
          (esc (code-char 27)))
     (case final
       ((#\H #\f) (setf (terminal-y vt) (min (1- rows) (1- n))
-                          (terminal-x vt) (min (1- cols) (max 0 (1- (or (second args) 1))))))
+                          (terminal-x vt) (min (1- cols) (max 0 (1- (or (second args) 1)))))
+                      (ensure-materialized-rows vt (1+ (terminal-y vt))))
       (#\A (setf (terminal-y vt) (max 0 (- (terminal-y vt) n))))
-      ((#\B #\e) (setf (terminal-y vt) (min (1- rows) (+ (terminal-y vt) n))))
+      ((#\B #\e) (setf (terminal-y vt) (min (1- rows) (+ (terminal-y vt) n)))
+                         (ensure-materialized-rows vt (1+ (terminal-y vt))))
       ((#\C #\a) (setf (terminal-x vt) (min (1- cols) (+ (terminal-x vt) n))))
       (#\D (setf (terminal-x vt) (max 0 (- (terminal-x vt) n))))
       (#\G (setf (terminal-x vt) (min (1- cols) (1- n))))
-      (#\d (setf (terminal-y vt) (min (1- rows) (1- n))))
+      (#\d (setf (terminal-y vt) (min (1- rows) (1- n)))
+             (ensure-materialized-rows vt (1+ (terminal-y vt))))
       (#\J (case (first args)
               (0 (clear-range vt cursor (* cols rows)))
               (1 (clear-range vt 0 (1+ cursor)))
-              ((2 3) (clear-range vt 0 (* cols rows)))))
+              (2 (erase-display vt))
+              (3 (clear-history vt))))
       (#\K (let ((start (* cols (terminal-y vt))))
               (case (first args) (0 (clear-range vt cursor (+ start cols)))
                     (1 (clear-range vt start (1+ cursor))) (2 (clear-range vt start (+ start cols))))))
@@ -179,11 +257,14 @@
                 (cond ((and on (eq (terminal-screen vt) :main))
                        (setf (terminal-main-cells vt) (terminal-cells vt)
                              (terminal-saved vt) (list (terminal-x vt) (terminal-y vt))
+                             (terminal-main-materialized-rows vt) (terminal-materialized-rows vt)
                              (terminal-cells vt) (blank-cells cols rows) (terminal-screen vt) :alternate
+                             (terminal-materialized-rows vt) rows
                              (terminal-x vt) 0 (terminal-y vt) 0))
                       ((and (not on) (eq (terminal-screen vt) :alternate))
                        (setf (terminal-cells vt) (or (terminal-main-cells vt) (blank-cells cols rows))
                              (terminal-main-cells vt) nil (terminal-screen vt) :main
+                             (terminal-materialized-rows vt) (terminal-main-materialized-rows vt)
                              (terminal-x vt) (min (1- cols) (first (terminal-saved vt)))
                              (terminal-y vt) (min (1- rows) (second (terminal-saved vt))))))
                 (funcall emit :screen (terminal-screen vt)) (incf (terminal-revision vt))))))))
@@ -248,7 +329,11 @@
            (56 (setf (terminal-x vt) (first (terminal-saved vt)) (terminal-y vt) (second (terminal-saved vt))))
            (68 (newline vt emit)) (69 (setf (terminal-x vt) 0) (newline vt emit))
            (77 (if (= (terminal-y vt) (terminal-top vt)) (scroll-lines vt -1 emit) (setf (terminal-y vt) (max 0 (1- (terminal-y vt))))))
-           (99 (clear-range vt 0 (length (terminal-cells vt))) (setf (terminal-x vt) 0 (terminal-y vt) 0) (funcall emit :reset nil))))
+           (99 (clear-range vt 0 (length (terminal-cells vt)))
+               (setf (terminal-x vt) 0 (terminal-y vt) 0
+                     (terminal-materialized-rows vt) 1
+                     (terminal-main-materialized-rows vt) 1)
+               (funcall emit :reset nil))))
         (:charset (reset-parser))
         (:csi
          (cond ((= byte 27) (setf (terminal-parser vt) :escape (fill-pointer (terminal-buffer vt)) 0))

@@ -1,0 +1,24 @@
+{
+  "purpose": "post-reboot workflow revalidation",
+  "date": "2026-09-06",
+  "reference": "tests/zellij/reference/pin.json",
+  "fresh_nix_checks": {
+    "command": "nix build -L --no-link --print-build-logs .#checks.x86_64-linux.pane-workflow .#checks.x86_64-linux.pane-notes .#checks.x86_64-linux.startup-geometry",
+    "status": "blocked",
+    "reason": "Nix daemon socket denied in sandbox after cache relocation to /tmp; see nix-functional-checks.log"
+  },
+  "fresh_direct_runs": {
+    "pane_workflow": ["regular-80x24", "regular-20x8", "bare-80x24", "bare-20x8"],
+    "paired_workflow": ["80x24", "20x8"],
+    "status": "blocked_before_fixture_startup",
+    "reason": "existing Ekko binary reports connect failed (errno 1); differential runner times out waiting for fixture event files"
+  },
+  "historical_store_outputs": {
+    "status": "pass",
+    "label": "historical; not relabeled as fresh",
+    "checks": ["pane-workflow", "pane-notes", "startup-geometry"]
+  },
+  "source_validation": "source-boundary.log",
+  "normalizations": [],
+  "limitations": ["sandbox prevents AF_UNIX runtime sessions and Nix daemon access"]
+}

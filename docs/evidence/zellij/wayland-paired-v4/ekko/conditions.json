@@ -1,0 +1,33 @@
+{
+  "environment": {
+    "PATH": "/nix/store/sk9bn5y0r5hk4nj19329pjw1lrxxlrh3-cage-0.2.0/bin:/nix/store/3dy6aikicikw7k1wzydxfcyv0slnzhgb-kitty-0.42.1/bin:/nix/store/6b0j3g2nqbba4n50x4pf323frhwdy4px-grim-1.4.1/bin:/nix/store/z82njpvzdpg47paa1axmdh50qk878n2v-imagemagick-7.1.2-8/bin:/nix/store/isywsdpagfrw27xd7w41bp99sqrl5jf3-mesa-demos-9.0.0/bin:/nix/store/32gjzzpzawn477cr8bq1yvsih0rqfjma-fontconfig-2.16.0-bin/bin:/nix/store/jcbr45kh59bcfdsily0kyjhrqfqm493l-dejavu-fonts-2.37/bin:/nix/store/i6r2h3cas101ssybxha8w2kxx1xp55va-python3-3.12.12-env/bin:/nix/store/zwplch93wbpj82bp7riwaixmdx2xi0ah-coreutils-9.7/bin:/nix/store/90r466lzg0jw11v60cki60s0qfhs93vp-gnugrep-3.11/bin:/nix/store/nn27l879np49xvx6l1a8nqnqlp9apd8n-bash-interactive-5.2p37/bin",
+    "LIBGL_DRIVERS_PATH": "/nix/store/r7p5mpg5wzqwnikgp72nsjg705m6ky14-mesa-25.0.7/lib/dri",
+    "__EGL_VENDOR_LIBRARY_FILENAMES": "/nix/store/r7p5mpg5wzqwnikgp72nsjg705m6ky14-mesa-25.0.7/share/glvnd/egl_vendor.d/50_mesa.json",
+    "FONTCONFIG_FILE": "/nix/store/smcxqmdp8rcc69lipkiqv5jzwmpanhcc-ekko-zellij-visual-fonts.conf",
+    "HOME": "/tmp/ekko-zellij-visual-2yjd_m79/session/home",
+    "XDG_RUNTIME_DIR": "/tmp/ekko-zellij-visual-2yjd_m79/session/runtime",
+    "XDG_CONFIG_HOME": "/tmp/ekko-zellij-visual-2yjd_m79/session/config",
+    "XDG_CACHE_HOME": "/tmp/ekko-zellij-visual-2yjd_m79/session/cache",
+    "XDG_DATA_HOME": "/tmp/ekko-zellij-visual-2yjd_m79/session/data",
+    "WAYLAND_DISPLAY": "wayland-0",
+    "LIBGL_ALWAYS_SOFTWARE": "1",
+    "MESA_LOADER_DRIVER_OVERRIDE": "llvmpipe",
+    "WLR_BACKENDS": "headless",
+    "WLR_RENDERER": "pixman",
+    "WLR_HEADLESS_OUTPUTS": "1",
+    "WLR_LIBINPUT_NO_DEVICES": "1",
+    "WLR_NO_HARDWARE_CURSORS": "1",
+    "TERM": "xterm-256color",
+    "COLORTERM": "truecolor",
+    "LANG": "C.UTF-8",
+    "LC_ALL": "C.UTF-8",
+    "DBUS_SESSION_BUS_ADDRESS": "unix:path=/tmp/ekko-zellij-visual-2yjd_m79/session/no-session-bus",
+    "EKKO_CONFIG": "/home/y0usaf/dev/maintaining/ekko_v2/examples/profiles/zellij.lisp"
+  },
+  "fixture_argv": [
+    "/nix/store/i6r2h3cas101ssybxha8w2kxx1xp55va-python3-3.12.12-env/bin/python3.12",
+    "/nix/store/v5ld30c32n5mhfk2yrm5pf5c7x6s682q-zellij-visual-compare.py",
+    "--fixture",
+    "/tmp/ekko-zellij-visual-2yjd_m79/session/fixture.json"
+  ]
+}

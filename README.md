@@ -5,6 +5,11 @@ text terminals, and a limited Kitty graphics implementation. Each pane can run
 an ordinary shell, a terminal application, or terminal-browser. Ekko manages the
 panes; the Kitty graphics protocol draws images inside them.
 
+An optional [Zellij 0.43.1 Lisp profile](docs/zellij/README.md) is under development.
+It currently demonstrates Normal/Locked input routing through public keymaps;
+full functional and visual parity remains open. The differential runner records
+known differences and exposes a strict, currently failing acceptance gate.
+
 Open your shell beside terminal-browser in a new Kitty window:
 
 ```sh
