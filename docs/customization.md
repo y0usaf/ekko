@@ -168,7 +168,7 @@ contributions, disabled hooks, and the last error. Builtins use the same API in
 and tested with no builtins and an externally loaded command.
 
 These keymap additions are additive to public API version 1; `(api-version)`
-continues to return `1`. Attachment wire version `12` adds clipboard export to the shared runtime. Version `11` provides shared opaque
+continues to return `1`. Attachment wire version `13` defines back-to-front window composition using the existing pane outer rectangles; older viewers can attach only to tiled sessions. Version `12` adds clipboard export to the shared runtime. Version `11` provides shared opaque
 overlays, explicit input actions, and viewer exit text. Versions `8` and `10`
 were the separately patched Finix variants; those generic capabilities are now
 part of the shared runtime. Versions `6` through `12` are accepted and the
@@ -559,3 +559,49 @@ removes its hit targets too. No viewer protocol changes are needed.
 `:pane`. The pane snapshot and `ekko inspect` expose `:minimized`. Minimization
 survives detach/reattach and preserves the original split tree and PTY size.
 Explicit focus restores a minimized pane, including keyboard focus cycling.
+
+### Context menus and motion
+
+In the UI, a **window** is a terminal pane, and its button in the bottom
+**taskbar** is a **taskbar entry**. API names continue to use `pane` and pane IDs.
+These are tiled windows, not tabs or floating native operating-system windows.
+
+Right-click a titlebar, border or taskbar entry for window actions. Right-click
+empty taskbar space for new-window and session actions. Applications keep their
+own right-click handling inside their content. Menus support hover, Up/Down,
+Tab, Enter and Escape; clicking outside dismisses them without sending that
+click to the application.
+
+Decoration spans can declare `:command` for left-click or `:context-command`
+for right-click, plus a shared `:arguments` list of strings. A context command
+receives `:x` and `:y` in viewport cells and returns `(:show-menu :x X :y Y
+:spans SPANS)`. Menu spans use local coordinates and may specify `:hover-sgr`.
+They use the same validated actions/commands as other controls. The host clamps
+the popup to the viewport and owns only its transient input state. Reload,
+layout changes and detach discard it. Nested popups are not supported.
+
+The desktop enables a 160 ms outline transition for minimize, restore, maximize and window placement. It is a decorative outline, not a scaled image of the application:
+logical layout and PTY sizing commit once. Transient strokes are clipped away
+from graphics content to preserve image placement and avoid retransmission.
+Set `:window-animation-ms` to `0` on a later configuration owner to disable
+motion; permitted durations are 0–250 ms.
+
+
+### Window placement
+
+Drag a titlebar to a tiled window's center to exchange positions, or to its
+edge to split beside it. Dropping elsewhere floats the window. A floating
+window moves freely away from snap edges; its side and bottom borders resize
+it, including both bottom corners. Escape cancels the gesture. The preview
+changes while held; application dimensions commit once on release.
+
+Window menus expose **Float window** and **Tile window**. Floating placement
+and stacking survive viewer replacement. Minimize keeps the process and its
+placement; restoring raises the window. The taskbar remains reserved space.
+
+Public actions are `(:float :pane ID :rect (X Y WIDTH HEIGHT))` (rectangle
+optional), `(:tile :pane ID)`, and `(:place-window :pane ID :target ID :edge EDGE)`.
+Edges are `:left`, `:right`, `:top`, `:bottom`, or `:center` (exchange).
+Decorations declare `:pane ID` for stacking and optional `:drag` handles:
+`:move`, `:left`, `:right`, `:bottom`, `:bottom-left`, `:bottom-right`.
+Pane snapshots and `inspect` expose `:floating` as a rectangle or nil.

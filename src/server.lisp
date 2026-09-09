@@ -1,6 +1,6 @@
 (in-package #:ekko/runtime)
 
-(defstruct pane id pid io vt (graphics (make-store)) argv label status minimized
+(defstruct pane id pid io vt (graphics (make-store)) argv label status minimized floating
   (launch-kind :command) (creation-position 0) name
   pty-size
   (activation-order 0) (x 0) (y 0)
@@ -9,7 +9,7 @@
   copy-lines (copy-cursor 0) (copy-top 0) copy-mark search-input (search-text ""))
 (defstruct session name panes (cols 120) (rows 36) (cw 8) (ch 16)
   reported-cw reported-ch (focus 0)
-  mode zoom (revision 0) (activation-sequence 0) writer (prefix nil) drag chrome-press paste-target (started (now))
+  mode zoom (revision 0) (activation-sequence 0) writer (prefix nil) drag window-drag chrome-press popup transition paste-target (started (now))
   paste-fallback paste-buffer (paste-overflow nil)
   tree (next-pane-id 1) retired worker candidate registry (config-generation 0) config-error
   (geometry-contributions nil) (contributions nil) (decorations nil) (pane-notes nil) hook-context (hooks nil) (input-queue nil) (input-bytes 0)
@@ -132,24 +132,39 @@
 (defun tiled-tree (session)
   (let ((tree (session-tree session)))
     (dolist (pane (session-panes session) tree)
-      (when (and tree (pane-minimized pane))
+      (when (and tree (or (pane-minimized pane) (pane-floating pane)))
         (setf tree (ekko/layout:remove-pane tree (pane-id pane)))))))
-(defun session-rectangles (session &optional (zoom (session-zoom session)))
-  (unless (tiled-tree session) (return-from session-rectangles nil))
+(defun clamp-window-rect (session rect)
   (multiple-value-bind (viewport pane gaps width height) (session-geometry session)
-    (let* ((left (fourth viewport)) (top (first viewport))
-           (minimums (pane-minimums (tiled-tree session) pane
-                                    (geometry-value session :boundary-insets nil))))
-      (mapcar (lambda (rect)
-                (list (first rect) (+ left (second rect)) (+ top (third rect))
-                      (fourth rect) (fifth rect)))
-              (ekko/layout:rectangles
-               (tiled-tree session) width height (pane-id (focused-pane session)) zoom
-               :leaf-min (lambda (id) (cdr (assoc id minimums)))
-               :column-gap (first gaps) :row-gap (second gaps))))))
+    (declare (ignore pane gaps))
+    (destructuring-bind (x y w h) rect
+      (let ((w (min width (max 12 w))) (h (min height (max 4 h))))
+        (list (max (fourth viewport) (min x (+ (fourth viewport) width (- w))))
+              (max (first viewport) (min y (+ (first viewport) height (- h)))) w h)))))
+(defun session-rectangles (session &optional (zoom (session-zoom session)))
+  (multiple-value-bind (viewport pane gaps width height) (session-geometry session)
+    (let* ((left (fourth viewport)) (top (first viewport)) (tree (tiled-tree session))
+           (focus (focused-pane session))
+           (minimums (when tree (pane-minimums tree pane (geometry-value session :boundary-insets nil)))))
+      (when (and zoom (not (pane-minimized focus)))
+        (return-from session-rectangles (list (list (pane-id focus) left top width height))))
+      (append
+        (when tree
+          (mapcar (lambda (rect) (list (first rect) (+ left (second rect)) (+ top (third rect))
+                                      (fourth rect) (fifth rect)))
+                  (ekko/layout:rectangles tree width height
+                    (if (and (not (pane-floating focus)) (not (pane-minimized focus)))
+                        (pane-id focus) (first (layout-pane-ids tree))) nil
+                    :leaf-min (lambda (id) (cdr (assoc id minimums)))
+                    :column-gap (first gaps) :row-gap (second gaps))))
+        (loop for p in (sort (copy-list (session-panes session)) #'< :key #'pane-activation-order)
+              when (and (pane-floating p) (not (pane-minimized p)))
+                collect (cons (pane-id p) (clamp-window-rect session (pane-floating p))))))))
 (defun visible-panes (session)
   (mapcar (lambda (rect) (pane-by-id session (first rect))) (session-rectangles session)))
 (defun layout (session)
+  (setf (session-transition session) nil (session-window-drag session) nil)
+  (close-popup session)
   ;; This is a VT policy option, so apply it to every pane before calculating
   ;; visibility. Hidden panes must retain the same behavior when shown again.
   (let ((erase-display-history (option session :erase-display-history nil)))
@@ -286,6 +301,12 @@
          (modifiers (if kitty (1- (max 1 (or (second params) 1))) 0))
          (key (if (and code (logbitp 2 modifiers) (<= 64 code 127)) (logand code 31) code))
          (pane (nth (session-focus session) (session-panes session))))
+    (when (session-window-drag session)
+      (when (eql (semantic-key bytes key) 27)
+        (setf (session-window-drag session) nil (session-chrome-press session) :dismiss)
+        (incf (session-revision session)))
+      (return-from input-key))
+    (when (popup-key session (semantic-key bytes key)) (return-from input-key))
     (when (pane-copy-pointer pane)
       (apply-actions session :pointer '((:copy-exit)) nil nil)
       (when (eql key 27) (return-from input-key)))
@@ -335,42 +356,55 @@
           (pane-input pane (octets-from-list (list 27 79 (aref bytes 2)))))
          (t (pane-input pane bytes))) nil))))
 (defun octets-from-list (items) (coerce items '(vector (unsigned-byte 8))))
-(defun decoration-action-at (session x y)
-  ;; Hit only reserved chrome. Use the same component and span order as paint.
+(defun decoration-at (session x y)
+  ;; Hit only reserved chrome, in the same component/span order as paint.
   (unless (or (>= x (session-cols session)) (>= y (session-rows session))
-              (some (lambda (p) (decoration-content-p p x y 1)) (visible-panes session)))
-    (let ((hit nil))
-      (dolist (component (getf (session-registry session) :components) hit)
+              (decoration-content-p (window-at session x y) x y 1))
+    (let ((hit nil) (owner nil))
+      (dolist (component (getf (session-registry session) :components))
         (dolist (span (cdr (assoc (getf component :id) (session-decorations session) :test #'equal)))
-          (when (and (<= (getf span :x) x)
-                     (< x (+ (getf span :x) (loop for c across (getf span :text)
-                                                 sum (ekko/vt::character-width c))))
-                     (<= (getf span :y) y)
-                     (< y (+ (getf span :y) (getf span :rows 1))))
-            (setf hit (getf span :action))))))))
+          (when (and (span-hit-p span x y)
+                     (or (not (getf span :pane))
+                         (eql (getf span :pane) (let ((p (window-at session x y))) (and p (pane-id p))))))
+            (setf hit span owner (getf component :id)))))
+      (values hit owner))))
+(defun decoration-action-at (session x y)
+  (getf (decoration-at session x y) :action))
 (defun input-mouse (session text)
   (let* ((args (parameters (subseq text 3 (1- (length text)))))
          (button (first args)) (x (second args)) (y (third args))
          (up (char= (char text (1- (length text))) #\m))
          (cw (session-cw session)) (ch (session-ch session)))
     (unless (and (= (length args) 3) (<= 0 button 255) (plusp x) (plusp y)) (return-from input-mouse))
-    (let ((action (decoration-action-at session (floor (1- x) cw) (floor (1- y) ch))))
-      (when (session-chrome-press session)
-        (when up
-          (let ((pressed (session-chrome-press session)))
-            (setf (session-chrome-press session) nil)
-            (when (equal pressed action)
-              (handler-case (apply-actions session nil (list action) nil nil)
-                (error (e) (note-error session e))))))
+    (let ((col (floor (1- x) cw)) (row (floor (1- y) ch)))
+      (when (eq (session-chrome-press session) :dismiss)
+        (when up (setf (session-chrome-press session) nil))
         (return-from input-mouse))
-      (when (and action (not (session-drag session)))
-        (when (and (not up) (= button 0))
-          (setf (session-chrome-press session) action))
-        (return-from input-mouse)))
-    (let* ((hit (find-if (lambda (p)
-                           (and (< (* (pane-x p) cw) x (1+ (* (+ (pane-x p) (terminal-cols (pane-vt p))) cw)))
-                                (< (* (pane-y p) ch) y (1+ (* (+ (pane-y p) (terminal-rows (pane-vt p))) ch)))))
-                         (visible-panes session)))
+      (when (window-drag-mouse session button col row up) (return-from input-mouse))
+      (when (popup-mouse session button col row up) (return-from input-mouse))
+      (multiple-value-bind (span owner) (decoration-at session col row)
+        (let ((pressed (session-chrome-press session)))
+          (when pressed
+            (when up
+              (setf (session-chrome-press session) nil)
+              (when (and (= button 0) (equal pressed (list owner span)))
+                (activate-span session owner span)))
+            (return-from input-mouse)))
+        (when (and span (not (session-drag session)))
+          (cond ((and (not up) (= button 0) (getf span :drag))
+                 (begin-window-drag session owner span col row)
+                 (return-from input-mouse))
+                ((and (not up) (= button 2) (getf span :context-command))
+                 (setf (session-chrome-press session) :dismiss)
+                 (handler-case
+                     (request-command session (getf span :context-command)
+                                      (list :arguments (getf span :arguments) :x col :y row) nil)
+                   (error (e) (note-error session e))))
+                ((and (not up) (= button 0) (span-control-p span))
+                 (setf (session-chrome-press session) (list owner (copy-tree span)))))
+          (when (or (span-control-p span) (getf span :context-command)) (return-from input-mouse)))))
+    (let* ((hit (let* ((col (floor (1- x) cw)) (row (floor (1- y) ch)) (p (window-at session col row)))
+                        (when (decoration-content-p p col row 1) p)))
            (pane (or (session-drag session) hit)))
       (when (and pane (not up) (zerop (logand button 96)) (< (logand button 3) 3))
         (set-focus session (position pane (session-panes session))) (setf (session-drag session) pane))
@@ -409,15 +443,16 @@
   (loop with cols = (terminal-cols vt) for y below (terminal-rows vt)
         collect (cell-runs (terminal-cells vt) nil nil (* y cols) (* (1+ y) cols))))
 (defun decoration-content-p (pane x y width)
-  (and (< (pane-x pane) (+ x width))
+  (and pane (< (pane-x pane) (+ x width))
        (< x (+ (pane-x pane) (terminal-cols (pane-vt pane))))
        (< (pane-y pane) (1+ y))
        (< y (+ (pane-y pane) (terminal-rows (pane-vt pane))))))
-(defun decoration-cell-free-p (session panes x y width)
+(defun decoration-cell-free-p (session panes x y width &optional occluders)
   (and (<= 0 x) (< x (session-cols session)) (<= 0 y) (< y (session-rows session))
        (<= (+ x width) (session-cols session))
-       (not (some (lambda (pane) (decoration-content-p pane x y (max 1 width))) panes))))
-(defun clip-decoration (session panes span)
+       (not (some (lambda (pane) (decoration-content-p pane x y (max 1 width))) panes))
+       (not (some (lambda (pane) (window-intersects-p pane x y (max 1 width))) occluders))))
+(defun clip-decoration (session panes span &optional occluders)
   (let ((cursor (getf span :x)) (y (getf span :y)) (sgr (copy-list (getf span :sgr)))
         (run-x nil) (run-width 0) (run nil) (out nil))
     (labels ((flush ()
@@ -431,7 +466,7 @@
               ;; span cannot affect an unrelated cell.
               (cond
                 ((zerop width) (when run (push char run)))
-                ((decoration-cell-free-p session panes cursor y width)
+                ((decoration-cell-free-p session panes cursor y width occluders)
                  (unless (and run-x (= cursor (+ run-x run-width))) (flush))
                  (unless run-x (setf run-x cursor))
                  (push char run) (incf run-width width))
@@ -440,26 +475,18 @@
       (flush))
     (nreverse out)))
 (defun scene-decorations (session &optional overlay)
-  (let ((panes (visible-panes session)))
-    ;; Registry component order is the layer order. Contributions are stored
-    ;; by owner for replacement, so their completion order must not change
-    ;; which decoration wins an overlap on the client.
-    (let* ((components (getf (session-registry session) :components))
-           (declared (mapcar (lambda (component) (getf component :id)) components))
-           (owners (append declared
-                           (loop for entry in (session-decorations session)
-                                 unless (member (car entry) declared :test #'equal)
-                                   collect (car entry)))))
-      (loop for owner in owners
-            for entry = (assoc owner (session-decorations session) :test #'equal)
-            when entry append (loop for span in (cdr entry)
-                                    when (eq (getf span :overlay) overlay) append (loop for row from (getf span :y)
-                                                  below (+ (getf span :y) (getf span :rows 1))
-                                                  append (clip-decoration
-                                                           session (unless overlay panes)
-                                                           (list :x (getf span :x) :y row
-                                                                 :text (getf span :text)
-                                                                 :sgr (getf span :sgr)))))))))
+  (let* ((panes (visible-panes session))
+         (declared (mapcar (lambda (c) (getf c :id)) (getf (session-registry session) :components)))
+         (owners (append declared (loop for entry in (session-decorations session)
+                                       unless (member (car entry) declared :test #'equal) collect (car entry)))))
+    (loop for owner in owners
+          append (loop for span in (cdr (assoc owner (session-decorations session) :test #'equal))
+            for pane = (pane-by-id session (getf span :pane))
+            when (and (eq (getf span :overlay) overlay) (or (not (getf span :pane)) (member pane panes)))
+            append (loop for row from (getf span :y) below (+ (getf span :y) (getf span :rows 1))
+              append (clip-decoration session (unless overlay (if pane (list pane) panes))
+                        (list :x (getf span :x) :y row :text (getf span :text) :sgr (getf span :sgr))
+                        (unless overlay (and pane (rest (member pane panes))))))))))
 (defun scene-data (session)
   (list +wire-version+ (session-cols session) (session-rows session) (session-cw session) (session-ch session)
         (pane-id (nth (session-focus session) (session-panes session)))
@@ -478,7 +505,7 @@
         (multiple-value-bind (viewport pane gaps width height) (session-geometry session)
           (declare (ignore pane width height))
           (list :status (status-text session) :style (option session :status-style '(0 30 47))
-                :viewport-insets viewport :split-gaps gaps :decorations (scene-decorations session) :overlays (scene-decorations session t)
+                :viewport-insets viewport :split-gaps gaps :decorations (scene-decorations session) :overlays (append (scene-decorations session t) (transition-overlays session) (window-drag-overlays session) (popup-overlays session))
                 :exit-text (option session :viewer-exit-text nil)))))
 (defun checked-startup-viewport (viewport)
   (when viewport
@@ -558,7 +585,7 @@
       (defer-input session kind data) (return-from server-packet))
     (case kind
       (1
-       (unless (and (= (length data) 20) (member (u32 data 0) (list 6 7 8 9 10 11 +wire-version+)))
+       (unless (and (= (length data) 20) (member (u32 data 0) (list 6 7 8 9 10 11 12 +wire-version+)))
          (send-packet wire 21 (text-bytes "Incompatible Ekko wire version")) (return-from server-packet))
        (when (and (session-writer session) (not (eq wire (session-writer session))))
          (send-packet wire 21 (text-bytes "This session already has an attached client")) (return-from server-packet))
@@ -567,6 +594,8 @@
          (unless (eq (session-writer session) wire)
            (setf (session-input-read-framed session) nil
                  (session-input-read-bytes session) nil))
+         (when (and (< (u32 data 0) 13) (some #'pane-floating (session-panes session)))
+           (error "Floating windows need a current viewer"))
          (setf (wire-version wire) (u32 data 0)
                (session-cols session) cols (session-rows session) rows (session-cw session) cw (session-ch session) ch
                (session-writer session) wire (wire-attached wire) t)
@@ -599,6 +628,7 @@
                   (concatenate '(vector (unsigned-byte 8))
                                (or (session-input-read-bytes session) (octets 0)) data))))
       (5 (when (eq (session-writer session) wire)
+           (when (session-popup session) (return-from server-packet))
            (setf (session-input-read-bytes session) nil)
            (let* ((begin (equalp data (text-bytes (format nil "~C[200~~" (code-char 27)))))
                   (end (equalp data (text-bytes (format nil "~C[201~~" (code-char 27)))))
@@ -694,8 +724,10 @@
                  (session-tree session) (pane-id (first (session-panes session))))
            (if (option session :initial-layout)
                (setf (session-tree session) (copy-tree (option session :initial-layout)))
-               (loop for pane in (rest (session-panes session)) for previous = (first (session-panes session)) then pane do
-                 (setf (session-tree session) (ekko/layout:split-pane (session-tree session) (pane-id previous) (pane-id pane) :columns))))
+               (let ((previous (first (session-panes session))))
+                 (dolist (pane (rest (session-panes session)))
+                   (setf (session-tree session) (ekko/layout:split-pane (session-tree session) (pane-id previous) (pane-id pane) :columns)
+                         previous pane))))
            (record-activation session (focused-pane session))
            (layout session)
            (initialize-startup session buffer)
@@ -711,7 +743,7 @@
            (labels ((drop-peer (peer)
                       (when (eq peer (session-writer session))
                         (setf (session-writer session) nil (session-prefix session) nil (session-drag session) nil
-                              (session-chrome-press session) nil
+                              (session-chrome-press session) nil (session-popup session) nil (session-transition session) nil (session-window-drag session) nil
                               (session-paste-target session) nil
                               (session-paste-fallback session) nil
                               (session-paste-buffer session) nil
@@ -722,6 +754,7 @@
                               (session-input-read-bytes session) nil))
                       (close-wire peer) (setf peers (remove peer peers))))
              (loop while (and running (not (session-stopping session))) do
+               (tick-transition session)
                (expire-pane-notes session)
                (service-extensions session buffer)
                (reap-retired session)
@@ -742,7 +775,7 @@
                ;; periodically to notice exited children.  Avoid waking every
                ;; frame while retaining prompt protocol timeout handling.
                (let* ((current (now))
-                      (deadline (+ current 1)))
+                      (deadline (+ current (if (session-transition session) 1/50 1))))
                  (dolist (note (session-pane-notes session))
                    (setf deadline (min deadline (getf note :until))))
                  (dolist (worker (list (session-worker session) (session-candidate session)))
