@@ -59,14 +59,18 @@
               (list (cons (wire-fd (extension-worker-output worker)) 4))))))
 (defun poll-worker (worker buffer)
   (unless (sb-ext:process-alive-p (extension-worker-process worker)) (error "Extension worker exited"))
-  (when (and (extension-worker-request worker) (> (now) (extension-worker-deadline worker)))
-    (error "Extension ~A timed out" (extension-worker-request worker)))
   (flush-wire (extension-worker-output worker))
   (let ((packets (receive-packets (extension-worker-input worker) buffer)))
     (when (> (length packets) 1) (error "Unexpected extension responses"))
-    (when packets
-      (unless (= (aref (first packets) 0) 30) (error "Invalid extension packet"))
-      (extension-data (subseq (first packets) 1)))))
+    (cond
+      (packets
+       (unless (= (aref (first packets) 0) 30) (error "Invalid extension packet"))
+       (extension-data (subseq (first packets) 1)))
+      ;; The reactor may have been descheduled past the deadline while the
+      ;; worker completed normally. Consume a ready response before timing out.
+      ((and (extension-worker-request worker) (> (now) (extension-worker-deadline worker)))
+       (let ((request (extension-worker-request worker)))
+         (error "Extension ~S timed out" (if (consp request) (subseq request 0 (min 2 (length request))) request)))))))
 (defun load-worker (source path log)
   ;; Startup/check only: no running PTYs are held up by this wait. Reload uses
   ;; the normal reactor and swaps the candidate only after validation.
