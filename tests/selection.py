@@ -61,6 +61,11 @@ def integration(binary, profile):
             mouse(0, 4, 0, True)
             assert cli('buffer', 'selection') == b'lpha'
             assert attached.clipboards[-1] == b'lpha'
+            assert any('"lpha" (0 30 48 5 229)' in s for s in attached.scenes), attached.scenes[-1]
+            # Expiry must redraw even when the child and user are idle.
+            attached.pump(.3)
+            assert '"lpha" (0 31 48 5 238)' in attached.scenes[-1], attached.scenes[-1]
+            assert '48 5 229' not in attached.scenes[-1], attached.scenes[-1]
             assert log.read_bytes() == b''
             mouse(0, 2, 1)
             mouse(32, 6, 0)

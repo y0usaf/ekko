@@ -812,7 +812,7 @@
       (:copy-selection
        (when (pane-copy-lines pane)
          (publish-copy session (selected-copy-text pane))
-         (unless (pane-copy-pointer pane) (leave-copy pane))))
+         (setf (pane-copy-flash-until pane) (+ (now) 1/5))))
       (:copy-search (when (pane-copy-lines pane) (setf (pane-search-input pane) (octets 0))))
       (:copy-search-next (search-copy pane))
       (:paste-buffer

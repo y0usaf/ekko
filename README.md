@@ -18,10 +18,15 @@ cudaterm-finix -e nix run . -- run --session workspace "$SHELL" -i
 ## Text selection and scrollback
 
 Drag the left mouse button over shell text to highlight a character range.
-Release to copy it to Ekko's buffer and request the terminal's system clipboard
+Release to automatically copy it to Ekko's buffer and request the terminal's system clipboard
 using OSC 52. Wide characters and combining marks stay intact; reverse and
 multiline selections are supported. Clipboard access depends on the host
 terminal's settings. `nix run . -- buffer workspace` also exports the text.
+
+Copied text flashes pale yellow for 200 ms, then returns to the selection highlight.
+Keyboard copy flashes before returning to live output. Typing dismisses the flash
+immediately and forwards the key to the application. The flash confirms Ekko's
+copy; the terminal may still deny the system clipboard request.
 
 The mouse wheel scrolls frozen history. Scroll down to the bottom, press Escape,
 or type to return to live output. Typing resumes the application without losing
