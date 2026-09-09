@@ -108,6 +108,7 @@
             (:status-text (and (stringp value) (<= (length value) 512)))
             (:status-style (and (listp value) (<= (length value) 16)
                                 (every (lambda (n) (and (integerp n) (<= 0 n 255))) value)))
+            (:window-animation-ms (typep value '(integer 0 250)))
             (:erase-display-history (or (eq value t) (null value)))
             (:pane-insets (bounded-geometry-p value 4))
             (:boundary-insets (or (null value) (bounded-geometry-p value 4)))

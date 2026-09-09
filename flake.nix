@@ -201,6 +201,10 @@
           cmp rust-widths lisp-widths
           printf 'exhaustive Unicode scalar widths match unicode-width 0.1.10\n' > $out
         '';
+        desktop-menus = pkgs.runCommand "ekko-desktop-menus" { nativeBuildInputs = [ pkgs.python3 ]; } ''
+          python ${./tests}/menus.py ${self.packages.${pkgs.system}.default}/bin/ekko ${./examples/profiles}/desktop.lisp > $out
+          python ${./tests}/menus.py ${self.packages.${pkgs.system}.default}/bin/ekko-bare ${./examples/profiles}/desktop.lisp bare >> $out
+        '';
         desktop-default = pkgs.runCommand "ekko-desktop-default" { nativeBuildInputs = [ pkgs.python3 ]; } ''
           python ${./tests}/desktop.py ${self.packages.${pkgs.system}.default}/bin/ekko ${./examples/profiles}/desktop.lisp default > $out
         '';

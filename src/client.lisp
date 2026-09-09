@@ -163,7 +163,11 @@
               (make-string cols :initial-element #\Space)))
     (dolist (pane panes)
       (destructuring-bind (id x y width height label status cursor-x cursor-y visible lines placements outer) pane
-        (declare (ignore id width height label status cursor-x cursor-y visible placements outer))
+        (declare (ignore id width height label status cursor-x cursor-y visible placements))
+        (destructuring-bind (ox oy ow oh) outer
+          (loop for row from oy below (+ oy oh) do
+            (format (aref output row) "~C[0m~C[~D;~DH~A" esc esc (1+ row) (1+ ox)
+                    (make-string ow :initial-element #\Space))))
         (loop for line in lines for row from y do
           (dolist (run line)
             (destructuring-bind (column text attributes) run
@@ -177,7 +181,7 @@
           (render-decoration (aref output y) cols rows decoration))))
     (map 'vector #'get-output-stream-string output)))
 
-(defun overlay-image-crops (crop overlays cw ch)
+(defun overlay-image-crops (crop overlays cw ch &optional occlusions)
   "Subtract opaque cell spans from a pixel crop, preserving source offsets."
   (when crop
     (destructuring-bind (x y sx sy w h) crop
@@ -189,6 +193,10 @@
               (when (plusp width)
                 (let ((cut (ekko/scene:make-rect (* ox cw) (* oy ch) (* width cw) ch)))
                   (setf pieces (mapcan (lambda (piece) (ekko/scene:rect-subtract piece cut)) pieces)))))))
+        (dolist (rect occlusions)
+          (destructuring-bind (ox oy ow oh) rect
+            (let ((cut (ekko/scene:make-rect (* ox cw) (* oy ch) (* ow cw) (* oh ch))))
+              (setf pieces (mapcan (lambda (piece) (ekko/scene:rect-subtract piece cut)) pieces)))))
         (loop for piece in pieces collect
           (let ((px (ekko/scene:rect-x piece)) (py (ekko/scene:rect-y piece)))
             (list px py (+ sx (- px x)) (+ sy (- py y))
@@ -207,7 +215,7 @@
           (let* ((key (list (first pane) (first placement)))
                  (asset (gethash key (viewer-assets viewer)))
                  (crop (when asset (clipped-image pane placement asset cw ch))))
-            (loop for fragment in (overlay-image-crops crop (getf metadata :overlays) cw ch)
+            (loop for fragment in (overlay-image-crops crop (getf metadata :overlays) cw ch (mapcar (lambda (p) (nth 12 p)) (rest (member pane panes))))
                   for index from 0 do
                     (setf (gethash (append key (list index)) wanted) (list asset fragment))))))
       (maphash (lambda (key old)
@@ -241,7 +249,13 @@
                  (setf (gethash key (viewer-drawn viewer)) (list id (first asset) crop cw ch))))))
        wanted)
       (let ((active (find focus panes :key #'first)))
-        (when (and active (nth 9 active) (null (getf metadata :overlays)))
+        (when (and active (nth 9 active) (null (getf metadata :overlays))
+                   (not (some (lambda (p)
+                                (destructuring-bind (x y w h) (nth 12 p)
+                                  (let ((cx (+ (second active) (nth 7 active)))
+                                        (cy (+ (third active) (nth 8 active))))
+                                    (and (<= x cx) (< cx (+ x w)) (<= y cy) (< cy (+ y h))))))
+                              (rest (member active panes)))))
           (terminal-write viewer (format nil "~C[~D;~DH~C[?25h" esc
                                          (+ (third active) (nth 8 active) 1)
                                          (+ (second active) (nth 7 active) 1) esc))))
