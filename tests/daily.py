@@ -41,6 +41,7 @@ class Attachment:
         self.sock.connect(str(path))
         self.buffer = b""
         self.scenes = []
+        self.clipboards = []
         self.version = version
         self.send(1, struct.pack(">IIIII", version, 120, 40, 8, 16))
         self.pump(.05)
@@ -66,6 +67,8 @@ class Attachment:
                         assert scene.startswith(f"({self.version} "), scene[:80]
                         self.scenes.append(scene)
                         self.send(14)
+                    elif body[0] == 23:
+                        self.clipboards.append(body[1:])
                     elif body[0] == 21:
                         raise AssertionError(body[1:])
 
@@ -81,6 +84,7 @@ CONFIG = '''
             (list (ekko/extensions:action :status :text
               (format nil "focus=~D calls=~D" (ekko/extensions:value snapshot :focus) (incf *calls*))))))
 (ekko/extensions:set-option :component :user :name :prefix :value "C-a")
+(ekko/extensions:set-option :component :user :name :initial-keymap :value nil)
 (ekko/extensions:set-option :component :user :name :status-text :value "user status")
 (ekko/extensions:set-option :component :user :name :status-style :value '(0 32))
 (ekko/extensions:bind-key :component :user :key "v" :command "split-rows")
@@ -248,7 +252,7 @@ def integration(binary, bare=False):
                 cli("config", "reload", "daily")
                 clean = inspect()
                 assert [c["id"] for c in clean["components"]] == ["defaults"]
-                assert clean["options"]["prefix"] == 2 and not clean["contributions"]
+                assert clean["options"]["initial-keymap"] == "normal" and not clean["contributions"]
                 assert not any(c["name"] == "hang" for c in clean["commands"])
                 assert status()["panes"][0]["pid"] == original_pid
                 assert status()["panes"][0]["label"] == "still-alive"

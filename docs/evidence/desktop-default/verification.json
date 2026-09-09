@@ -1,0 +1,52 @@
+{
+  "date": "2026-09-08",
+  "command": "nix flake check --keep-going -L .",
+  "exit_code": 0,
+  "checks": [
+    "build",
+    "daily",
+    "decorations",
+    "desktop",
+    "desktop-default",
+    "fake-host",
+    "initialization",
+    "keymap-input",
+    "keymaps",
+    "mouse-selection",
+    "packaged-smoke",
+    "pane-frames",
+    "pane-layouts",
+    "pane-modes",
+    "pane-moves",
+    "pane-notes",
+    "pane-pixels",
+    "pane-rename",
+    "pane-titles",
+    "pane-workflow",
+    "runtime",
+    "startup-geometry",
+    "text-width",
+    "viewer-exit",
+    "zellij-pane-differential",
+    "zellij-pane-workflow",
+    "zellij-routing",
+    "zellij-session-lifecycle"
+  ],
+  "default_runtime": "/nix/store/cm3pkq0sg1a8gwvrgwbvmq253df5fk6r-ekko-0.1.0",
+  "desktop_default": {
+    "config": "empty",
+    "owners": [
+      "defaults"
+    ],
+    "mode": "normal",
+    "cudaterm_visual_check": true
+  },
+  "coverage": [
+    "default and bare desktop: keyboard modes, rename cancellation, window controls, taskbar minimize/focus/restore",
+    "minimized PTYs and layout preserved across detach/reattach",
+    "application mouse/keyboard/paste isolation and decoration owner removal",
+    "styled text selection and clipboard export",
+    "graphics transport and placement with desktop geometry",
+    "existing compatibility and extension suite"
+  ]
+}

@@ -1,5 +1,39 @@
 # Ekko v2
 
+Ekko opens with centered, dark window titlebars, colored borders and a fixed
+bottom taskbar. The taskbar reserves its own row, so it never covers applications.
+Each window keeps its accent color: open windows have filled entries, `▸` marks
+focus, and minimized entries have contrasting gray backgrounds. Click the focused
+entry to minimize, another entry to focus, or a minimized entry to restore.
+Titlebar `_`, `□` and `×` controls minimize, maximize/restore and close.
+
+This is the default experience; no profile is required:
+
+```sh
+nix run . -- run --session workspace "$SHELL" -i
+# With the configured Cudaterm launcher:
+cudaterm-finix -e nix run . -- run --session workspace "$SHELL" -i
+```
+
+## Text selection and scrollback
+
+Drag the left mouse button over shell text to highlight a character range.
+Release to copy it to Ekko's buffer and request the terminal's system clipboard
+using OSC 52. Wide characters and combining marks stay intact; reverse and
+multiline selections are supported. Clipboard access depends on the host
+terminal's settings. `nix run . -- buffer workspace` also exports the text.
+
+The mouse wheel scrolls frozen history. Scroll down to the bottom, press Escape,
+or type to return to live output. Typing resumes the application without losing
+the first key; Escape only dismisses the pointer selection. Pane applications
+continue running during selection. Applications requesting mouse tracking keep
+their mouse events instead of starting Ekko selection.
+
+Selection retains the original terminal colours and formatting, trims trailing
+blanks, and separates physical rows with newlines. Word/rectangle selection, drag
+autoscroll, soft-wrap-aware copying, and full Zellij search behavior remain open.
+Existing sessions need to be restarted with the rebuilt runtime for these features.
+
 A Linux/SBCL terminal multiplexer with real PTYs, a persistent session daemon,
 text terminals, and a limited Kitty graphics implementation. Each pane can run
 an ordinary shell, a terminal application, or terminal-browser. Ekko manages the
@@ -46,18 +80,18 @@ explicitly when needed. A single command also works.
 
 | Keys | Action |
 | --- | --- |
-| Ctrl-b, then Tab / 1–9 | Switch focus |
-| Ctrl-b, then % / / | Split into columns / rows |
-| Ctrl-b, then [ / ] | Enter copy mode / paste the Ekko buffer |
-| Ctrl-b, then r / ? | Reload configuration / show bindings |
-| Mouse click | Focus and interact with the clicked application |
-| Ctrl-b, then z | Toggle focused-pane zoom |
-| Ctrl-b, then s | Swap panes |
-| Ctrl-b, then < / > | Resize the divider |
-| Ctrl-b, then d | Detach, keeping applications running |
-| Ctrl-b, then x | Close the focused pane's process group |
-| Ctrl-b, then q | Stop the session |
-| Ctrl-b, then Ctrl-b | Send Ctrl-b to the application |
+| Ctrl-p, then r / d / n | New pane right / down / automatic |
+| Ctrl-p, then Tab | Cycle focus, restoring minimized windows |
+| Ctrl-p, then h / j / k / l or arrows | Focus a neighboring window |
+| Ctrl-p, then m / f / x | Minimize / maximize or restore / close |
+| Ctrl-p, then c | Rename; Enter saves, Escape restores the previous name |
+| Ctrl-h, then h / j / k / l | Move a window |
+| Ctrl-o, then d | Detach, keeping applications running |
+| Ctrl-g | Lock/unlock Ekko shortcuts |
+| Ctrl-q | Stop the session |
+| Escape / Enter in a mode | Return to normal (rename Escape returns to pane mode) |
+| Mouse drag / wheel | Copy text / scroll history |
+
 
 ```sh
 nix run . -- attach workspace
@@ -135,3 +169,7 @@ for workload details and recorded comparisons.
 See [PROGRESS.md](PROGRESS.md), [architecture](docs/architecture.md), and the
 [compatibility ledger](docs/compatibility.md). The destination specification is
 [GOAL.md](GOAL.md). Sibling Ekko implementation code was not used.
+
+The optional `examples/profiles/desktop.lisp` installs the same desktop through
+the public extension API in `ekko-bare`. Regular Ekko includes it by default.
+The Zellij profile remains an explicit compatibility experiment, not the default.

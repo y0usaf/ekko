@@ -249,87 +249,23 @@
              '(:name nil :terminal-title "" :launch-kind :command
                :argv ("cmd") :creation-position 4)) "")
    "Empty OSC title did not outrank command title")
-  (let ((short-a (zellij-frame-spans
-                  '(:rect (0 0 40 24) :title "A" :scroll (0 1)
-                    :focus t :mode :normal)))
-        (short-b (zellij-frame-spans
-                  '(:rect (40 0 40 24) :title "B" :scroll (0 1)
-                    :focus nil :mode :normal)))
-        (small (zellij-frame-spans
-                '(:rect (0 0 10 8) :title "LONG-PANE-A-0123456789"
-                  :scroll (0 1) :focus t :mode :normal)))
-        (small-fullscreen (zellij-frame-spans
-                           '(:rect (0 0 20 8) :title "LONG-PANE-A-0123456789"
-                             :scroll (0 1) :focus t :mode :normal)))
-        (pane (zellij-frame-spans
-               '(:rect (0 0 40 24) :title "A" :scroll (0 1)
-                 :focus t :mode :pane)))
-        (note (zellij-frame-spans
-               '(:rect (0 0 40 24) :title "CAN'T SPLIT!" :scroll (0 0)
-                 :focus t :mode :normal :sgr (0 1 38 5 124 49)))))
+  (dolist (example '((10 "A" "    A     ") (10 "界面" "   界面   ")
+                     (8 "Café" "  Café  ") (8 "abcdef界" " abcdef ")))
+    (destructuring-bind (width title expected) example
+      (zellij-frame-test-check (string= (zellij-frame-title-line width title) expected)
+                               "Centred header mismatch for ~S" title)))
+  (let ((spans (zellij-frame-spans '(:rect (0 0 40 24) :title "A" :focus t :mode :normal))))
+    (zellij-frame-test-check (= 40 (zellij-frame-string-width (zellij-frame-test-top spans)))
+                             "Header must fill the pane width")
+    (zellij-frame-test-check (equal (zellij-frame-test-sgr spans) '(0 1 38 5 154 49 7))
+                             "Header must use its border colour as background")
+    (zellij-frame-test-check (equal (getf (second spans) :sgr) '(0 1 38 5 154 49))
+                             "Side borders must retain their foreground colour")
+    (zellij-frame-test-check (= 4 (length spans)) "Frame requires four compact spans")
+    (zellij-frame-test-check (= 23 (getf (first (last spans)) :y)) "Bottom border coordinate")
     (zellij-frame-test-check
-     (string= (zellij-frame-test-top short-a)
-              "┌ A ───────────────────── SCROLL:  0/1 ┐")
-     "80x24 focused title mismatch: ~S" (zellij-frame-test-top short-a))
-    (zellij-frame-test-check
-     (string= (zellij-frame-test-top short-b)
-              "┌ B ───────────────────── SCROLL:  0/1 ┐")
-     "80x24 unfocused title mismatch: ~S" (zellij-frame-test-top short-b))
-    (zellij-frame-test-check
-     (equal (zellij-frame-test-sgr short-a) '(0 1 38 5 154 49))
-     "Normal focus SGR mismatch: ~S" (zellij-frame-test-sgr short-a))
-    (zellij-frame-test-check
-     (equal (zellij-frame-test-sgr short-b) '(0 1 39 49))
-     "Unfocused SGR mismatch: ~S" (zellij-frame-test-sgr short-b))
-    (zellij-frame-test-check
-     (equal (zellij-frame-test-sgr pane) '(0 1 38 5 166 49))
-     "Pane focus SGR mismatch: ~S" (zellij-frame-test-sgr pane))
-    (zellij-frame-test-check
-     (equal (zellij-frame-test-sgr note) '(0 1 38 5 124 49))
-     "Pane note SGR override mismatch: ~S" (zellij-frame-test-sgr note))
-    (zellij-frame-test-check
-     (string= (zellij-frame-test-top small) "┌ L[..]9 ┐")
-     "20x8 title truncation mismatch: ~S" (zellij-frame-test-top small))
-    (zellij-frame-test-check
-     (string= (zellij-frame-test-top small-fullscreen)
-              "┌ LONG-P[..]456789 ┐")
-     "20x8 fullscreen title mismatch: ~S"
-     (zellij-frame-test-top small-fullscreen))
-    (zellij-frame-test-check (and (= (length short-a) 4)
-                                  (= (loop for span in short-a sum (getf span :rows 1)) 46))
-                             "Expected four compact spans expanding to 46 rows")
-    (zellij-frame-test-check
-     (equal (list (getf (first short-a) :x) (getf (first short-a) :y)
-                  (getf (first (last short-a)) :x)
-                  (getf (first (last short-a)) :y))
-            '(0 0 0 23))
-     "Frame coordinates mismatch")
-    (let ((rejected nil))
-      (handler-case
-          (zellij-frame-spans
-           (list :rect '(0 0 10 8) :title (format nil "bad~C" #\Newline)
-                 :scroll '(0 0) :focus t :mode :normal))
-        (error () (setf rejected t)))
-      ;; Printable Unicode titles are supported. This check
-      ;; guards against accidentally treating control text as decoration.
-      (zellij-frame-test-check rejected "Control title unexpectedly accepted"))
-    ;; Pinned unicode-width 0.1.10 uses scalar widths, including zero-width
-    ;; marks retained by the frame ANSI path. These exact fit boundaries would
-    ;; fail if the profile counted Lisp characters instead of display cells.
-    (zellij-frame-test-check
-     (equal (zellij-frame-title-left "界面" 7) '(" 界面 " 6))
-     "Wide title fit mismatch")
-    (zellij-frame-test-check
-     (equal (zellij-frame-title-left "Café" 7) '(" Café " 6))
-     "Combining title fit mismatch")
-    (zellij-frame-test-check
-     (equal (zellij-frame-title-left "界面界面界面" 10)
-            '(" 界[..]面 " 10))
-     "Wide title middle truncation mismatch")
-    (zellij-frame-test-check
-     (equal (zellij-frame-title-left "abcdef界" 9)
-            '(" a[...] " 8))
-     "Wide suffix budget must not admit half a scalar")
-    (run-zellij-pane-tests)
-    (format t "Zellij frame decoration tests passed~%")
-    t))
+     (handler-case (progn (zellij-frame-title-line 20 (format nil "bad~C" #\Newline)) nil)
+       (error () t)) "Control title unexpectedly accepted"))
+  (run-zellij-pane-tests)
+  (format t "Pane header and frame tests passed~%")
+  t)

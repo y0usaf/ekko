@@ -12,7 +12,7 @@ ekko inspect workspace             # JSON: owners, commands, keymaps, options, e
 ekko command --session workspace label-work
 ```
 
-`Ctrl-b r` reloads with the default bindings. Editing a file takes effect after
+`ekko config reload SESSION` reloads the configuration. Editing a file takes effect after
 reload, without rebuilding or restarting applications. A bad reload reports an
 error and keeps the previous configuration. Each daemon remembers its startup
 configuration path; `config check` uses the caller's environment.
@@ -168,10 +168,10 @@ contributions, disabled hooks, and the last error. Builtins use the same API in
 and tested with no builtins and an externally loaded command.
 
 These keymap additions are additive to public API version 1; `(api-version)`
-continues to return `1`. Attachment wire version `11` provides shared opaque
+continues to return `1`. Attachment wire version `12` adds clipboard export to the shared runtime. Version `11` provides shared opaque
 overlays, explicit input actions, and viewer exit text. Versions `8` and `10`
 were the separately patched Finix variants; those generic capabilities are now
-part of the shared runtime. Versions `6` through `11` are accepted and the
+part of the shared runtime. Versions `6` through `12` are accepted and the
 requested version is published in each scene. Older viewers retain their
 existing supported behavior; they can ignore additive metadata and do not gain
 new rendering capabilities without updating.
@@ -399,11 +399,14 @@ ekko command --session workspace close
 ekko buffer workspace > selection.txt
 ```
 
-Default prefix bindings: `%` splits columns, `/` splits rows, `x` closes, Tab
-cycles focus, `1`–`9` select by pane order, `z` zooms, `s` swaps with the next pane,
-`<`/`>` resize, `[` enters copy mode, `]` pastes, `?` lists prefix bindings.
+Default bindings use the desktop modes: Ctrl-p opens pane controls (r/d/n new,
+Tab cycle/restore, h/j/k/l focus, m minimize, f maximize, c rename, x close).
+Ctrl-h opens move controls, Ctrl-o opens session controls, Ctrl-g locks/unlocks,
+and Ctrl-q stops the session. Commands such as `copy-mode`, `paste-buffer`,
+`resize-left`, `resize-right`, `swap` and `reload` also remain callable through
+`ekko command` or custom bindings.
 
-Copy mode freezes a plain-text snapshot while the application continues running.
+Copy mode freezes a styled snapshot while the application continues running.
 Use `j`/`k` or arrows to move, `b`/`f` or PageUp/PageDown to move 20 rows, `g`/`G`
 for the first/last row, Space to mark, Enter or `y` to copy whole lines, `/` to
 search, `n` for the next match, and `q` or Escape to exit. Mouse-wheel movement
@@ -505,3 +508,54 @@ runtime contains no profile-specific exit message. `checks.viewer-exit` verifies
 regular/bare replacement, rejected control characters, owner removal, unchanged
 child PIDs and restored host termios. Failure-specific reference messages and
 multi-client termination behavior remain separate parity work.
+
+
+### Pointer selection actions
+
+`:copy-point :pane ID :x COLUMN :y ROW :start BOOLEAN` selects in the named
+pane's frozen styled viewport (zero-based cells). The first point captures history;
+`:start t` replaces the anchor. Coordinates are validated and capped to the
+runtime's maximum viewport. `:copy-scroll :pane ID :delta ROWS` moves the frozen
+viewport; delta is an integer between -300 and 300. Pointer input translates to
+these same validated actions. Selection is daemon-owned pane state, cleared by
+`:copy-exit` or pane teardown; it does not resize PTYs or alter live VT contents.
+
+`:copy-selection` copies either the character range or the existing keyboard
+line selection. Both use the session buffer and a bounded clipboard event.
+Wire packet 23 contains at most 1 MiB of UTF-8 text and is sent only to attached
+viewers negotiating version 12 or later. The viewer base64-encodes it into OSC 52
+for the system clipboard. No clipboard reads or shell subprocesses are involved.
+Version 6–11 viewers keep internal-buffer copying and receive no new packet.
+
+
+Selection shares the live cell-to-run renderer. Captured VT/history rows retain
+immutable text and SGR cells; the highlight changes the selected background only,
+leaving foreground colour, bold and other formatting intact. Plain text is used
+for clipboard export and the search index, not for repainting captured output.
+
+### Desktop controls
+
+Desktop styling is installed by default, under the removable `:defaults` owner.
+`examples/profiles/desktop-style.lisp` holds the shared style functions, and
+`examples/profiles/desktop.lisp` demonstrates installing them in `ekko-bare`.
+It uses centered window headers and a fixed bottom taskbar. The yellow `_` minimizes without
+stopping the process; green `□` maximizes/restores; red `×` closes the pane.
+Click an active dock entry to minimize it, a minimized entry to restore it,
+or another window’s entry to focus it. Each window keeps a stable accent color
+in its border, dark titlebar and taskbar entry. The dock reserves a terminal row, so
+it never covers application content. Existing Ctrl-p pane and Ctrl-o session
+bindings remain available; Ctrl-p then m minimizes, and Ctrl-p then Tab
+cycles through all panes, restoring minimized ones. Very narrow headers omit
+the buttons.
+
+Decoration spans accept an optional `:action`, one of `(:focus :pane ID)`,
+`(:minimize :pane ID)`, `(:restore :pane ID)`, `(:zoom :pane ID)` or
+`(:close :pane ID)`. These use the normal validated action path. A left press
+and release on the same control activates it; dragging away cancels it.
+Only reserved chrome cells accept these actions. Removing the decoration owner
+removes its hit targets too. No viewer protocol changes are needed.
+
+`:minimize` and `:restore` are public actions; `:zoom` and `:close` now also accept
+`:pane`. The pane snapshot and `ekko inspect` expose `:minimized`. Minimization
+survives detach/reattach and preserves the original split tree and PTY size.
+Explicit focus restores a minimized pane, including keyboard focus cycling.

@@ -277,6 +277,9 @@
                 (viewer-exit-text viewer) exit-text))
         (maphash (lambda (key asset) (setf (gethash key (viewer-assets viewer)) asset)) (viewer-pending-assets viewer))
         (clrhash (viewer-pending-assets viewer)))
+    (23 (when (> (1- (length packet)) (* 1024 1024)) (error "Clipboard exceeds 1 MiB"))
+        (terminal-write viewer (format nil "~C]52;c;~A~C\\" #\Esc
+                                       (base64-encode (subseq packet 1)) #\Esc)))
     (21 (error "~A" (bytes-text (subseq packet 1))))
     (22 (setf (viewer-done viewer) t))
     (otherwise (error "Unexpected server message"))))

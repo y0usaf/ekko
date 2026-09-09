@@ -155,8 +155,13 @@ def integration(binary, profile, bare=False):
             config.write_text(ordinary)
             cli("config", "reload", "keymaps")
             restored = inspect()
-            assert restored["mode"] is None
-            assert restored["keymaps"] is None
+            if bare:
+                assert restored["mode"] is None
+                assert restored["keymaps"] is None
+            else:
+                # The new defaults also define locked mode, so reload preserves it.
+                assert restored["mode"] == "locked"
+                assert all(m["owner"] == "defaults" for m in restored["keymaps"])
             assert restored["options"]["prefix"] == 2
             if not bare:
                 assert any(c["id"] == "defaults" for c in restored["components"])

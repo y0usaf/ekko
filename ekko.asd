@@ -15,7 +15,7 @@
   :serial t
   :components ((:file "src/platform") (:file "src/assets") (:file "src/vt") (:file "src/history")
                (:file "src/layout") (:file "src/graphics")
-               (:file "src/wire") (:file "src/worker") (:file "src/server") (:file "src/commands") (:file "src/client")))
+               (:file "src/wire") (:file "src/worker") (:file "src/server") (:file "src/commands") (:file "src/selection") (:file "src/client")))
 
 (asdf:defsystem "ekko/extensions"
   :depends-on ("ekko/text")
@@ -24,7 +24,10 @@
   :components ((:file "src/text-width")))
 (asdf:defsystem "ekko/builtins"
   :depends-on ("ekko/extensions")
-  :components ((:file "src/builtins")))
+  :serial t
+  :components ((:file "examples/profiles/zellij-pane")
+               (:file "examples/profiles/zellij-bindings")
+               (:file "examples/profiles/desktop-style") (:file "src/builtins")))
 
 (asdf:defsystem "ekko/scene"
   :description "Pure clipping and rational source transforms"
@@ -51,6 +54,8 @@
                (:file "tests/graphics-demo")
                (:file "tests/input")
                (:file "tests/render")
+               (:file "tests/selection")
+               (:file "tests/desktop")
                (:file "tests/base64")
                (:file "tests/graphics-parser")
                (:file "tests/assets")

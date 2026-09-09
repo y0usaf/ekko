@@ -1,5 +1,37 @@
 # Implementation progress
 
+Style refinement (2026-09-08): frozen selection now retains styled VT/history
+cells and uses the live row renderer; only selected backgrounds change. Headers
+span each pane in its border colour with centred, display-width-clipped titles.
+Removed the previous middle-truncation/scroll-label fitting code. Pane order in
+the top strip is stable. Nix build plus mouse-selection, pane-frames, pane-titles,
+daily and runtime checks exited 0. Cudaterm's font-atlas builder now aligns the
+eleven light box glyphs at common cell centres; 11,498 other glyphs compare
+byte-for-byte unchanged. This deliberately favours the requested Ekko styling
+over exact Zellij screenshot parity.
+
+Bars (2026-09-08): added an owned Lisp session/pane strip and contextual mode
+hints in the already reserved top/bottom rows. The component clips by display
+width, follows focus/title/mode changes, and leaves zero-inset oracle layouts
+unchanged. Nix config validation and the decorations, pane-modes, pane-frames,
+and mouse-selection checks exited 0. A private live daemon verified Normal,
+Pane, Move, Session and Locked labels without hook errors. The bars were visually
+inspected in Cudaterm; live reload preserved the shell PID. These are usable Ekko
+bars, not real tabs or complete Zellij tab/status plugin parity.
+
+Text usability (2026-09-08): character-range mouse highlighting and release-to-copy,
+wheel scrollback, and viewer-owned OSC 52 clipboard export are implemented in
+the parity worktree. Pointer actions share public validation with profile actions;
+mouse-aware applications retain their input. Wire 12 keeps legacy buffer support.
+This is a usability slice, not full Zellij selection/search parity. See README.md
+for controls and remaining text-selection limitations.
+Final `nix flake check -L .` exited 0, including the regular/bare mouse-selection
+integration and all 14 existing paired pane workflows. An earlier full run found
+an extra same-cell-size WINCH in the move scenario; it did not recur in the final
+run. A focused move probe against the unchanged baseline runtime also fails the
+geometry gate. This observation remains recorded rather than normalized out of the oracle.
+[Verification receipt](docs/evidence/text-selection/verification.json).
+
 Active outcome: complete functional and visual parity with pinned Zellij 0.43.1
 through an optional, replaceable public Lisp profile, while preserving Ekko's
 independent daemon, transactional reload, reversible ownership, and graphics
@@ -481,3 +513,49 @@ animation, compositor layers, and the remaining GOAL.md gates remain open.
 Slack authentication beyond the displayed sign-in screen is user-controlled.
 
 Shared runtime frame capture: all 14 settled screenshots and native Kitty text/cursor exports match exactly; initial startup remains 50,578 pixels / 1,159 modeled cells different. Raw evidence: `docs/evidence/zellij/shared-overlays/frame-native/`.
+
+### Desktop profile
+
+- Added `examples/profiles/desktop.lisp`: centered window headers with yellow
+  minimize, green maximize/restore and red close controls; replaced the top
+  strip with a fixed one-row task dock. Ctrl-p then m minimizes; Ctrl-p then
+  Tab cycles/restores. Buttons use public decoration actions, not profile
+  branches in the runtime.
+- Minimized state stays in the daemon; layout removes hidden leaves from a
+  derived tree and preserves the original splits and hidden PTY dimensions.
+  Application keyboard/paste input is suppressed on an empty desktop.
+- Controls activate on matching press/release, never in application cells;
+  removing their decoration owner removes hit targets. No scene wire change.
+- Verification passed: `nix build --no-link -L .#checks.x86_64-linux.desktop
+  .#checks.x86_64-linux.mouse-selection .#checks.x86_64-linux.pane-frames
+  .#checks.x86_64-linux.daily .#checks.x86_64-linux.runtime` (one command).
+  Desktop tests exercise regular and bare runtimes with live child PTYs,
+  all-minimized state, restore geometry, input isolation, close, reattachment,
+  and owner removal. Final profile check `nix build --no-link -L
+  .#checks.x86_64-linux.desktop` also passed after keyboard bindings were added.
+- Opened `ekko-desktop` in configured Cudaterm with the corrected font atlas;
+  visually checked the live controls, centered header and reserved dock.
+
+### Desktop becomes the default
+
+The default owner now installs the complete desktop experience: centered dark
+headers with colored Unicode edge strokes, macOS-colored window controls,
+stable per-window accents, and a fixed bottom taskbar. Open windows have filled
+entries, focus has a separate arrow, minimized entries use contrasting gray,
+and spaces separate entries. Taskbar clicks minimize the focused window, focus
+another open window, or restore a minimized window.
+
+The old default chrome and prefix key bindings have been replaced. Ctrl-p pane,
+Ctrl-h move, Ctrl-o session, Ctrl-g lock and Ctrl-q quit match the preview. The
+shared desktop style and pane bindings also load through the public API in the
+bare profile; the default owner remains fully removable by custom configs.
+Existing public CLI command names remain available. Rename state is scoped to
+the installing owner, and keyboard copy mode has its own explicit keymap.
+
+Default and bare-profile integration tests cover real PTYs, keyboard mode and
+rename behavior, button and taskbar clicks, process/layout preservation,
+minimized reattachment, input isolation, and removal of the desktop owner.
+Graphics tests now use the desktop bindings and account for reserved borders;
+custom-prefix tests explicitly opt into their own keymap policy.
+
+Final validation: `nix flake check --keep-going -L .` exited zero across all 28 checks. Opened the built-in default in configured Cudaterm with an empty configuration and confirmed `defaults` is the only installed owner. Evidence: `docs/evidence/desktop-default/verification.json`.

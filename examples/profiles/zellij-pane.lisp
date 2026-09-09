@@ -226,8 +226,8 @@ are the fallback when width is over ten.  There is no alternate-pane search."
 ;; does not clear the editable label.  The daemon exposes this as ordinary
 ;; component state, so the policy remains reload-safe and independent of pane
 ;; process identity.
-(defun zellij-pane-state-value (snapshot)
-  (cdr (assoc "zellij-modes" (getf snapshot :component-state) :test #'equal)))
+(defun zellij-pane-state-value (snapshot &optional (owner "zellij-modes"))
+  (cdr (assoc owner (getf snapshot :component-state) :test #'equal)))
 
 (defun zellij-pane-state-for-panes (state panes)
   (let ((ids (mapcar (lambda (pane) (getf pane :id)) panes)))
@@ -236,20 +236,20 @@ are the fallback when width is over ten.  There is no alternate-pane search."
                     (member (first entry) ids :test #'eql))
             collect (list (first entry) (second entry)))))
 
-(defun zellij-pane-rename-state (snapshot pane-id old-name)
+(defun zellij-pane-rename-state (snapshot pane-id old-name &optional (owner "zellij-modes"))
   (let* ((state (zellij-pane-state-for-panes
-                 (or (zellij-pane-state-value snapshot) nil)
+                 (or (zellij-pane-state-value snapshot owner) nil)
                  (getf snapshot :panes)))
          (without (remove pane-id state :key #'first :test #'eql)))
     (cons (list pane-id (or old-name "")) without)))
 
-(defun zellij-pane-rename-enter-actions (snapshot)
+(defun zellij-pane-rename-enter-actions (snapshot &optional (owner "zellij-modes"))
   (let* ((pane (zellij-pane-focused snapshot))
          (id (and pane (getf pane :id)))
          (old (and pane (or (getf pane :name) ""))))
     (when pane
       (list (ekko/extensions:action
-             :set-state :value (zellij-pane-rename-state snapshot id old))
+             :set-state :value (zellij-pane-rename-state snapshot id old owner))
             (ekko/extensions:action :set-keymap :name :rename)))))
 
 (defun zellij-pane-rename-pop (text)
@@ -292,11 +292,11 @@ are the fallback when width is over ten.  There is no alternate-pane search."
         (when new
           (list (ekko/extensions:action :rename :pane id :text new)))))))
 
-(defun zellij-pane-rename-previous-action (snapshot)
+(defun zellij-pane-rename-previous-action (snapshot &optional (owner "zellij-modes"))
   (let* ((pane (zellij-pane-focused snapshot))
          (id (and pane (getf pane :id)))
          (state (zellij-pane-state-for-panes
-                 (or (zellij-pane-state-value snapshot) nil)
+                 (or (zellij-pane-state-value snapshot owner) nil)
                  (getf snapshot :panes)))
          (entry (and id (find id state :key #'first :test #'eql))))
     (when pane
