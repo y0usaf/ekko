@@ -1,0 +1,154 @@
+{
+  "date": "2026-09-08",
+  "command": "nix flake check -L .",
+  "exit_code": 0,
+  "checks": [
+    "zellij-pane-differential",
+    "zellij-pane-workflow",
+    "zellij-session-lifecycle",
+    "text-width",
+    "mouse-selection",
+    "pane-modes",
+    "pane-workflow",
+    "keymap-input",
+    "keymaps",
+    "decorations",
+    "pane-notes",
+    "pane-titles",
+    "pane-rename",
+    "viewer-exit",
+    "initialization",
+    "pane-frames",
+    "pane-moves",
+    "pane-layouts",
+    "pane-pixels",
+    "startup-geometry",
+    "zellij-routing",
+    "daily",
+    "runtime",
+    "fake-host",
+    "build",
+    "packaged-smoke"
+  ],
+  "scope": "Mouse character selection, release-to-copy, wheel scrollback, OSC52 viewer export, legacy buffer compatibility, and existing regression suite.",
+  "new_tests": [
+    "tests/selection.lisp",
+    "tests/selection.py (regular and bare, Zellij profile)"
+  ],
+  "limits": [
+    "Frozen selection is plain text",
+    "Physical rows separated by newlines",
+    "No word/rectangle selection or drag autoscroll",
+    "Clipboard delivery depends on host terminal policy",
+    "Full Zellij parity remains incomplete"
+  ],
+  "earlier_run": {
+    "command": "nix flake check -L path:.",
+    "exit_code": 1,
+    "gate": "zellij-pane-workflow: move: application cell geometry",
+    "difference": "At move-next, pane C in Ekko recorded FIRST [10,38], WINCH [10,38]; reference recorded FIRST [10,38] only.",
+    "report": "/nix/store/hxfdig2b06hjx5kgyr3kyrq654kdi1dj-ekko-zellij-pane-workflow/report.json"
+  },
+  "final_workflow_report": "/nix/store/dhw48vkyfhnb81z76bfrgm8vzmlwhc6v-ekko-zellij-pane-workflow/report.json",
+  "baseline_probe": {
+    "runtime": "/nix/store/9cjxh7999gfhrb98ynkcrxrw7pfdv5dh-ekko-0.1.0/bin/ekko",
+    "command": "nix run .#zellij-pane-workflow -- --only move --output /tmp/ekko-selection-baseline-move --ekko /nix/store/9cjxh7999gfhrb98ynkcrxrw7pfdv5dh-ekko-0.1.0/bin/ekko",
+    "exit_code": 1,
+    "first_geometry_difference": {
+      "stage": "move-next",
+      "reference": {
+        "A": [
+          [
+            "FIRST",
+            [
+              22,
+              38
+            ]
+          ],
+          [
+            "WINCH",
+            [
+              10,
+              38
+            ]
+          ]
+        ],
+        "B": [
+          [
+            "FIRST",
+            [
+              10,
+              38
+            ]
+          ],
+          [
+            "WINCH",
+            [
+              22,
+              38
+            ]
+          ]
+        ],
+        "C": [
+          [
+            "FIRST",
+            [
+              10,
+              38
+            ]
+          ]
+        ]
+      },
+      "baseline": {
+        "A": [
+          [
+            "FIRST",
+            [
+              22,
+              38
+            ]
+          ],
+          [
+            "WINCH",
+            [
+              10,
+              38
+            ]
+          ]
+        ],
+        "B": [
+          [
+            "FIRST",
+            [
+              10,
+              38
+            ]
+          ],
+          [
+            "WINCH",
+            [
+              22,
+              38
+            ]
+          ]
+        ],
+        "C": [
+          [
+            "FIRST",
+            [
+              10,
+              38
+            ]
+          ],
+          [
+            "WINCH",
+            [
+              10,
+              38
+            ]
+          ]
+        ]
+      }
+    }
+  }
+}

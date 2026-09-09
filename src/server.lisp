@@ -1,14 +1,15 @@
 (in-package #:ekko/runtime)
 
-(defstruct pane id pid io vt (graphics (make-store)) argv label status
+(defstruct pane id pid io vt (graphics (make-store)) argv label status minimized
   (launch-kind :command) (creation-position 0) name
   pty-size
   (activation-order 0) (x 0) (y 0)
   (outer-x 0) (outer-y 0) (outer-cols 1) (outer-rows 1) (output-bytes 0)
+  copy-cells copy-pointer copy-anchor copy-end
   copy-lines (copy-cursor 0) (copy-top 0) copy-mark search-input (search-text ""))
 (defstruct session name panes (cols 120) (rows 36) (cw 8) (ch 16)
   reported-cw reported-ch (focus 0)
-  mode zoom (revision 0) (activation-sequence 0) writer (prefix nil) drag paste-target (started (now))
+  mode zoom (revision 0) (activation-sequence 0) writer (prefix nil) drag chrome-press paste-target (started (now))
   paste-fallback paste-buffer (paste-overflow nil)
   tree (next-pane-id 1) retired worker candidate registry (config-generation 0) config-error
   (geometry-contributions nil) (contributions nil) (decorations nil) (pane-notes nil) hook-context (hooks nil) (input-queue nil) (input-bytes 0)
@@ -128,16 +129,22 @@
          (width (max 1 (- (session-cols session) (second viewport) (fourth viewport))))
          (height (max 1 (- (session-rows session) (first viewport) (third viewport)))))
     (values viewport pane gaps width height)))
+(defun tiled-tree (session)
+  (let ((tree (session-tree session)))
+    (dolist (pane (session-panes session) tree)
+      (when (and tree (pane-minimized pane))
+        (setf tree (ekko/layout:remove-pane tree (pane-id pane)))))))
 (defun session-rectangles (session &optional (zoom (session-zoom session)))
+  (unless (tiled-tree session) (return-from session-rectangles nil))
   (multiple-value-bind (viewport pane gaps width height) (session-geometry session)
     (let* ((left (fourth viewport)) (top (first viewport))
-           (minimums (pane-minimums (session-tree session) pane
+           (minimums (pane-minimums (tiled-tree session) pane
                                     (geometry-value session :boundary-insets nil))))
       (mapcar (lambda (rect)
                 (list (first rect) (+ left (second rect)) (+ top (third rect))
                       (fourth rect) (fifth rect)))
               (ekko/layout:rectangles
-               (session-tree session) width height (pane-id (focused-pane session)) zoom
+               (tiled-tree session) width height (pane-id (focused-pane session)) zoom
                :leaf-min (lambda (id) (cdr (assoc id minimums)))
                :column-gap (first gaps) :row-gap (second gaps))))))
 (defun visible-panes (session)
@@ -179,6 +186,9 @@
 (defun set-focus (session index &optional relayout)
   (let* ((old (nth (session-focus session) (session-panes session)))
          (new (nth index (session-panes session))) (esc (code-char 27)))
+    (when (and new (pane-minimized new))
+      (setf (pane-minimized new) nil relayout t)
+      (layout session))
     (when (and new (/= index (session-focus session)))
       (let ((before (session-rectangles session)))
       (when (gethash 1004 (terminal-modes (pane-vt old))) (pane-input old (text-bytes (format nil "~C[O" esc))))
@@ -276,6 +286,9 @@
          (modifiers (if kitty (1- (max 1 (or (second params) 1))) 0))
          (key (if (and code (logbitp 2 modifiers) (<= 64 code 127)) (logand code 31) code))
          (pane (nth (session-focus session) (session-panes session))))
+    (when (pane-copy-pointer pane)
+      (apply-actions session :pointer '((:copy-exit)) nil nil)
+      (when (eql key 27) (return-from input-key)))
     ;; A copy fallback opts into the builtin search editor and copy bindings.
     ;; Other maps (notably locked maps) retain literal application forwarding.
     (when (and (eq (getf (find (session-mode session)
@@ -299,6 +312,7 @@
               ((dispatch-keymap-fallback session map (semantic-key bytes key) bytes read-bytes)
                (return-from input-key))
               ((eq (getf policy :unbound) :ignore) (return-from input-key)))))
+    (when (pane-minimized pane) (return-from input-key))
     (cond
       ((and (null (session-mode session)) (session-prefix session))
        (setf (session-prefix session) nil)
@@ -321,12 +335,38 @@
           (pane-input pane (octets-from-list (list 27 79 (aref bytes 2)))))
          (t (pane-input pane bytes))) nil))))
 (defun octets-from-list (items) (coerce items '(vector (unsigned-byte 8))))
+(defun decoration-action-at (session x y)
+  ;; Hit only reserved chrome. Use the same component and span order as paint.
+  (unless (or (>= x (session-cols session)) (>= y (session-rows session))
+              (some (lambda (p) (decoration-content-p p x y 1)) (visible-panes session)))
+    (let ((hit nil))
+      (dolist (component (getf (session-registry session) :components) hit)
+        (dolist (span (cdr (assoc (getf component :id) (session-decorations session) :test #'equal)))
+          (when (and (<= (getf span :x) x)
+                     (< x (+ (getf span :x) (loop for c across (getf span :text)
+                                                 sum (ekko/vt::character-width c))))
+                     (<= (getf span :y) y)
+                     (< y (+ (getf span :y) (getf span :rows 1))))
+            (setf hit (getf span :action))))))))
 (defun input-mouse (session text)
   (let* ((args (parameters (subseq text 3 (1- (length text)))))
          (button (first args)) (x (second args)) (y (third args))
          (up (char= (char text (1- (length text))) #\m))
          (cw (session-cw session)) (ch (session-ch session)))
     (unless (and (= (length args) 3) (<= 0 button 255) (plusp x) (plusp y)) (return-from input-mouse))
+    (let ((action (decoration-action-at session (floor (1- x) cw) (floor (1- y) ch))))
+      (when (session-chrome-press session)
+        (when up
+          (let ((pressed (session-chrome-press session)))
+            (setf (session-chrome-press session) nil)
+            (when (equal pressed action)
+              (handler-case (apply-actions session nil (list action) nil nil)
+                (error (e) (note-error session e))))))
+        (return-from input-mouse))
+      (when (and action (not (session-drag session)))
+        (when (and (not up) (= button 0))
+          (setf (session-chrome-press session) action))
+        (return-from input-mouse)))
     (let* ((hit (find-if (lambda (p)
                            (and (< (* (pane-x p) cw) x (1+ (* (+ (pane-x p) (terminal-cols (pane-vt p))) cw)))
                                 (< (* (pane-y p) ch) y (1+ (* (+ (pane-y p) (terminal-rows (pane-vt p))) ch)))))
@@ -334,10 +374,7 @@
            (pane (or (session-drag session) hit)))
       (when (and pane (not up) (zerop (logand button 96)) (< (logand button 3) 3))
         (set-focus session (position pane (session-panes session))) (setf (session-drag session) pane))
-      (when (and pane (pane-copy-lines pane))
-        (when (and (not up) (logtest button 64))
-          (move-copy pane (+ (pane-copy-cursor pane) (if (oddp button) 3 -3)))
-          (incf (session-revision session)))
+      (when (and pane (pointer-copy-input session pane button x y up))
         (when up (setf (session-drag session) nil))
         (return-from input-mouse))
       (when pane
@@ -350,16 +387,27 @@
             (when (gethash 1006 modes)
               (pane-input pane (text-bytes (format nil "~C[<~D;~D;~D~C" (code-char 27) button px py (if up #\m #\M))))))))
       (when up (setf (session-drag session) nil)))))
+(defun cell-runs (cells &optional selected-start selected-end (offset 0) (end (length cells)))
+  "One styled-row formatter for both live output and frozen selection."
+  (let ((runs nil) (start 0) (attr nil) (index 0) (chars (make-string-output-stream)))
+    (loop for position from offset below end for cell = (aref cells position) for x from 0
+          for text = (if (and (= position (1- end)) (plusp (length (first cell)))
+                              (= 2 (ekko/vt::character-width (char (first cell) 0))))
+                         " " (first cell))
+          for style = (if (and selected-start selected-end
+                               (< index selected-end) (> (+ index (length text)) selected-start))
+                          (ekko/vt::update-rendition (second cell) '(27 48 5 238))
+                          (second cell)) do
+      (unless (equal attr style)
+        (when attr (push (list start (get-output-stream-string chars) attr) runs))
+        (setf start x attr style))
+      (write-string text chars)
+      (incf index (length text)))
+    (when attr (push (list start (get-output-stream-string chars) attr) runs))
+    (nreverse runs)))
 (defun pane-lines (vt)
-  (loop for y below (terminal-rows vt) collect
-    (let ((runs nil) (start 0) (attr nil) (chars (make-string-output-stream)))
-      (loop for x below (terminal-cols vt) for cell = (aref (terminal-cells vt) (+ x (* y (terminal-cols vt)))) do
-        (unless (equal attr (second cell))
-          (when attr (push (list start (get-output-stream-string chars) attr) runs))
-          (setf start x attr (second cell)))
-        (write-string (first cell) chars))
-      (when attr (push (list start (get-output-stream-string chars) attr) runs))
-      (nreverse runs))))
+  (loop with cols = (terminal-cols vt) for y below (terminal-rows vt)
+        collect (cell-runs (terminal-cells vt) nil nil (* y cols) (* (1+ y) cols))))
 (defun decoration-content-p (pane x y width)
   (and (< (pane-x pane) (+ x width))
        (< x (+ (pane-x pane) (terminal-cols (pane-vt pane))))
@@ -510,7 +558,7 @@
       (defer-input session kind data) (return-from server-packet))
     (case kind
       (1
-       (unless (and (= (length data) 20) (member (u32 data 0) (list 6 7 8 9 10 +wire-version+)))
+       (unless (and (= (length data) 20) (member (u32 data 0) (list 6 7 8 9 10 11 +wire-version+)))
          (send-packet wire 21 (text-bytes "Incompatible Ekko wire version")) (return-from server-packet))
        (when (and (session-writer session) (not (eq wire (session-writer session))))
          (send-packet wire 21 (text-bytes "This session already has an attached client")) (return-from server-packet))
@@ -558,6 +606,8 @@
                   (fallback (or (session-paste-fallback session)
                                 (and (session-paste-target session) :forward)
                                 (paste-policy session))))
+             (when (and begin (pane-copy-pointer pane))
+               (apply-actions session :pointer '((:copy-exit)) nil nil))
              (cond
                ((and begin (or (stringp fallback) (eq fallback :ignore)))
                 (setf (session-paste-fallback session) fallback
@@ -579,7 +629,7 @@
                                    (list :key nil :bytes (coerce data 'list) :paste t) nil))
                 (when (> (length data) 4096)
                   (note-error session "Fallback paste exceeds 4096 bytes")))
-               ((eq fallback :ignore))
+               ((or (eq fallback :ignore) (pane-minimized pane)))
                (t
                 (when begin (setf (session-paste-target session) pane))
                 (when (or (not (or begin end)) (gethash 2004 (terminal-modes (pane-vt pane))))
@@ -661,6 +711,7 @@
            (labels ((drop-peer (peer)
                       (when (eq peer (session-writer session))
                         (setf (session-writer session) nil (session-prefix session) nil (session-drag session) nil
+                              (session-chrome-press session) nil
                               (session-paste-target session) nil
                               (session-paste-fallback session) nil
                               (session-paste-buffer session) nil

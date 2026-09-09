@@ -18,11 +18,8 @@
 ;; frame-disabled variants are outside this helper's
 ;; contract and must be added explicitly before use.
 ;;
-;; The title and scroll fitting code below is derived from the MIT-licensed
-;; Zellij project, zellij-server/src/ui/pane_boundaries_frame.rs (0.43.1),
-;; especially render_title_left_side, render_scroll_indication, and the
-;; title-line assembly functions. Copyright and license text are retained in
-;; tests/zellij/reference/LICENSE.md.
+;; Tiled geometry and frame colours follow the pinned profile. Header text uses
+;; a simple cell-width clip and centre operation instead of upstream UI fitting.
 
 (in-package #:cl-user)
 
@@ -125,85 +122,16 @@ then the implicit shell's Pane # creation position."
           do (write-char character out)
              (incf width character-width))))
 
-(defun zellij-frame-take-width-from-end (string max-width)
-  (with-output-to-string (out)
-    (let ((width 0)
-          (kept '()))
-      (dolist (character (reverse (coerce string 'list)))
-        (let ((character-width (zellij-frame-char-width character)))
-          (when (> (+ width character-width) max-width)
-            (return))
-          (push character kept)
-          (incf width character-width)))
-      (dolist (character kept)
-        (write-char character out)))))
-
-(defun zellij-frame-title-left (title max-width)
-  "Port render_title_left_side, returning (text width) or NIL."
-  (let* ((middle-truncated-sign "[..]")
-         (middle-truncated-sign-long "[...]")
-         (full-text (format nil " ~A " title)))
-    (cond
-      ((or (<= max-width 6) (zerop (length title))) nil)
-      ((<= (zellij-frame-string-width full-text) max-width)
-       (list full-text (zellij-frame-string-width full-text)))
-      (t
-       (let* ((half (floor (- max-width
-                              (zellij-frame-string-width middle-truncated-sign))
-                           2))
-              (first-part (zellij-frame-take-width-from-start full-text half))
-              (second-part (zellij-frame-take-width-from-end full-text half))
-              (short-width (+ (zellij-frame-string-width first-part)
-                              (zellij-frame-string-width middle-truncated-sign)
-                              (zellij-frame-string-width second-part))))
-         (if (< short-width max-width)
-             (list (format nil "~A~A~A" first-part middle-truncated-sign-long
-                           second-part)
-                   (1+ short-width))
-             (list (format nil "~A~A~A" first-part middle-truncated-sign
-                           second-part)
-                   short-width)))))))
-
-(defun zellij-frame-scroll-right (scroll max-width)
-  "Port render_scroll_indication for selectable tiled panes."
-  (destructuring-bind (position length) scroll
-    (when (or (> position 0) (> length 0))
-      (let* ((prefix " SCROLL: ")
-             (full (format nil " ~D/~D " position length))
-             (short (format nil " ~D " position))
-             (prefix-length (length prefix))
-             (full-length (length full))
-             (short-length (length short)))
-        (cond
-          ((<= (+ prefix-length full-length) max-width)
-           (list (concatenate 'string prefix full) (+ prefix-length full-length)))
-          ((<= full-length max-width) (list full full-length))
-          ((<= short-length max-width) (list short short-length))
-          (t nil))))))
-
 (defun zellij-frame-repeat (character count)
   (make-string (max 0 count) :initial-element character))
 
-(defun zellij-frame-title-line (columns title scroll)
-  (let* ((total (max 0 (- columns 2)))
-         (left (zellij-frame-title-left title total))
-         (left-text (and left (first left)))
-         (left-length (if left (second left) 0))
-         (right (and left
-                     (zellij-frame-scroll-right
-                      scroll (max 0 (- total left-length 1)))))
-         (right-text (and right (first right)))
-         (right-length (if right (second right) 0)))
-    (cond
-      ((and left right)
-       (concatenate 'string "┌" left-text
-                    (zellij-frame-repeat #\─ (- total left-length right-length))
-                    right-text "┐"))
-      (left
-       (concatenate 'string "┌" left-text
-                    (zellij-frame-repeat #\─ (- total left-length)) "┐"))
-      (t
-       (concatenate 'string "┌" (zellij-frame-repeat #\─ total) "┐")))))
+(defun zellij-frame-title-line (columns title)
+  "A full-width header with its title centred by display cells."
+  (let* ((text (zellij-frame-take-width-from-start title (max 0 (- columns 2))))
+         (padding (- columns (zellij-frame-string-width text)))
+         (left (floor padding 2)))
+    (concatenate 'string (make-string left :initial-element #\Space) text
+                 (make-string (- padding left) :initial-element #\Space))))
 
 (defun zellij-frame-bottom-line (columns)
   (concatenate 'string "└" (zellij-frame-repeat #\─ (max 0 (- columns 2))) "┘"))
@@ -220,17 +148,16 @@ then the implicit shell's Pane # creation position."
   (list :x x :y y :text text :sgr sgr :rows rows))
 
 (defun zellij-frame-spans (pane)
-  "Return the pinned Zellij rectangular frame as ordered text spans."
+  "Return centred solid headers and thin borders as ordinary text spans."
   (destructuring-bind (x y columns rows) (getf pane :rect)
     (let* ((title (or (getf pane :title) ""))
-           (scroll (or (getf pane :scroll) '(0 0)))
            (focus (getf pane :focus))
            (mode (getf pane :mode))
            (sgr (or (getf pane :sgr) (zellij-frame-sgr focus mode)))
            (last-x (+ x columns -1))
            (last-y (+ y rows -1))
            (spans (list (zellij-frame-span
-                         x y (zellij-frame-title-line columns title scroll) sgr))))
+                         x y (zellij-frame-title-line columns title) (append sgr '(7))))))
       (when (> rows 2)
         (setf spans
               (nconc spans

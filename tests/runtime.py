@@ -264,18 +264,18 @@ def integration(binary, shared=False, local=True):
                 assert leased and len(list((root / "ekko-v2").glob("*.frames/frame-*"))) <= 4
                 pump(.4)
                 assert all(not p.exists() for p in leased), "ack did not release old generations"
-            os.write(master, b"LEFT" + b"\x02" + b"2" + b"RIGHT")
+            os.write(master, b"LEFT\x10\t\rRIGHT")
             pump(.4)
             assert b"LEFT" in (root / "red.input").read_bytes()
             assert b"RIGHT" not in (root / "red.input").read_bytes()
             assert b"RIGHT" in (root / "blue.input").read_bytes()
             os.write(master, ESC + b"[<0;490;40M" + ESC + b"[<0;490;40m")
             pump(.3)
-            assert b"[<0;10;24M" in (root / "blue.input").read_bytes()
+            assert b"[<0;2;24M" in (root / "blue.input").read_bytes()
             os.write(master, ESC + b"[200~\x02q" + ESC + b"[201~")
             pump(.3)
             assert status()["attached"]
-            os.write(master, b"\x02" + b"1DELETE")
+            os.write(master, b"\x10\t\rDELETE")
             pump(.5)
             assert len(host.images) == 1 and next(iter(host.images.values()))[0] == (0, 0, 255, 255)
             before = status()
@@ -294,9 +294,9 @@ def integration(binary, shared=False, local=True):
             start(["attach", name])
             pump(1.6 if local is None else .6)
             assert len(host.images) == 1, status()
-            os.write(master, b"\x02" + b"2PAUSE")
+            os.write(master, b"\x10\t\rPAUSE")
             pump(.4)
-            os.write(master, b"\x02[")
+            subprocess.run([binary, "command", "--session", name, "copy-mode"], env=env, check=True)
             pump(.3)
             assert not host.images, "copy mode left application graphics visible"
             assert status()["panes"][1]["copy_mode"]
@@ -309,12 +309,14 @@ def integration(binary, shared=False, local=True):
             os.write(master, ESC)
             pump(.2)
             assert (root / "blue.input").read_bytes() == input_before + ESC, "standalone ESC lost"
-            os.write(master, b"\x02" + b"2\x02z")
+            os.write(master, b"\x10f")
             pump(.5)
-            assert status()["panes"][1]["cols"] == 120
-            os.write(master, b"\x02z\x02s")
+            assert status()["panes"][1]["cols"] == 118
+            os.write(master, b"\x10f")
+            pump(.2)
+            subprocess.run([binary, "command", "--session", name, "swap"], env=env, check=True)
             pump(.4)
-            assert host.images and next(iter(host.images.values()))[1] == 0, (status(), bytes(host.output[-2500:]))
+            assert host.images and next(iter(host.images.values()))[1] == 8, (status(), bytes(host.output[-2500:]))
             assert host.uploads == uploads, "layout change reuploaded static image"
             assert host.placements > placements, "layout did not update placements"
             errors = status()["panes"][1]["graphics_errors"]

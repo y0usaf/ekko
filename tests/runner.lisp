@@ -21,6 +21,8 @@
   (ekko/client-tests::run-presentation-tests)
   (ekko/runtime-tests::run-input-tests)
   (run-render-tests)
+  (ekko/runtime::run-selection-tests)
+  (ekko/runtime::run-desktop-tests)
   (run-base64-tests)
   (run-graphics-parser-tests)
   (run-asset-tests)

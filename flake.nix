@@ -81,6 +81,8 @@
             root = ./.;
             fileset = pkgs.lib.fileset.unions [
               ./ekko.asd
+              ./examples/profiles/zellij-bindings.lisp
+              ./examples/profiles/desktop-style.lisp
               ./examples/profiles/zellij-frames.lisp
               ./examples/profiles/zellij-pane.lisp
               (pkgs.lib.fileset.fileFilter (file: file.hasExt "lisp" || file.hasExt "c") ./src)
@@ -198,6 +200,17 @@
             > lisp-widths
           cmp rust-widths lisp-widths
           printf 'exhaustive Unicode scalar widths match unicode-width 0.1.10\n' > $out
+        '';
+        desktop-default = pkgs.runCommand "ekko-desktop-default" { nativeBuildInputs = [ pkgs.python3 ]; } ''
+          python ${./tests}/desktop.py ${self.packages.${pkgs.system}.default}/bin/ekko ${./examples/profiles}/desktop.lisp default > $out
+        '';
+        desktop = pkgs.runCommand "ekko-desktop" { nativeBuildInputs = [ pkgs.python3 ]; } ''
+          python ${./tests}/desktop.py ${self.packages.${pkgs.system}.default}/bin/ekko ${./examples/profiles}/desktop.lisp > $out
+          python ${./tests}/desktop.py ${self.packages.${pkgs.system}.default}/bin/ekko-bare ${./examples/profiles}/desktop.lisp >> $out
+        '';
+        mouse-selection = pkgs.runCommand "ekko-mouse-selection" { nativeBuildInputs = [ pkgs.python3 ]; } ''
+          python ${./tests}/selection.py ${self.packages.${pkgs.system}.default}/bin/ekko ${./examples/profiles}/zellij.lisp > $out
+          python ${./tests}/selection.py ${self.packages.${pkgs.system}.default}/bin/ekko-bare ${./examples/profiles}/zellij.lisp >> $out
         '';
         pane-modes = pkgs.runCommand "ekko-pane-modes" { nativeBuildInputs = [ pkgs.python3 ]; } ''
           python ${./tests}/pane_modes.py ${self.packages.${pkgs.system}.default}/bin/ekko ${./examples/profiles}/zellij.lisp > $out

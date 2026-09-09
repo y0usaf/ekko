@@ -121,13 +121,14 @@ def integration(binary, bare=False):
             assert [pane["pid"] for pane in status()["panes"]][:2] == pids
             assert inspect()["viewport"]["cell-width"] == 8
 
-            # Removing the policy returns to effective default metrics while
+            # Removing the policy returns to the selected runtime defaults while
             # retaining the reported facts and durable child processes.
             config.write_text("")
             cli("config", "reload", "pixels")
             eventually(lambda: inspect()["viewport"]["reported-cell-width"] == 9)
             assert inspect()["viewport"]["reported-cell-height"] == 17
-            assert all(pane["pty_size"][2:] == [8 * pane["cols"], 16 * pane["rows"]]
+            assert all(pane["pty_size"][2:] == [(8 if bare else 9) * pane["cols"],
+                                                (16 if bare else 17) * pane["rows"]]
                        for pane in inspect()["panes"])
             for path, pane in zip((first, second, split_log), inspect()["panes"]):
                 eventually(lambda: read_events(path)[-1]["pty_size"] == pane["pty_size"])
