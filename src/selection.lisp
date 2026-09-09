@@ -2,7 +2,15 @@
 
 (defun leave-copy (pane)
   (setf (pane-copy-cells pane) nil (pane-copy-lines pane) nil (pane-search-input pane) nil
+        (pane-copy-flash-until pane) nil
         (pane-copy-pointer pane) nil (pane-copy-anchor pane) nil (pane-copy-end pane) nil))
+
+(defun expire-copy-flashes (session &optional (current (now)))
+  (dolist (pane (session-panes session))
+    (when (and (pane-copy-flash-until pane) (>= current (pane-copy-flash-until pane)))
+      (setf (pane-copy-flash-until pane) nil)
+      (unless (pane-copy-pointer pane) (leave-copy pane))
+      (incf (session-revision session)))))
 
 (defun publish-copy (session text)
   (let ((bytes (text-bytes text)) (writer (session-writer session)))
@@ -15,6 +23,7 @@
                                        "Copied to Ekko buffer"))))
 
 (defun point-copy (pane x y start)
+  (setf (pane-copy-flash-until pane) nil)
   (unless (pane-copy-lines pane) (enter-copy pane))
   (let ((point (cons (min (1- (length (pane-copy-lines pane))) (+ (pane-copy-top pane) y)) x)))
     (setf (pane-copy-pointer pane) t (pane-copy-end pane) point
@@ -22,6 +31,7 @@
     (when (or start (null (pane-copy-anchor pane))) (setf (pane-copy-anchor pane) point))))
 
 (defun scroll-copy (pane delta)
+  (setf (pane-copy-flash-until pane) nil)
   (unless (pane-copy-lines pane)
     (enter-copy pane)
     (setf (pane-copy-pointer pane) t))
@@ -77,9 +87,12 @@
                   (values 0 (length text))))
           (if (pane-copy-cells pane)
               (let ((cells (aref (pane-copy-cells pane) row)))
-                (cell-runs cells left right 0 (min (length cells) (terminal-cols (pane-vt pane)))))
+                (cell-runs cells left right 0 (min (length cells) (terminal-cols (pane-vt pane)))
+                           (if (pane-copy-flash-until pane) '(27 30 48 5 229) '(27 48 5 238))))
               ;; Help pages are plain text, unlike captured terminal rows.
-              (list (list 0 text (if (and left right (< left right)) '(0 48 5 238) '(0))))))))
+              (list (list 0 text (if (and left right (< left right))
+                                     (if (pane-copy-flash-until pane) '(0 30 48 5 229) '(0 48 5 238))
+                                     '(0))))))))
 
 (defun pointer-copy-input (session pane button x y up)
   "Translate terminal pointer events to the same validated public copy actions."

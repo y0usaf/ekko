@@ -5,7 +5,7 @@
   pty-size
   (activation-order 0) (x 0) (y 0)
   (outer-x 0) (outer-y 0) (outer-cols 1) (outer-rows 1) (output-bytes 0)
-  copy-cells copy-pointer copy-anchor copy-end
+  copy-cells copy-pointer copy-anchor copy-end copy-flash-until
   copy-lines (copy-cursor 0) (copy-top 0) copy-mark search-input (search-text ""))
 (defstruct session name panes (cols 120) (rows 36) (cw 8) (ch 16)
   reported-cw reported-ch (focus 0)
@@ -307,7 +307,7 @@
         (incf (session-revision session)))
       (return-from input-key))
     (when (popup-key session (semantic-key bytes key)) (return-from input-key))
-    (when (pane-copy-pointer pane)
+    (when (or (pane-copy-pointer pane) (pane-copy-flash-until pane))
       (apply-actions session :pointer '((:copy-exit)) nil nil)
       (when (eql key 27) (return-from input-key)))
     ;; A copy fallback opts into the builtin search editor and copy bindings.
@@ -421,7 +421,8 @@
             (when (gethash 1006 modes)
               (pane-input pane (text-bytes (format nil "~C[<~D;~D;~D~C" (code-char 27) button px py (if up #\m #\M))))))))
       (when up (setf (session-drag session) nil)))))
-(defun cell-runs (cells &optional selected-start selected-end (offset 0) (end (length cells)))
+(defun cell-runs (cells &optional selected-start selected-end (offset 0) (end (length cells))
+                                (selection-sgr '(27 48 5 238)))
   "One styled-row formatter for both live output and frozen selection."
   (let ((runs nil) (start 0) (attr nil) (index 0) (chars (make-string-output-stream)))
     (loop for position from offset below end for cell = (aref cells position) for x from 0
@@ -430,7 +431,7 @@
                          " " (first cell))
           for style = (if (and selected-start selected-end
                                (< index selected-end) (> (+ index (length text)) selected-start))
-                          (ekko/vt::update-rendition (second cell) '(27 48 5 238))
+                          (ekko/vt::update-rendition (second cell) selection-sgr)
                           (second cell)) do
       (unless (equal attr style)
         (when attr (push (list start (get-output-stream-string chars) attr) runs))
@@ -636,7 +637,7 @@
                   (fallback (or (session-paste-fallback session)
                                 (and (session-paste-target session) :forward)
                                 (paste-policy session))))
-             (when (and begin (pane-copy-pointer pane))
+             (when (and begin (or (pane-copy-pointer pane) (pane-copy-flash-until pane)))
                (apply-actions session :pointer '((:copy-exit)) nil nil))
              (cond
                ((and begin (or (stringp fallback) (eq fallback :ignore)))
@@ -755,6 +756,7 @@
                       (close-wire peer) (setf peers (remove peer peers))))
              (loop while (and running (not (session-stopping session))) do
                (tick-transition session)
+               (expire-copy-flashes session)
                (expire-pane-notes session)
                (service-extensions session buffer)
                (reap-retired session)
@@ -782,6 +784,8 @@
                    (when (and worker (extension-worker-request worker))
                      (setf deadline (min deadline (extension-worker-deadline worker)))))
                  (dolist (pane (session-panes session))
+                   (when (pane-copy-flash-until pane)
+                     (setf deadline (min deadline (pane-copy-flash-until pane))))
                    (let ((pending (store-pending (pane-graphics pane))))
                      (when pending
                        (setf deadline (min deadline (+ (ekko/graphics::upload-at pending) 10))))))
