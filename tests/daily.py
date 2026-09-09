@@ -3,6 +3,7 @@ import json
 import os
 from pathlib import Path
 import select
+import signal
 import socket
 import struct
 import subprocess
@@ -195,6 +196,28 @@ def integration(binary, bare=False):
                 attached.pump(.1)
                 command("copy-selection")
                 assert cli("buffer", "daily").stdout == b"old42"
+                # A completed hook survives a reactor scheduling delay beyond
+                # its deadline; only the isolated test daemon is suspended.
+                ready, gate = root / "hook-ready", root / "hook-gate"
+                config.write_text(CONFIG + f'''
+(ekko/extensions:register-component :id :delayed-hook :reads '(:focus)
+ :handler (lambda (s e) (declare (ignore s e))
+   (with-open-file (out {json.dumps(str(ready))} :direction :output :if-exists :supersede))
+   (loop until (probe-file {json.dumps(str(gate))}) do (sleep .001))
+   (list (ekko/extensions:action :status :text "delayed hook survived"))))
+''')
+                cli("config", "reload", "daily")
+                eventually(ready.exists)
+                daemon.send_signal(signal.SIGSTOP)
+                try:
+                    gate.touch()
+                    time.sleep(.2)
+                finally:
+                    daemon.send_signal(signal.SIGCONT)
+                eventually(lambda: any(c["owner"] == "delayed-hook" for c in inspect()["contributions"] or []))
+                assert "delayed-hook" not in (inspect()["disabled-hooks"] or [])
+                config.write_text(CONFIG)
+                cli("config", "reload", "daily")
                 # Failed reload is atomic and old source can recover a timeout.
                 stable = inspect()
                 config.write_text('(error "broken init")')
