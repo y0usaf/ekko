@@ -2,14 +2,14 @@
 
 (defstruct pane id pid io vt (graphics (make-store)) argv label status minimized floating
   (launch-kind :command) (creation-position 0) name
-  pty-size
+  pty-size (unseen-output nil)
   (activation-order 0) (x 0) (y 0)
   (outer-x 0) (outer-y 0) (outer-cols 1) (outer-rows 1) (output-bytes 0)
   copy-cells copy-pointer copy-anchor copy-end copy-flash-until
   copy-lines (copy-cursor 0) (copy-top 0) copy-mark search-input (search-text ""))
 (defstruct session name panes (cols 120) (rows 36) (cw 8) (ch 16)
   reported-cw reported-ch (focus 0)
-  mode zoom (revision 0) (activation-sequence 0) writer (prefix nil) drag window-drag chrome-press popup transition paste-target (started (now))
+  mode zoom (revision 0) (activation-sequence 0) writer (prefix nil) drag window-drag window-hover chrome-press popup transition paste-target last-click (started (now))
   paste-fallback paste-buffer (paste-overflow nil)
   tree (next-pane-id 1) retired worker candidate registry (config-generation 0) config-error
   (geometry-contributions nil) (contributions nil) (decorations nil) (pane-notes nil) hook-context (hooks nil) (input-queue nil) (input-bytes 0)
@@ -129,11 +129,10 @@
          (width (max 1 (- (session-cols session) (second viewport) (fourth viewport))))
          (height (max 1 (- (session-rows session) (first viewport) (third viewport)))))
     (values viewport pane gaps width height)))
-(defun tiled-tree (session)
-  (let ((tree (session-tree session)))
-    (dolist (pane (session-panes session) tree)
-      (when (and tree (or (pane-minimized pane) (pane-floating pane)))
-        (setf tree (ekko/layout:remove-pane tree (pane-id pane)))))))
+(defun tiled-tree (session &optional (tree (session-tree session)))
+  (dolist (pane (session-panes session) tree)
+    (when (and tree (or (pane-minimized pane) (pane-floating pane)))
+      (setf tree (ekko/layout:remove-pane tree (pane-id pane))))))
 (defun clamp-window-rect (session rect)
   (multiple-value-bind (viewport pane gaps width height) (session-geometry session)
     (declare (ignore pane gaps))
@@ -141,9 +140,9 @@
       (let ((w (min width (max 12 w))) (h (min height (max 4 h))))
         (list (max (fourth viewport) (min x (+ (fourth viewport) width (- w))))
               (max (first viewport) (min y (+ (first viewport) height (- h)))) w h)))))
-(defun session-rectangles (session &optional (zoom (session-zoom session)))
+(defun session-rectangles (session &optional (zoom (session-zoom session)) (tree (tiled-tree session)))
   (multiple-value-bind (viewport pane gaps width height) (session-geometry session)
-    (let* ((left (fourth viewport)) (top (first viewport)) (tree (tiled-tree session))
+    (let* ((left (fourth viewport)) (top (first viewport))
            (focus (focused-pane session))
            (minimums (when tree (pane-minimums tree pane (geometry-value session :boundary-insets nil)))))
       (when (and zoom (not (pane-minimized focus)))
@@ -163,7 +162,7 @@
 (defun visible-panes (session)
   (mapcar (lambda (rect) (pane-by-id session (first rect))) (session-rectangles session)))
 (defun layout (session)
-  (setf (session-transition session) nil (session-window-drag session) nil)
+  (setf (session-transition session) nil (session-window-drag session) nil (session-window-hover session) nil)
   (close-popup session)
   ;; This is a VT policy option, so apply it to every pane before calculating
   ;; visibility. Hidden panes must retain the same behavior when shown again.
@@ -201,6 +200,7 @@
 (defun set-focus (session index &optional relayout)
   (let* ((old (nth (session-focus session) (session-panes session)))
          (new (nth index (session-panes session))) (esc (code-char 27)))
+    (when new (setf (pane-unseen-output new) nil))
     (when (and new (pane-minimized new))
       (setf (pane-minimized new) nil relayout t)
       (layout session))
@@ -300,6 +300,7 @@
                        (and (= (length bytes) 1) (aref bytes 0)))))
          (modifiers (if kitty (1- (max 1 (or (second params) 1))) 0))
          (key (if (and code (logbitp 2 modifiers) (<= 64 code 127)) (logand code 31) code))
+         (chorded (binding-key bytes key modifiers))
          (pane (nth (session-focus session) (session-panes session))))
     (when (session-window-drag session)
       (when (eql (semantic-key bytes key) 27)
@@ -316,19 +317,19 @@
                                     (getf (session-registry session) :keymaps)
                                     :key (lambda (m) (getf m :name))) :unbound) :copy)
                (pane-copy-lines pane)
-               (not (key-binding session (session-mode session) (semantic-key bytes key))))
+               (not (key-binding session (session-mode session) chorded)))
       (if (pane-search-input pane)
           (copy-search-input session
                              (if (and kitty key (<= 0 key #x10ffff))
                                  (text-bytes (string (code-char key))) bytes))
-          (dispatch-binding session :copy (semantic-key bytes key)))
+          (dispatch-binding session :copy chorded))
       (return-from input-key))
     (when (session-mode session)
-      (let* ((map (session-mode session)) (binding (key-binding session map (semantic-key bytes key)))
+      (let* ((map (session-mode session)) (binding (key-binding session map chorded))
              (policy (find map (reverse (getf (session-registry session) :keymaps))
                            :key (lambda (m) (getf m :name)))))
         (cond ((and binding (getf binding :command))
-               (dispatch-binding session map (semantic-key bytes key))
+               (dispatch-binding session map chorded)
                (return-from input-key))
               ((dispatch-keymap-fallback session map (semantic-key bytes key) bytes read-bytes)
                (return-from input-key))
@@ -339,12 +340,12 @@
        (setf (session-prefix session) nil)
        (if (eql key (option session :prefix 2))
            (pane-input pane (octets-from-list (list key)))
-           (dispatch-binding session :prefix (semantic-key bytes key))))
+           (dispatch-binding session :prefix chorded)))
       ((and (null (session-mode session)) (eql key (option session :prefix 2))) (setf (session-prefix session) t) nil)
       ((and (null (session-mode session)) (pane-search-input pane))
        (copy-search-input session (if (and kitty key (<= 0 key #x10ffff) (not (<= #xd800 key #xdfff)))
                                      (text-bytes (string (code-char key))) bytes)))
-      ((and (null (session-mode session)) (pane-copy-lines pane)) (dispatch-binding session :copy (semantic-key bytes key)))
+      ((and (null (session-mode session)) (pane-copy-lines pane)) (dispatch-binding session :copy chorded))
       (t
        (cond
          ((and kitty (zerop (first (terminal-keyboards (pane-vt pane)))))
@@ -377,6 +378,7 @@
          (cw (session-cw session)) (ch (session-ch session)))
     (unless (and (= (length args) 3) (<= 0 button 255) (plusp x) (plusp y)) (return-from input-mouse))
     (let ((col (floor (1- x) cw)) (row (floor (1- y) ch)))
+      (update-window-hover session button col row up)
       (when (eq (session-chrome-press session) :dismiss)
         (when up (setf (session-chrome-press session) nil))
         (return-from input-mouse))
@@ -393,6 +395,19 @@
         (when (and span (not (session-drag session)))
           (cond ((and (not up) (= button 0) (getf span :drag))
                  (begin-window-drag session owner span col row)
+                 (return-from input-mouse))
+                ((and (not up) (member button '(64 65)) (getf span :wheel-command))
+                 (handler-case
+                     (request-command session (getf span :wheel-command)
+                                      (list :arguments (getf span :arguments)
+                                            :direction (if (= button 64) -1 1)) nil)
+                   (error (e) (note-error session e)))
+                 (return-from input-mouse))
+                ((and (not up) (= button 1) (getf span :middle-command))
+                 (handler-case
+                     (request-command session (getf span :middle-command)
+                                      (list :arguments (getf span :arguments)) nil)
+                   (error (e) (note-error session e)))
                  (return-from input-mouse))
                 ((and (not up) (= button 2) (getf span :context-command))
                  (setf (session-chrome-press session) :dismiss)
@@ -506,7 +521,7 @@
         (multiple-value-bind (viewport pane gaps width height) (session-geometry session)
           (declare (ignore pane width height))
           (list :status (status-text session) :style (option session :status-style '(0 30 47))
-                :viewport-insets viewport :split-gaps gaps :decorations (scene-decorations session) :overlays (append (scene-decorations session t) (transition-overlays session) (window-drag-overlays session) (popup-overlays session))
+                :viewport-insets viewport :split-gaps gaps :decorations (scene-decorations session) :overlays (append (scene-decorations session t) (transition-overlays session) (window-hover-overlays session) (window-drag-overlays session) (popup-overlays session))
                 :exit-text (option session :viewer-exit-text nil)))))
 (defun checked-startup-viewport (viewport)
   (when viewport
@@ -744,7 +759,7 @@
            (labels ((drop-peer (peer)
                       (when (eq peer (session-writer session))
                         (setf (session-writer session) nil (session-prefix session) nil (session-drag session) nil
-                              (session-chrome-press session) nil (session-popup session) nil (session-transition session) nil (session-window-drag session) nil
+                              (session-chrome-press session) nil (session-popup session) nil (session-transition session) nil (session-window-drag session) nil (session-window-hover session) nil
                               (session-paste-target session) nil
                               (session-paste-fallback session) nil
                               (session-paste-buffer session) nil
@@ -814,6 +829,8 @@
                               (let ((n (read-fd fd buffer)))
                                 (cond ((plusp n)
                                        (incf (pane-output-bytes pane) n)
+                                       (unless (eq pane (focused-pane session))
+                                         (setf (pane-unseen-output pane) t))
                                        (feed (pane-vt pane) (subseq buffer 0 n) (lambda (k v) (pane-event pane k v))))
                                       ((not (member n '(-11 -4))) (close-wire (pane-io pane)) (setf (pane-io pane) nil))))))
                         (error (e) (format *error-output* "pane ~D: ~A~%" (pane-id pane) e) (close-pane pane))))

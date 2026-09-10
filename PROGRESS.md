@@ -559,3 +559,25 @@ Graphics tests now use the desktop bindings and account for reserved borders;
 custom-prefix tests explicitly opt into their own keymap policy.
 
 Final validation: `nix flake check --keep-going -L .` exited zero across all 28 checks. Opened the built-in default in configured Cudaterm with an empty configuration and confirmed `defaults` is the only installed owner. Evidence: `docs/evidence/desktop-default/verification.json`.
+
+### Desktop interaction slice
+
+- Runtime: decoration spans accept `:hover-sgr` (pointer repaint),
+  `:wheel-command` (`:direction` -1/1) and `:middle-command`; `bind-key`
+  accepts `M-`/`Super-` chord specs and an optional `:arguments` list; the
+  snapshot adds wall-clock `:time` and per-pane `:activity`; floating and tiled
+  moves snap at the outermost content cell (top maximizes, sides halve) ahead
+  of window drop targets; a titlebar double-click toggles zoom.
+- Profile: dock clock, `+N` overflow chip with a most-recent window list,
+  `●` activity markers, hover styles on entries and controls, Alt-Tab window
+  switcher, Super-1..9 focus slots, and a centered empty-desktop backdrop.
+- Fixed the uncommitted refactor's syntax errors in `src/layout.lisp` (extra
+  close parenthesis and `aw`/`bw` unbound across `destructuring-bind`) and the
+  `row-cost` declaration in `src/history.lisp` that typed the SGR list as a
+  string, which had left the working tree unable to build.
+- Verification: `nix flake check --keep-going -L .` exited 0 (28 checks). A
+  live smoke run against the built binary confirmed the clock, activity badge
+  and clear-on-focus, `Super-2` focus, the Alt-Tab popup, double-click zoom,
+  wheel cycle, middle-click close, top-edge snap to `(0 0 120 39)`, and the
+  minimized backdrop. New behaviors have no automated coverage.
+[Verification receipt](docs/evidence/desktop-interaction/verification.json).

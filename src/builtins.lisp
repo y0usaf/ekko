@@ -5,7 +5,7 @@
 
 (defun install ()
   (register-component :id :defaults
-                      :reads '(:session :focus :panes :viewport :mode :zoom :layout :component-state)
+                      :reads '(:session :focus :panes :viewport :mode :zoom :layout :component-state :time)
                       :handler #'ekko/desktop:hook)
   (set-option :component :defaults :name :pane-insets :value '(1 1 1 1))
   (set-option :component :defaults :name :viewport-insets :value '(0 0 1 0))

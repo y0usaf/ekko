@@ -1,0 +1,34 @@
+{
+  "checks": [
+    {
+      "command": "nix flake check --keep-going -L .",
+      "exit_code": 0,
+      "includes": [
+        "desktop, desktop-default and desktop-menus integration",
+        "keymaps, keymap-input, decorations, initialization",
+        "pane workflow/layout/move/frame/title/rename/notes/pixels",
+        "mouse selection, runtime, daily, viewer exit, startup geometry"
+      ]
+    },
+    {
+      "command": "python3 /tmp/smoke.py",
+      "exit_code": 0,
+      "includes": [
+        "dock clock",
+        "unfocused output activity badge and clear on focus",
+        "Super-2 focus slot",
+        "Alt-Tab window switcher popup",
+        "titlebar double-click zoom",
+        "wheel taskbar focus cycling",
+        "middle-click taskbar close",
+        "top-edge snap to the full content rectangle",
+        "minimized-desktop backdrop"
+      ]
+    }
+  ],
+  "limitations": [
+    "The smoke script is not checked in; new behaviors have no automated coverage.",
+    "Alt and Super chords require a terminal that honors the pushed kitty keyboard protocol.",
+    "Snap zones are the outermost content cell."
+  ]
+}

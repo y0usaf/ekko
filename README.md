@@ -7,6 +7,22 @@ focus, and minimized entries have contrasting gray backgrounds. Click the focuse
 entry to minimize, another entry to focus, or a minimized entry to restore.
 Titlebar `_`, `□` and `×` controls minimize, maximize/restore and close.
 
+Drag a shared tiled border to resize the neighboring windows. Hover highlights
+resize handles; dragging shows outlines, and releasing applies the new sizes.
+Escape cancels. Right-click a titlebar for **Float window**, or press **Ctrl-p,
+then t** to toggle floating/tiling. Floating windows resize from their sides,
+bottom, all four corners, and the short top-edge handle beside the upper-left
+corner. The rest of the titlebar moves the window. Drag a floating or tiled
+window to the outermost content cell to snap there: the top cell maximizes, the
+left or right cell takes half. Double-click a titlebar to maximize or restore.
+
+The taskbar shows a clock at its right while Normal mode is active, a `●` on
+windows that produced output since you last focused them, and a `+N` chip when
+entries do not fit. Wheel over an entry cycles focus; middle-click closes that
+window. **Alt-Tab** lists windows most-recently-used; **Super-1** through
+**Super-9** focus a taskbar slot directly. With every window minimized, the
+desktop shows a centered backdrop with the session name and clock.
+
 This is the default experience; no profile is required:
 
 ```sh
@@ -89,6 +105,7 @@ explicitly when needed. A single command also works.
 | Ctrl-p, then Tab | Cycle focus, restoring minimized windows |
 | Ctrl-p, then h / j / k / l or arrows | Focus a neighboring window |
 | Ctrl-p, then m / f / x | Minimize / maximize or restore / close |
+| Ctrl-p, then t | Toggle floating / tiled |
 | Ctrl-p, then c | Rename; Enter saves, Escape restores the previous name |
 | Ctrl-h, then h / j / k / l | Move a window |
 | Ctrl-o, then d | Detach, keeping applications running |
@@ -96,6 +113,11 @@ explicitly when needed. A single command also works.
 | Ctrl-q | Stop the session |
 | Escape / Enter in a mode | Return to normal (rename Escape returns to pane mode) |
 | Mouse drag / wheel | Copy text / scroll history |
+| Mouse wheel over a taskbar entry | Cycle focus |
+| Mouse middle-click a taskbar entry | Close that window |
+| Double-click a titlebar | Maximize / restore the window |
+| Alt-Tab | Window switcher (Tab or arrows move, Enter focuses, Escape cancels) |
+| Super-1 through Super-9 | Focus that taskbar slot |
 
 
 ```sh
