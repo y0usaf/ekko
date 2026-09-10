@@ -57,13 +57,14 @@ cross this boundary.
 | `:session` | Session name |
 | `:focus` | Stable focused pane ID |
 | `:mode` | Active custom keymap keyword, or `nil` for built-in routing |
-| `:panes` | Plists with `:id`, raw `:label`, explicit `:name` (nil until rename), detached `:argv`, `:launch-kind` (`:command` or `:shell`), immutable `:creation-position`, `:terminal-title` (nil until OSC title, empty when cleared), `:display-label`, `:pid`, `:cols`, `:rows`, `:exit`, content `:x`/`:y`, `:outer-rect` `(x y width height)`, `:layout-rect`, `:activation-order`, `:visible`, `:pty-size`, and `:history-rows` |
+| `:panes` | Plists with `:id`, raw `:label`, explicit `:name` (nil until rename), detached `:argv`, `:launch-kind` (`:command` or `:shell`), immutable `:creation-position`, `:terminal-title` (nil until OSC title, empty when cleared), `:display-label`, `:pid`, `:cols`, `:rows`, `:exit`, content `:x`/`:y`, `:outer-rect` `(x y width height)`, `:layout-rect`, `:activation-order`, `:visible`, `:pty-size`, `:history-rows`, and `:activity` |
 | `:viewport` | Plist with `:cols`, `:rows`, effective pixel `:cell-width`/`:cell-height`, nullable `:reported-cell-width`/`:reported-cell-height`, resolved `:insets` and `:gaps` |
 | `:zoom` | Lisp boolean (`t` or `nil`) |
 | `:chrome-status` | Resolved status `:text` and SGR `:style` |
 | `:component-state` | Detached alist of component ID strings to daemon-owned plain values; other components can read it when declared |
 | `:pane-notes` | Active temporary contributions, each with `:owner`, `:pane`, `:text`, and `:sgr`, ordered by component registration |
 | `:layout` | Pane ID leaves; branches `(axis percentage first second)` |
+| `:time` | Wall-clock seconds (CL universal time); a component that reads it re-runs its hook when the second changes |
 
 Pane launch metadata is daemon-owned and survives component removal, reload,
 and viewer replacement. `:launch-kind` is `:command` for startup commands and
@@ -292,8 +293,12 @@ continue to resize existing PTYs without restarting their processes.
 
 Bindings use maps `:prefix`, `:copy`, or a custom map registered with
 `register-keymap`. Keys are single-character strings, integer
-code points, control names, or `Tab`, `Enter`, `Escape`, `Left`, `Right`, `Up`, `Down`, `PageUp`,
-`PageDown`, `Home`, `End`. A `nil` command unbinds a key in that component. Prefix
+code points, control names, dash chords built from `C-`, `M-`/`Alt-` and
+`W-`/`Super-`, or `Tab`, `Enter`, `Escape`, `Left`, `Right`, `Up`, `Down`, `PageUp`,
+`PageDown`, `Home`, `End`. A control-only chord like `C-g` folds into its legacy
+control code; `M-Tab` and `Super-1` stay distinct. `bind-key` accepts an optional
+`:arguments` list of up to eight strings, delivered to the bound command as its
+event arguments. A `nil` command unbinds a key in that component. Prefix
 followed by itself sends the literal control byte to the application.
 
 When a custom map is active, its bindings and unbound policy receive keys before
@@ -548,12 +553,25 @@ bindings remain available; Ctrl-p then m minimizes, and Ctrl-p then Tab
 cycles through all panes, restoring minimized ones. Very narrow headers omit
 the buttons.
 
+The dock shows a wall clock at its right edge while Normal mode is active, and
+mode hints instead while another mode is active. A `●` marks a window that
+produced output while unfocused; focusing it clears the mark. When every window
+is minimized, a centered backdrop shows the session name, the clock and restore
+hints. When the entries do not fit the viewport, a `+N` chip opens a most-recent
+window list (the same list **Alt-Tab** opens). Wheel over a taskbar entry cycles
+focus; middle-click closes that window.
+Double-click a titlebar to maximize or restore its window.
+
 Decoration spans accept an optional `:action`, one of `(:focus :pane ID)`,
 `(:minimize :pane ID)`, `(:restore :pane ID)`, `(:zoom :pane ID)` or
 `(:close :pane ID)`. These use the normal validated action path. A left press
 and release on the same control activates it; dragging away cancels it.
 Only reserved chrome cells accept these actions. Removing the decoration owner
-removes its hit targets too. No viewer protocol changes are needed.
+removes its hit targets too. No viewer protocol changes are needed. Any
+reserved span may declare `:hover-sgr` to repaint itself while the pointer is
+over it. A span may instead declare `:wheel-command`, called with `:direction`
+(-1 for wheel-up, 1 for wheel-down) and the span's `:arguments`, or
+`:middle-command`, called with the span's `:arguments`.
 
 `:minimize` and `:restore` are public actions; `:zoom` and `:close` now also accept
 `:pane`. The pane snapshot and `ekko inspect` expose `:minimized`. Minimization
@@ -575,8 +593,9 @@ click to the application.
 Decoration spans can declare `:command` for left-click or `:context-command`
 for right-click, plus a shared `:arguments` list of strings. A context command
 receives `:x` and `:y` in viewport cells and returns `(:show-menu :x X :y Y
-:spans SPANS)`. Menu spans use local coordinates and may specify `:hover-sgr`.
-They use the same validated actions/commands as other controls. The host clamps
+:spans SPANS)`. Menu spans use local coordinates and may specify `:hover-sgr`;
+reserved chrome spans use the same field for pointer hover. They use the same
+validated actions/commands as other controls. The host clamps
 the popup to the viewport and owns only its transient input state. Reload,
 layout changes and detach discard it. Nested popups are not supported.
 
@@ -591,11 +610,19 @@ motion; permitted durations are 0–250 ms.
 
 Drag a titlebar to a tiled window's center to exchange positions, or to its
 edge to split beside it. Dropping elsewhere floats the window. A floating
-window moves freely away from snap edges; its side and bottom borders resize
-it, including both bottom corners. Escape cancels the gesture. The preview
-changes while held; application dimensions commit once on release.
+window moves freely away from snap edges; its sides, bottom, all four corners,
+and the short top-edge handle beside its upper-left corner resize it.
+Shared tiled borders resize their split while keeping both sides tiled; the
+bottom edge of the upper window or the top corners of the lower window resize
+a row split. Outside tiled edges and maximized tiles do not resize.
+Hover highlights resize handles, and `:hover-sgr` on a menu entry or other
+chrome span repaints it under the pointer. Escape cancels the gesture. The preview
+changes while held; application dimensions commit once on release. Dragging to
+the outermost content cell snaps there instead of onto a window below: the top
+cell maximizes, the left or right cell takes half the content area.
 
-Window menus expose **Float window** and **Tile window**. Floating placement
+Window menus expose **Float window** and **Tile window**, with **Ctrl-p, then t**
+shown as the keyboard toggle. Floating placement
 and stacking survive viewer replacement. Minimize keeps the process and its
 placement; restoring raises the window. The taskbar remains reserved space.
 
@@ -603,5 +630,9 @@ Public actions are `(:float :pane ID :rect (X Y WIDTH HEIGHT))` (rectangle
 optional), `(:tile :pane ID)`, and `(:place-window :pane ID :target ID :edge EDGE)`.
 Edges are `:left`, `:right`, `:top`, `:bottom`, or `:center` (exchange).
 Decorations declare `:pane ID` for stacking and optional `:drag` handles:
-`:move`, `:left`, `:right`, `:bottom`, `:bottom-left`, `:bottom-right`.
+`:move`, `:left`, `:right`, `:top`, `:bottom`, `:top-left`, `:top-right`,
+`:bottom-left`, `:bottom-right`. Cardinal handles on tiled panes resize the
+visible split at that edge, committing through the public `:set-layout` action.
+Nested and hidden-pane splits retain their other ratios. Geometry changes,
+profile replacement, and viewer detachment clear active gestures and hover.
 Pane snapshots and `inspect` expose `:floating` as a rectangle or nil.
