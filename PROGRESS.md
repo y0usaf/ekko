@@ -628,3 +628,30 @@ Final validation: `nix flake check --keep-going -L .` exited zero across all 28 
 - Verification: `nix build --no-link -L .#checks.x86_64-linux.ui-stall` exited 0
   and `nix flake check --keep-going -L .` exited 0 with "all checks passed".
   [Verification receipt](docs/evidence/ui-reliability/verification.json).
+
+### Durable component state
+
+- New `src/store.lisp`: one file per namespace under `$EKKO_STORE_DIR`,
+  `$XDG_STATE_HOME/ekko/store` or `~/.local/state/ekko/store`, created private
+  to the current user and replaced atomically (temporary file plus rename).
+  Files are read with `*read-eval*` disabled and bounded to 64 KiB; an
+  unreadable file is skipped with a warning instead of failing startup.
+- Public surface: the snapshot key `:store` carries `(namespace . entries)`
+  pairs, a component's namespace is its lowercased owner id, and
+  `(:store-set :key KEY :value VALUE)` writes or removes one key. Values reuse
+  the component-state validation and bounds (16 KiB per namespace). `:store` is
+  a declared read.
+- Writes ride the accepted action batch: `stage-initialization` binds
+  `*store-persist*` to nil, so a rejected candidate or failed startup callback
+  writes nothing, while removal of the owner keeps the durable values. A failed
+  write is reported through the session's last error and never stops the daemon.
+- Test: `tests/store.py` covers a fresh namespace written during startup
+  initialization, a daemon restart reading it back without rewriting, an
+  unwritable store directory reported without killing the daemon, a rejected
+  candidate reload writing nothing, and owner removal keeping the file.
+- Verification: `nix build --no-link -L .#checks.x86_64-linux.store` exited 0
+  and `nix flake check --keep-going -L .` exited 0 with "all checks passed".
+  [Verification receipt](docs/evidence/durable-store/verification.json).
+- This closes the storage mechanism only. The Zellij profile does not yet use it
+  for release-note markers; startup floating/plugin presentation and pointer
+  routing remain the next bounded actions.

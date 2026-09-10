@@ -141,8 +141,9 @@ dependency, retained component state or mode changed during the callback, reload
 fails with a retry message instead of applying stale results. No PTY is restarted.
 Ordinary change hooks run after commit and may replace their owner's initialized
 status/decorations. Removing an owner removes its state and decorations; removing
-the active keymap restores normal registry fallback rules. Initialization does
-not provide durable storage. Like configuration loading itself, trusted Lisp can
+the active keymap restores normal registry fallback rules. Initialization itself
+does not provide durable storage; the durable component state below survives
+daemon restarts. Like configuration loading itself, trusted Lisp can
 perform arbitrary external I/O; the transaction covers returned public actions,
 not direct filesystem/process side effects in user code. `config check` validates
 registration data; it does not execute these session-dependent callbacks.
@@ -389,6 +390,33 @@ one validated batch:
 The mode and status actions complete only after `:zoom` succeeds. This
 guarantees the transition's observable state without making the primary action
 itself a general transaction.
+
+## Durable component state
+
+A component may persist small values across daemon restarts. The snapshot key
+`:store` holds `(namespace . entries)` pairs loaded at daemon start; a
+component's namespace is its lowercased owner id and its entries are an alist
+of `(key . value)`. The owner writes with
+`(:store-set :key KEY :value VALUE)`; a nil value removes the key, values are
+validated like component state, and one namespace is limited to 16 KiB.
+Declare `:store` in the component's `:reads`.
+
+```lisp
+(let ((entries (cdr (assoc "welcome" (ekko/extensions:value snapshot :store)
+                          :test #'equal))))
+  (unless (assoc "seen" entries :test #'equal)
+    (list (ekko/extensions:action :store-set :key "seen" :value "0.1.0"))))
+```
+
+Writes are applied with the rest of an accepted action batch and replace the
+namespace file atomically through a temporary file and rename. They are never
+staged: a rejected candidate reload and a failed startup write nothing, and
+removing the owner keeps its durable values. The directory is
+`$EKKO_STORE_DIR` when set, otherwise `$XDG_STATE_HOME/ekko/store`, otherwise
+`~/.local/state/ekko/store`; it is created private to the current user. Files
+are read back with `*read-eval*` disabled and an unreadable file is skipped
+with a warning. A failed write is reported through the session's last error
+(visible in `inspect`) and never stops the daemon, so storage stays best-effort.
 
 ## Panes and copy mode
 

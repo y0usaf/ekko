@@ -219,6 +219,15 @@
           sbcl --noinform --disable-debugger --non-interactive \
             --load dock_capacity.lisp --eval '(dock-capacity-test::main)' > $out
         '';
+        store = pkgs.runCommand "ekko-store" {
+          nativeBuildInputs = [ pkgs.python3 pkgs.coreutils ];
+        } ''
+          mkdir -p work $TMPDIR/home
+          cp ${./tests/store.py} work/store.py
+          cp ${./tests/daily.py} work/daily.py
+          export HOME=$TMPDIR/home
+          python work/store.py ${self.packages.${pkgs.system}.default}/bin/ekko > $out
+        '';
         ui-stall = pkgs.runCommand "ekko-ui-stall" {
           nativeBuildInputs = [ pkgs.python3 pkgs.coreutils ];
         } ''

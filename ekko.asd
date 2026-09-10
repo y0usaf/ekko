@@ -15,7 +15,7 @@
   :serial t
   :components ((:file "src/platform") (:file "src/assets") (:file "src/vt") (:file "src/history")
                (:file "src/layout") (:file "src/graphics")
-               (:file "src/wire") (:file "src/worker") (:file "src/server") (:file "src/commands") (:file "src/menus") (:file "src/animations") (:file "src/windows") (:file "src/selection") (:file "src/client")))
+               (:file "src/wire") (:file "src/worker") (:file "src/store") (:file "src/server") (:file "src/commands") (:file "src/menus") (:file "src/animations") (:file "src/windows") (:file "src/selection") (:file "src/client")))
 
 (asdf:defsystem "ekko/extensions"
   :depends-on ("ekko/text")
