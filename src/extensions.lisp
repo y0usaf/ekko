@@ -9,7 +9,7 @@
   (ekko/text:display-width value))
 
 (defun api-version () 1)
-(defparameter *context-keys* '(:session :focus :panes :layout :mode :zoom :viewport :chrome-status :pane-notes :component-state :geometry :time))
+(defparameter *context-keys* '(:session :focus :panes :layout :mode :zoom :viewport :chrome-status :pane-notes :component-state :store :geometry :time))
 (defstruct component id reads handler initialize commands bindings options keymaps)
 (defvar *components* nil)
 (defvar *reads* nil)

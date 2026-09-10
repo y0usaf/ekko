@@ -15,7 +15,7 @@
   (geometry-contributions nil) (contributions nil) (decorations nil) (pane-notes nil) hook-context (hooks nil) (input-queue nil) (input-bytes 0)
   (input-read-framed nil) (input-read-bytes nil)
   command-queue disabled-hooks reload-peer (clipboard "") stopping (notice "")
-  key-fragment key-fragment-mode component-state)
+  key-fragment key-fragment-mode component-state store)
 (defun pty-cell-size (session)
   (if (eq (option session :pty-pixel-source :effective) :reported)
       (values (or (session-reported-cw session) 0) (or (session-reported-ch session) 0))
@@ -704,6 +704,7 @@
   (let* ((startup-viewport (checked-startup-viewport startup-viewport))
          (path (socket-path name)) (lock (checked (lock-file (concatenate 'string path ".lock")) "session lock"))
          (listener nil) (session (make-session :name name
+                                               :store (ekko/store:store-load)
                                                :cols (or (first startup-viewport) 120)
                                                :rows (or (second startup-viewport) 36)
                                                :cw (or (third startup-viewport) 8)

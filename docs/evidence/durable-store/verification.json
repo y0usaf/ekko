@@ -1,0 +1,28 @@
+{
+  "checks": [
+    {
+      "command": "nix build --no-link -L .#checks.x86_64-linux.store",
+      "exit_code": 0,
+      "output": {
+        "path": "/nix/store/xj90sgj16hxngb3588002sw289n09z8j-ekko-store",
+        "result": "phases fresh, restart, unwritable, rejected, owner-removal all pass"
+      }
+    },
+    {
+      "command": "nix flake check --keep-going -L .",
+      "exit_code": 0,
+      "result": "all checks passed"
+    }
+  ],
+  "surface": [
+    "Snapshot key :store carries (namespace . entries) pairs; a component's namespace is its lowercased owner id.",
+    "Action (:store-set :key KEY :value VALUE) writes or, with a nil value, removes one key; values are validated like component state and one namespace is limited to 16 KiB.",
+    "Files live under $EKKO_STORE_DIR, else $XDG_STATE_HOME/ekko/store, else ~/.local/state/ekko/store, are created 0700 for the current user, and are replaced atomically through a temporary file and rename.",
+    "Writes are staged with the accepted action batch: a rejected candidate reload or failed startup writes nothing; owner removal keeps the durable values.",
+    "Unreadable files are skipped with a warning; a failed write is reported as the session's last error and never stops the daemon."
+  ],
+  "limitations": [
+    "Storage is best-effort: a component must tolerate a missing or failed write.",
+    "The store is read once at daemon start; external writers are not watched."
+  ]
+}

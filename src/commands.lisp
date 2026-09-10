@@ -56,6 +56,19 @@
       (cons (copy-component-state (car value))
             (copy-component-state (cdr value)))
       (if (stringp value) (copy-seq value) value)))
+(defparameter *store-persist* t
+  "NIL while staging a candidate so a rejected reload cannot write durable state.")
+(defun store-namespace (owner)
+  (unless owner (error "Store actions need a component owner"))
+  (ekko/store:store-namespace owner))
+(defun store-entries (session namespace)
+  (cdr (assoc namespace (session-store session) :test #'equal)))
+(defun store-set (session owner key value)
+  "Return namespace and entries for OWNER with KEY set to VALUE, or removed."
+  (let* ((namespace (store-namespace owner))
+         (entries (remove key (store-entries session namespace) :key #'car :test #'equal)))
+    (when value (push (cons key (copy-component-state value)) entries))
+    (values namespace entries)))
 (defun context-data (session)
   (multiple-value-bind (insets pane gaps width height) (session-geometry session)
     (declare (ignore width height))
@@ -77,6 +90,8 @@
             :pane-notes (pane-note-data session)
             :component-state (loop for (owner . value) in (session-component-state session)
                                    collect (cons (copy-seq owner) (copy-component-state value)))
+            :store (loop for (namespace . entries) in (session-store session)
+                         collect (cons (copy-seq namespace) (copy-component-state entries)))
             :layout (copy-tree (session-tree session))
             :panes (loop for p in (session-panes session) collect
                      (let ((vt (pane-vt p)))
@@ -292,9 +307,10 @@ Super stay distinct as (MODS . KEY), with bit 1 for Alt and bit 2 for Super."
     (dolist (result results)
       (let ((actions (getf result :actions)))
         (dolist (action actions)
-          (unless (member (first action) '(:set-state :set-keymap :status :decorate))
-            (error "Initialization may only set state, keymap, status or decorations")))
-        (apply-actions trial (getf result :owner) actions nil nil))))
+          (unless (member (first action) '(:set-state :store-set :set-keymap :status :decorate))
+            (error "Initialization may only set state, store, keymap, status or decorations")))
+        (let ((*store-persist* nil))
+          (apply-actions trial (getf result :owner) actions nil nil)))))
   results)
 (defun apply-initialization (session results)
   (dolist (result results)
@@ -506,7 +522,7 @@ Super stay distinct as (MODS . KEY), with bit 1 for Alt and bit 2 for Super."
       (let* ((op (first a)) (args (rest a)) (pane (getf args :pane))
              (keys (case op
                      (:pane-note '(:pane :text :sgr :duration))
-                     (:send-input '(:bytes)) (:set-keymap '(:name)) (:set-layout '(:tree)) (:set-state '(:value)) (:set-geometry '(:value)) (:decorate '(:spans)) (:show-menu '(:spans :x :y)) (:split '(:pane :axis :argv)) (:focus '(:pane)) (:rename '(:pane :text)) (:resize '(:delta))
+                     (:send-input '(:bytes)) (:set-keymap '(:name)) (:set-layout '(:tree)) (:set-state '(:value)) (:store-set '(:key :value)) (:set-geometry '(:value)) (:decorate '(:spans)) (:show-menu '(:spans :x :y)) (:split '(:pane :axis :argv)) (:focus '(:pane)) (:rename '(:pane :text)) (:resize '(:delta))
                      (:copy-point '(:pane :x :y :start)) (:copy-scroll '(:pane :delta))
                      (:close '(:pane :focus)) ((:minimize :restore :zoom :tile) '(:pane)) (:float '(:pane :rect)) (:place-window '(:pane :target :edge)) (:copy-move '(:delta)) (:copy-edge '(:edge)) (:status '(:text))
                      ((:focus-next :swap :detach :stop :copy-mode :copy-mark :copy-selection
@@ -527,14 +543,25 @@ Super stay distinct as (MODS . KEY), with bit 1 for Alt and bit 2 for Super."
            (unless (find (getf args :name) (getf (session-registry session) :keymaps)
                          :key (lambda (m) (getf m :name)))
              (error "Unknown keymap")))
-          ((:status :decorate :show-menu :pane-note :set-state)
-           (when (eq op :set-state)
+          ((:status :decorate :show-menu :pane-note :set-state :store-set)
+           (when (member op '(:set-state :store-set))
              (incf state-count)
              (when (> state-count 1) (error "A batch may contain at most one state update"))
              (unless (find owner (getf (session-registry session) :components)
                            :key (lambda (component) (getf component :id)) :test #'equal)
-               (error "State needs a registered component owner"))
-             (validate-component-state (getf args :value))))
+               (error "State needs a registered component owner")))
+           (cond
+             ((eq op :set-state) (validate-component-state (getf args :value)))
+             ((eq op :store-set)
+              (let ((key (getf args :key)))
+                (unless (or (and (stringp key) (<= 1 (length key) 128))
+                            (and (keywordp key) (<= (length (symbol-name key)) 128)))
+                  (error "Invalid store key")))
+              (validate-component-state (getf args :value))
+              (multiple-value-bind (namespace entries)
+                  (store-set session owner (getf args :key) (getf args :value))
+                (when (> (component-state-bytes (list (cons namespace entries))) 16384)
+                  (error "Store namespace exceeds 16 KiB"))))))
           (:set-geometry
            (incf primary-count) (setf primary-seen t)
            (unless (find owner (getf (session-registry session) :components)
@@ -639,7 +666,7 @@ Super stay distinct as (MODS . KEY), with bit 1 for Alt and bit 2 for Super."
   ;; Complete a mode transition only after the primary action succeeds. This
   ;; keeps mode and status contributions out of a batch whose primary action
   ;; raises after partially updating its own state.
-  (let ((primary (find-if (lambda (a) (and (not (member (first a) '(:status :decorate :show-menu :pane-note :set-state)))
+  (let ((primary (find-if (lambda (a) (and (not (member (first a) '(:status :decorate :show-menu :pane-note :set-state :store-set)))
                                            (not (eq (first a) :set-keymap)))) actions))
         (mode-transition (find-if (lambda (a) (eq (first a) :set-keymap)) actions)))
     (when primary
@@ -681,6 +708,15 @@ Super stay distinct as (MODS . KEY), with bit 1 for Alt and bit 2 for Super."
          (when value
            (push (cons owner (copy-component-state value))
                  (session-component-state session)))))
+      (:store-set
+       (multiple-value-bind (namespace entries)
+           (store-set session owner (getf (rest a) :key) (getf (rest a) :value))
+         (setf (session-store session)
+               (acons namespace entries
+                      (remove namespace (session-store session) :key #'car :test #'equal)))
+         (when *store-persist*
+           (handler-case (ekko/store:store-write namespace entries)
+             (error (e) (note-error session (format nil "store write failed: ~A" e)))))))
       (:set-geometry
        (let ((value (validate-geometry-value (getf (rest a) :value))))
          (setf (session-geometry-contributions session)
