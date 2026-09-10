@@ -8,6 +8,8 @@
            #:terminal-materialized-rows #:terminal-erase-display-history
            #:parameters))
 (in-package #:ekko/vt)
+(declaim (inline ensure-materialized-rows))
+
 
 (defstruct (terminal (:constructor %make-terminal))
   (cols 80) (rows 24) (cw 8) (ch 16) (x 0) (y 0) (saved '(0 0))

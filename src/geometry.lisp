@@ -7,6 +7,7 @@
            #:mapped-fragment-source #:clip-placement))
 
 (in-package #:ekko/scene)
+(declaim (inline rect-right rect-bottom rect-area))
 
 (defconstant +coordinate-limit+ 1000000000)
 (defconstant +fragment-limit+ 4096)
