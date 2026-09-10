@@ -201,6 +201,33 @@
           cmp rust-widths lisp-widths
           printf 'exhaustive Unicode scalar widths match unicode-width 0.1.10\n' > $out
         '';
+        layout-capacity = pkgs.runCommand "ekko-layout-capacity" {
+          nativeBuildInputs = [ pkgs.sbcl ];
+        } ''
+          sbcl --noinform --disable-debugger \
+            --load ${./src/layout.lisp} --load ${./tests/layout_capacity.lisp} > $out
+        '';
+        dock-capacity = pkgs.runCommand "ekko-dock-capacity" {
+          nativeBuildInputs = [ pkgs.sbcl pkgs.coreutils ];
+        } ''
+          # Store paths are hash-named, so recreate the relative tree the test
+          # loads the profile from.
+          mkdir -p tests examples/profiles
+          cp ${./tests/dock_capacity.lisp} tests/dock_capacity.lisp
+          cp ${./examples/profiles/desktop-style.lisp} examples/profiles/desktop-style.lisp
+          cd tests
+          sbcl --noinform --disable-debugger --non-interactive \
+            --load dock_capacity.lisp --eval '(dock-capacity-test::main)' > $out
+        '';
+        pane-capacity = pkgs.runCommand "ekko-pane-capacity" {
+          nativeBuildInputs = [ pkgs.python3 pkgs.coreutils ];
+        } ''
+          mkdir -p $out work $TMPDIR/home
+          cp ${./tests/pane_capacity.py} work/pane_capacity.py
+          cp ${./tests/daily.py} work/daily.py
+          export HOME=$TMPDIR/home
+          python work/pane_capacity.py ${self.packages.${pkgs.system}.default}/bin/ekko $out
+        '';
         desktop-menus = pkgs.runCommand "ekko-desktop-menus" { nativeBuildInputs = [ pkgs.python3 ]; } ''
           python ${./tests}/menus.py ${self.packages.${pkgs.system}.default}/bin/ekko ${./examples/profiles}/desktop.lisp > $out
           python ${./tests}/menus.py ${self.packages.${pkgs.system}.default}/bin/ekko-bare ${./examples/profiles}/desktop.lisp bare >> $out

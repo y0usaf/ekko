@@ -581,3 +581,31 @@ Final validation: `nix flake check --keep-going -L .` exited zero across all 28 
   wheel cycle, middle-click close, top-edge snap to `(0 0 120 39)`, and the
   minimized backdrop. New behaviors have no automated coverage.
 [Verification receipt](docs/evidence/desktop-interaction/verification.json).
+
+### Pane capacity slice
+
+- `src/layout.lisp`: `rectangles` no longer collapses the layout to the focused
+  pane when the tree exceeds the viewport. It removes non-focus leaves (highest
+  ID first) through the pure `remove-pane` until the surviving tree fits its
+  minimum, then runs the usual ratio walk; the caller's tree is never mutated
+  and the overflow loop shares the existing per-call minimum memo table. When
+  even the focused pane cannot fit, it is clipped to the viewport as before.
+- Tests: `tests/layout_capacity.lisp` (34 property and regression checks over
+  the pure transform, carried over from the parked `task/pane-capacity`
+  branch), `tests/dock_capacity.lisp` (27 checks for whole-tile dock placement,
+  the overflow chip and the window-list handler against a stub), and
+  `tests/pane_capacity.py` (live daemon with 16 panes: cramped hiding, bounds
+  and PTY validity for every visible pane, zoom, the chip, clicking the window
+  list to focus a hidden pane, PID stability after restore).
+- The parked dock-side work is dropped: main's desktop dock already ships the
+  clock, right-alignment, activity markers and the `+N` window-list chip
+  (`:command "desktop-window-list"`), so only the layout behavior and adapted
+  tests were carried over. `../ekko-hide-panes-worktree` (`task/pane-capacity`)
+  and `../ekko-ui-reliability` (`task/ui-reliability`) are superseded by this
+  and the viewer-stall entry below; both can be removed.
+- Verification: `nix build --no-link -L
+  .#checks.x86_64-linux.layout-capacity
+  .#checks.x86_64-linux.dock-capacity
+  .#checks.x86_64-linux.pane-capacity` exited 0 and
+  `nix flake check --keep-going -L .` exited 0 with "all checks passed".
+  [Verification receipt](docs/evidence/pane-capacity/verification.json).
