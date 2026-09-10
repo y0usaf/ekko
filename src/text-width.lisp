@@ -509,8 +509,17 @@
   ))
 (defun scalar-display-width (character)
   (let ((code (char-code character)))
-    (or (loop for (start end width) across *unicode-width-exceptions*
-              when (<= start code end) return width)
+    (or (loop with low of-type fixnum = 0
+              with high of-type fixnum = (1- (length *unicode-width-exceptions*))
+              while (<= low high)
+              for mid of-type fixnum = (+ low (ash (- high low) -1))
+              for (start end width) = (aref *unicode-width-exceptions* mid)
+              if (< code start)
+                do (setf high (1- mid))
+              else if (> code end)
+                do (setf low (1+ mid))
+              else
+                return width)
         1)))
 (defun display-width (value)
   "Return unicode-width 0.1.10 ordinary cell width for a character/string."

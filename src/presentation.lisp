@@ -13,6 +13,7 @@
   (ids (make-hash-table :test #'equal))
   (replies (make-hash-table))
   (queue '())
+  (tail nil)
   (bytes 0 :type fixnum)
   (transactions 0 :type fixnum)
   (max-bytes (* 1024 1024) :type fixnum)
@@ -129,12 +130,15 @@ must select ATTACHMENT from the input transport, never from current pane focus."
       (error "Transaction byte queue limit exceeded"))
     (when (>= (attachment-transactions attachment) (attachment-max-transactions attachment))
       (error "Transaction count queue limit exceeded"))
-    (let ((copy (octets-copy octets)))
-      (setf (attachment-queue attachment)
-            (nconc (attachment-queue attachment) (list (cons copy 0)))
+    (let* ((copy (octets-copy octets))
+           (cell (list (cons copy 0))))
+      (if (attachment-queue attachment)
+          (setf (cdr (attachment-tail attachment)) cell)
+          (setf (attachment-queue attachment) cell))
+      (setf (attachment-tail attachment) cell
             (attachment-bytes attachment) (+ (attachment-bytes attachment) size)
-            (attachment-transactions attachment) (1+ (attachment-transactions attachment))))
-    size))
+            (attachment-transactions attachment) (1+ (attachment-transactions attachment)))
+      size)))
 
 (defun flush-transactions (attachment writer &key (max-bytes 65536)
                                                    (max-calls 64))
@@ -160,6 +164,8 @@ WRITER is a trusted, non-reentrant host executor; it must not modify the vector.
               (incf written result)
               (when (= (cdr item) (length vector))
                 (pop (attachment-queue attachment))
+                (unless (attachment-queue attachment)
+                  (setf (attachment-tail attachment) nil))
                 (decf (attachment-bytes attachment) (length vector))
                 (decf (attachment-transactions attachment))))
              (t (error "Writer returned invalid progress ~S for ~D bytes" result allowed))))
@@ -168,6 +174,7 @@ WRITER is a trusted, non-reentrant host executor; it must not modify the vector.
 (defun attachment-teardown (attachment)
   (unless (attachment-closed-p attachment)
     (setf (attachment-queue attachment) nil
+          (attachment-tail attachment) nil
           (attachment-bytes attachment) 0
           (attachment-transactions attachment) 0
           (attachment-closed-p attachment) t)

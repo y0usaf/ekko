@@ -7,7 +7,11 @@
 (defstruct history (rows (make-array +history-rows+ :initial-element nil))
   (start 0) (count 0) (bytes 0))
 (defun row-cost (row)
-  (loop for cell across row sum (+ 24 (* 4 (length (first cell))) (* 8 (length (second cell))))))
+  (loop for cell across row
+        sum (the fixnum (+ 24 (* 4 (length (the string (first cell))))
+                           (* 8 (length (the list (second cell))))))
+        into total fixnum
+        finally (return total)))
 (defun history-drop (history)
   (let* ((index (history-start history)) (row (aref (history-rows history) index)))
     (decf (history-bytes history) (row-cost row))
