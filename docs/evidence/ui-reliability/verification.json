@@ -1,0 +1,26 @@
+{
+  "checks": [
+    {
+      "command": "nix build --no-link -L .#checks.x86_64-linux.ui-stall",
+      "exit_code": 0,
+      "output": {
+        "path": "/nix/store/6n36lpsdxyvfh7v2g9xw3zzf7irg73m3-ekko-ui-stall",
+        "result": {
+          "viewer_alive_after_stall": true,
+          "daemon_alive": true,
+          "status_ok": true,
+          "daemon_exit": 0
+        }
+      },
+      "baseline": "Before the fix the same check failed with 'UI died across a viewer stall (daemon dropped the peer)'."
+    },
+    {
+      "command": "nix flake check --keep-going -L .",
+      "exit_code": 0,
+      "result": "all checks passed"
+    }
+  ],
+  "root_cause": "The daemon peer loop raised 'Presentation acknowledgement timed out' when a scene acknowledgement was older than 10 seconds and dropped the peer. Publish-scene already refuses to send another scene while one is awaiting acknowledgement, so the deadline only removed a live viewer whose process was stopped or slow.",
+  "fix": "src/server.lisp no longer drops an attached viewer for a late acknowledgement. Peers that never attach within 10 seconds are still dropped, and a stopped or killed viewer is still reaped through the socket EOF path.",
+  "test": "tests/ui_stall.py starts a real daemon and viewer on a PTY, SIGSTOPs the viewer for 12 seconds (past the old deadline), SIGCONTs it, and requires the viewer, the daemon and the status command to survive."
+}

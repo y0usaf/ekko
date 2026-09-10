@@ -609,3 +609,22 @@ Final validation: `nix flake check --keep-going -L .` exited zero across all 28 
   .#checks.x86_64-linux.pane-capacity` exited 0 and
   `nix flake check --keep-going -L .` exited 0 with "all checks passed".
   [Verification receipt](docs/evidence/pane-capacity/verification.json).
+
+### Viewer stall reliability
+
+- Root cause: the daemon's peer loop raised "Presentation acknowledgement timed
+  out" once a scene acknowledgement was older than 10 seconds and dropped the
+  viewer, so a viewer stopped by a debugger, a suspend or a slow terminal came
+  back to EOF and died. `publish-scene` already refuses to send another scene
+  while one is awaiting acknowledgement, so the deadline only removed live
+  viewers; it provided no backpressure.
+- Fix: `src/server.lisp` no longer drops an attached viewer for a late
+  acknowledgement. Peers that never attach within 10 seconds are still dropped,
+  and a stopped or killed viewer is still reaped through the socket EOF path.
+- Test: `tests/ui_stall.py` starts a real daemon and viewer on a PTY, SIGSTOPs
+  the viewer for 12 seconds (past the old deadline), SIGCONTs it, and requires
+  the viewer, the daemon and the `status` command to survive. It failed before
+  the fix ("UI died across a viewer stall (daemon dropped the peer)").
+- Verification: `nix build --no-link -L .#checks.x86_64-linux.ui-stall` exited 0
+  and `nix flake check --keep-going -L .` exited 0 with "all checks passed".
+  [Verification receipt](docs/evidence/ui-reliability/verification.json).

@@ -783,8 +783,11 @@
                (dolist (peer (copy-list peers))
                  (handler-case
                      (progn
-                       (when (and (wire-awaiting-scene peer) (> (- (now) (wire-awaiting-scene peer)) 10))
-                         (error "Presentation acknowledgement timed out"))
+                       ;; A viewer that has not acknowledged its last scene is
+                       ;; simply not sent another one (PUBLISH-SCENE already
+                       ;; checks AWAITING-SCENE); it is never dropped for being
+                       ;; slow. A stopped or killed viewer is still reaped by
+                       ;; the socket EOF path below.
                        (when (wire-attached peer) (publish-scene session peer))
                        (when (and (not (wire-attached peer)) (>= (- (now) (wire-at peer)) 10)) (drop-peer peer)))
                    (error (e) (format *error-output* "client: ~A~%" e) (drop-peer peer))))
