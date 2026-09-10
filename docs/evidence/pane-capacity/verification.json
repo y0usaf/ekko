@@ -1,0 +1,35 @@
+{
+  "checks": [
+    {
+      "command": "nix build --no-link -L .#checks.x86_64-linux.layout-capacity .#checks.x86_64-linux.dock-capacity .#checks.x86_64-linux.pane-capacity",
+      "exit_code": 0,
+      "outputs": {
+        "layout-capacity": {
+          "path": "/nix/store/ql5fc2iz29cm14pfd2zfkpnzsyvq4fjr-ekko-layout-capacity",
+          "result": "ALL PASS: 34 checks"
+        },
+        "dock-capacity": {
+          "path": "/nix/store/f2qp67ak2255izxp5jl0blgh4kl0sjvn-ekko-dock-capacity",
+          "result": "Dock capacity tests passed (27 checks)"
+        },
+        "pane-capacity": {
+          "path": "/nix/store/3i5d023brjrm3yc85ihsj25wxa61b9ba-ekko-pane-capacity",
+          "result": "scenarios columns, rows, mixed all pass"
+        }
+      }
+    },
+    {
+      "command": "nix flake check --keep-going -L .",
+      "exit_code": 0,
+      "result": "all checks passed"
+    }
+  ],
+  "scope": [
+    "Rectangles keeps the focused pane plus the newest leaves that fit instead of collapsing the whole layout to focus.",
+    "tests/layout_capacity.lisp property-tests the pure transform; dock_capacity.lisp covers whole-tile dock placement and the overflow chip against a stub; pane_capacity.py exercises a live daemon with 16 panes (cramped hiding, geometry and PTY validity, zoom, chip, window-list click, PID stability on restore)."
+  ],
+  "limitations": [
+    "Hidden panes are reached through the taskbar window list, Alt-Tab, Super-1..9 or a larger terminal; they keep their PTYs and dimensions while hidden.",
+    "The overflow chip lists windows in activation order; the live test clicks rows until the hidden pane is focused rather than asserting row order."
+  ]
+}

@@ -23,6 +23,12 @@ window. **Alt-Tab** lists windows most-recently-used; **Super-1** through
 **Super-9** focus a taskbar slot directly. With every window minimized, the
 desktop shows a centered backdrop with the session name and clock.
 
+A cramped desktop shows as many windows as fit: when the viewport is smaller
+than every window's minimum, the newest unfocused windows are hidden until the
+rest fit. Hidden windows keep their PTYs and dimensions and return when you
+focus them from the taskbar, the `+N` window list or **Alt-Tab**, or when the
+terminal grows.
+
 This is the default experience; no profile is required:
 
 ```sh

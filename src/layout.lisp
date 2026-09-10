@@ -39,9 +39,13 @@
       (list (first tree) (second tree) (swap-panes (third tree) a b) (swap-panes (fourth tree) a b))))
 (defun rectangles (tree cols rows focus &optional zoom
                   &key (leaf-min '(1 2)) (column-gap 1) (row-gap 0))
-  "Return (id x y width height) outer rectangles, collapsing when too small."
-  (destructuring-bind (mw mh) (minimum-size tree :leaf-min leaf-min :column-gap column-gap :row-gap row-gap)
-    (when (or zoom (< cols mw) (< rows mh)) (setf tree focus)))
+  "Return (id x y width height) outer rectangles, hiding leaves when too small.
+A tree that fits its minimum takes the original ratio walk unchanged. On
+overflow, non-focus leaves are removed one at a time (highest ID first, via
+the pure REMOVE-PANE, so the caller's tree is never mutated) until the
+remaining tree fits its minimum; survivors are then laid out by the same
+walk, each no smaller than its minimum. When even FOCUS alone cannot fit, it
+is clipped to the positive viewport."
   ;; Each branch previously re-ran minimum-size over its whole subtree,
   ;; making layout quadratic in depth. Cache branch minima (eq-keyed,
   ;; scoped to this call) so each is computed once; integer leaves still
@@ -60,6 +64,12 @@
                                      (if (eq axis :columns)
                                          (list (+ aw bw column-gap) (max ah bh))
                                          (list (max aw bw) (+ ah bh row-gap)))))))))))
+             (fits-p (node)
+               (destructuring-bind (mw mh) (min-of node)
+                 (and (>= cols mw) (>= rows mh))))
+             (leaves (node)
+               (if (integerp node) (list node)
+                   (append (leaves (third node)) (leaves (fourth node)))))
              (walk (node x y w h)
                (if (integerp node) (list (list node x y w h))
                    (destructuring-bind (axis ratio a b) node
@@ -74,4 +84,14 @@
                        (if columns
                            (append (walk a x y cut h) (walk b (+ x cut gap) y (- available cut) h))
                            (append (walk a x y w cut) (walk b x (+ y cut gap) w (- available cut)))))))))
-      (walk tree 0 0 cols rows))))
+      (cond (zoom (when focus (walk focus 0 0 cols rows)))
+            ((and focus (member focus (leaves tree)) (not (fits-p tree)))
+             ;; Overflow: keep FOCUS, drop other leaves newest-first until the
+             ;; remainder fits. If nothing but FOCUS fits, it fills (is clipped
+             ;; to) the viewport.
+             (let ((subtree tree))
+               (dolist (id (sort (remove focus (leaves tree)) #'>))
+                 (setf subtree (remove-pane subtree id))
+                 (when (fits-p subtree) (return)))
+               (walk (or subtree focus) 0 0 cols rows)))
+            (t (walk tree 0 0 cols rows))))))
