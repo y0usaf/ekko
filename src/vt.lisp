@@ -250,8 +250,11 @@ MATERIALIZED-ROWS carries that distinction."
       ((#\h #\l)
        (when (eql private #\?)
          (dolist (mode args)
-           (let ((on (char= final #\h)))
+           (let ((on (char= final #\h)) (was (gethash mode (terminal-modes vt))))
              (setf (gethash mode (terminal-modes vt)) on)
+             ;; Applications batch one redraw between BSU and ESU so it presents
+             ;; atomically; the server holds scene publication for that window.
+             (when (and (= mode 2026) (not (eql was on))) (funcall emit :sync on))
              (case mode
                (25 (setf (terminal-visible vt) on))
                ((47 1047 1049)

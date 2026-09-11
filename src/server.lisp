@@ -2,7 +2,7 @@
 
 (defstruct pane id pid io vt (graphics (make-store)) argv label status minimized floating
   (launch-kind :command) (creation-position 0) name
-  pty-size (unseen-output nil)
+  pty-size (unseen-output nil) sync-until
   (activation-order 0) (x 0) (y 0)
   (outer-x 0) (outer-y 0) (outer-cols 1) (outer-rows 1) (output-bytes 0)
   copy-cells copy-pointer copy-anchor copy-end copy-flash-until
@@ -63,7 +63,16 @@
       (:scroll (destructuring-bind (top bottom amount) value
                  (scroll-images graphics (terminal-screen vt) top bottom amount (terminal-cw vt) (terminal-ch vt))))
       (:screen (when (eq value :main) (clear-screen graphics :alternate)))
+      (:sync
+       ;; Hold scene publication until the application closes its frame; the
+       ;; deadline is a safety valve for a frame that never closes.  An expired
+       ;; deadline stays expired until the mode clears, so the next frame arms
+       ;; a fresh one.
+       (setf (pane-sync-until pane) (if value (+ (now) 1) nil)))
       (:reset (clear-screen graphics :main) (clear-screen graphics :alternate)))))
+(defun pane-mid-frame-p (pane)
+  (let ((until (pane-sync-until pane)))
+    (and (numberp until) (< (now) until))))
 (defun focused-pane (session) (nth (session-focus session) (session-panes session)))
 (defun pane-by-id (session id)
   (find id (session-panes session) :key #'pane-id))
@@ -537,7 +546,18 @@
   (list (session-revision session)
         (loop for pane in (session-panes session) collect
           (list (terminal-revision (pane-vt pane)) (store-revision (pane-graphics pane)) (pane-status pane)))))
+(defun scene-mid-frame-p (session)
+  "True while a pane the viewer can see is inside an application frame.
+Scenes are whole-screen snapshots, so the hold is session-wide and bounded
+by the deadline PANE-EVENT arms.  Copy mode presents frozen rows, not the
+application's screen, so it is not held."
+  (some (lambda (pane)
+          (and (not (pane-copy-lines pane))
+               (gethash 2026 (terminal-modes (pane-vt pane)))
+               (pane-mid-frame-p pane)))
+        (visible-panes session)))
 (defun publish-scene (session wire)
+  (when (scene-mid-frame-p session) (return-from publish-scene))
   (let ((stamp (session-stamp session)))
     (when (and (null (wire-queue wire)) (null (wire-awaiting-scene wire))
                (not (equal stamp (wire-revision wire))))
@@ -805,6 +825,8 @@
                  (dolist (pane (session-panes session))
                    (when (pane-copy-flash-until pane)
                      (setf deadline (min deadline (pane-copy-flash-until pane))))
+                   (let ((until (pane-sync-until pane)))
+                     (when (and until (< current until)) (setf deadline (min deadline until))))
                    (let ((pending (store-pending (pane-graphics pane))))
                      (when pending
                        (setf deadline (min deadline (+ (ekko/graphics::upload-at pending) 10))))))

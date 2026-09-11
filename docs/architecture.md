@@ -20,7 +20,9 @@ attach. Applications never write to the outer terminal directly.
 | `geometry.lisp`, `presentation.lisp` | Rational clipping and attachment identity/transaction contracts, also exercised by synthetic experiments |
 
 The IPC sends binary inline assets or local snapshot filenames followed by a complete scene snapshot. The client
-stages assets until the associated snapshot arrives. Only one scene is in flight per client. The client acknowledges after its output
+stages assets until the associated snapshot arrives. Only one scene is in flight per client. A visible pane inside an application-synchronized update
+frame (DECSET 2026) holds publication until the application closes the frame or a one-second deadline expires, so a batched
+repaint presents once instead of frame by frame. The client acknowledges after its output
 drains and all local-file uploads receive host read acknowledgements. Later scene
 revisions coalesce in daemon state while it waits. Slow clients have an 8 MiB
 queue limit and a ten-second presentation timeout. Graphics frames use
