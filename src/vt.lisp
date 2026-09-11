@@ -212,6 +212,12 @@ MATERIALIZED-ROWS carries that distinction."
       (#\A (setf (terminal-y vt) (max 0 (- (terminal-y vt) n))))
       ((#\B #\e) (setf (terminal-y vt) (min (1- rows) (+ (terminal-y vt) n)))
                          (ensure-materialized-rows vt (1+ (terminal-y vt))))
+      ;; CPL and CNL move by lines and return to the first column. Live regions
+      ;; (nix-output-monitor) repaint with these, so dropping them appends every
+      ;; frame below the previous one instead of overwriting it.
+      (#\F (setf (terminal-y vt) (max 0 (- (terminal-y vt) n)) (terminal-x vt) 0))
+      (#\E (setf (terminal-y vt) (min (1- rows) (+ (terminal-y vt) n)) (terminal-x vt) 0)
+             (ensure-materialized-rows vt (1+ (terminal-y vt))))
       ((#\C #\a) (setf (terminal-x vt) (min (1- cols) (+ (terminal-x vt) n))))
       (#\D (setf (terminal-x vt) (max 0 (- (terminal-x vt) n))))
       (#\G (setf (terminal-x vt) (min (1- cols) (1- n))))
