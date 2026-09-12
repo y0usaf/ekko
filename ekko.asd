@@ -10,23 +10,31 @@
                (:file "src/cli")))
 
 (asdf:defsystem "ekko/runtime"
-  :depends-on ("sb-posix" "ekko/scene" "ekko/client" "ekko/text" "ekko/extensions")
+  :depends-on ("sb-posix" "ekko/scene" "ekko/client" "ekko/text" "ekko/extensions" "ekko/layout")
   :serial t
   :components ((:file "src/platform") (:file "src/assets") (:file "src/vt") (:file "src/history")
-               (:file "src/layout") (:file "src/graphics")
-               (:file "src/wire") (:file "src/worker") (:file "src/store") (:file "src/server") (:file "src/commands") (:file "src/menus") (:file "src/animations") (:file "src/windows") (:file "src/selection") (:file "src/client")))
+               (:file "src/graphics")
+               (:file "src/wire") (:file "src/worker") (:file "src/layout-policy")
+               (:file "src/store") (:file "src/views") (:file "src/server")
+               (:file "src/commands") (:file "src/menus") (:file "src/animations")
+               (:file "src/windows") (:file "src/selection") (:file "src/daemon")
+               (:file "src/client")))
 
 (asdf:defsystem "ekko/extensions"
   :depends-on ("ekko/text")
   :components ((:file "src/extensions")))
 (asdf:defsystem "ekko/text"
   :components ((:file "src/text-width")))
+(asdf:defsystem "ekko/layout"
+  :description "Public pure split-tree geometry helpers"
+  :components ((:file "src/layout")))
 (asdf:defsystem "ekko/builtins"
-  :depends-on ("ekko/extensions")
+  :depends-on ("ekko/extensions" "ekko/layout")
   :serial t
   :components ((:file "examples/profiles/zellij-pane")
                (:file "examples/profiles/zellij-bindings")
-               (:file "examples/profiles/desktop-style") (:file "src/builtins")))
+               (:file "examples/profiles/desktop-style")
+               (:file "examples/profiles/layouts") (:file "src/builtins")))
 
 (asdf:defsystem "ekko/scene"
   :description "Pure clipping and rational source transforms"

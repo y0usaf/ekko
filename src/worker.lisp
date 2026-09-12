@@ -1,7 +1,8 @@
 (in-package #:ekko/runtime)
 
 (defconstant +extension-packet-limit+ 65536)
-(defstruct extension-worker process input output source path registry request deadline recovery initialization-context initialization-actions)
+(defstruct extension-worker process input output source path directory environment
+  registry request deadline recovery initialization-context initialization-actions)
 (defun config-path ()
   (or (uiop:getenv "EKKO_CONFIG")
       (format nil "~A/ekko/init.lisp" (or (uiop:getenv "XDG_CONFIG_HOME")
@@ -38,12 +39,16 @@
       (loop while (= -11 (reap (sb-ext:process-pid process))) do (poll-fds nil 1))
       ;; Process streams own these descriptors; do not close them a second time.
       (sb-ext:process-close process))))
-(defun start-worker (source path log)
-  (let* ((process (sb-ext:run-program (car sb-ext:*posix-argv*) '("--extension-worker")
+(defun start-worker (source path log &key directory (environment (sb-ext:posix-environ)))
+  ;; A session may supply another cwd and PATH. Launch the running host image,
+  ;; not argv[0], which can be only the relative command used to start it.
+  (let* ((process (sb-ext:run-program "/proc/self/exe" '("--extension-worker")
+                                    :directory directory :environment environment
                                     :wait nil :input :stream :output :stream :error log :if-error-exists :append))
          (in (make-wire :fd (sb-sys:fd-stream-fd (sb-ext:process-output process)) :packet-limit (1+ +extension-packet-limit+)))
          (out (make-wire :fd (sb-sys:fd-stream-fd (sb-ext:process-input process))))
          (worker (make-extension-worker :process process :input in :output out :source source :path path
+                                        :directory directory :environment (copy-list environment)
                                         :deadline (+ (now) 5) :request :load)) (ready nil))
     (unwind-protect
          (progn
@@ -69,12 +74,14 @@
       ;; The reactor may have been descheduled past the deadline while the
       ;; worker completed normally. Consume a ready response before timing out.
       ((and (extension-worker-request worker) (> (now) (extension-worker-deadline worker)))
-       (let ((request (extension-worker-request worker)))
-         (error "Extension ~S timed out" (if (consp request) (subseq request 0 (min 2 (length request))) request)))))))
-(defun load-worker (source path log)
+       ;; Requests retain the actual originating view. Printing the complete
+       ;; request would recurse through view -> session -> worker -> request.
+       (error "Extension callback timed out")))))
+(defun load-worker (source path log &key directory (environment (sb-ext:posix-environ)))
   ;; Startup/check only: no running PTYs are held up by this wait. Reload uses
   ;; the normal reactor and swaps the candidate only after validation.
-  (let ((worker (start-worker source path log)) (ready nil) (buffer (octets 65536)))
+  (let ((worker (start-worker source path log :directory directory :environment environment))
+        (ready nil) (buffer (octets 65536)))
     (unwind-protect
          (loop for response = (poll-worker worker buffer) do
            (when response
