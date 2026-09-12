@@ -1,0 +1,46 @@
+{
+  "checks": [
+    {
+      "command": "nix flake check path:. --no-update-lock-file --keep-going --max-jobs 4 -L",
+      "exit_code": 0,
+      "result": "all checks passed"
+    },
+    {
+      "command": "time each start over a 120x40 PTY until the child's first output, isolated idle instance (EKKO_INSTANCE), command '/run/current-system/sw/bin/sh -c \"echo READY\"'",
+      "exit_code": 0,
+      "output": {
+        "before": {
+          "build": "njqv4vshk29riar1fb4pzqgic9gg63fz-ekko-0.1.0",
+          "cold_seconds": 2.27,
+          "warm_seconds": [1.17, 1.182, 1.193]
+        },
+        "after": {
+          "build": "qbb9igfdgiqh7p3g3nmbxz2knnxnv9l0-ekko-0.1.0",
+          "cold_seconds": 0.218,
+          "warm_seconds": [0.143, 0.132, 0.122],
+          "layouts_profile_seconds": {"cold": 0.19, "warm": 0.129}
+        }
+      }
+    },
+    {
+      "command": "strace -f -tt -e trace=poll,read,write,connect,execve,wait4,ioctl ekko --instance NAME --serve, then one client start",
+      "exit_code": 0,
+      "result": "request accepted at 1.599 s, worker exec at 1.603 s, worker ':READY' at 1.705 s answered in 0.10 s, then one poll([...], 3, 1000) that timed out at 2.706 s before the daemon sent (:DISPATCH :LAYOUT \"tiled\" ...) at 2.707 s"
+    },
+    {
+      "command": "live daemon with the rebuilt binary: run --detached --session work with two '::: ' commands, then list/status/stop",
+      "exit_code": 0,
+      "result": "session work held panes 1 and 2 with distinct child PIDs 7213 and 7214 in one 120x36 view; list and status answered; stop removed the session"
+    }
+  ],
+  "surface": [
+    "Every session start advances its creation phases in one reactor iteration by default; a phase that ends without a pending worker request no longer waits for the daemon's idle poll.",
+    "The loop stops on a pending worker request, an unchanged phase, or a creation that was finished or rejected, so no phase can spin and no polling behaviour changes.",
+    "Timing is unchanged for a busy daemon: the shared long-running instance already woke often enough to hide the idle poll."
+  ],
+  "limitations": [
+    "The PTY timing harness is an ad-hoc script run outside the repository, not committed tooling; the numbers are wall-clock values from one machine.",
+    "The measurements cover session creation on an otherwise idle isolated instance. Machine load and the number of resident sessions were not varied, so the before/after figures are a direct comparison, not a benchmark curve.",
+    "New behaviour has no automated coverage; the repository's remaining checks are the Nix build, packaged CLI smoke and Unicode-width checks."
+  ]
+}
