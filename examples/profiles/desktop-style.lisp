@@ -142,13 +142,16 @@
               append
           (destructuring-bind (x y width height) (getf pane :outer-rect)
             (let* ((id (getf pane :id)) (controls (>= width 12))
+                   (attribute (if (eql id focus) 1 2))
+                   (frame-sgr (list 0 attribute 38 5 (desktop-color id) 49))
+                   (bar-sgr (list 0 attribute 38 5 (desktop-color id) 48 5 235))
                    (title (fit-text
                            (safe-text (pane-title pane))
                            (max 0 (- width (if controls 20 2)))))
                    (spans (frame-spans
                            (list :rect (list x y width height) :title title
                                  :focus (eql id focus) :mode mode
-                                 :sgr (list 0 (if (eql id focus) 1 2) 38 5 (desktop-color id) 49)))))
+                                 :sgr frame-sgr))))
               (setf spans
                 (loop for span in spans collect
                   (append span (list :drag
@@ -156,20 +159,19 @@
                             ((= (getf span :y) (+ y height -1)) :bottom)
                             ((= (getf span :x) x) :left) (t :right))))))
               (setf (getf (first spans) :action) (list :focus :pane id)
-                    (getf (first spans) :sgr)
-                    (list 0 (if (eql id focus) 1 2) 38 5 (desktop-color id) 48 5 235)
+                    (getf (first spans) :sgr) bar-sgr
                     (getf (first spans) :hover-sgr)
                     (list 0 1 38 5 16 48 5 237))
               (let ((arguments (list (write-to-string id))))
                 (mapcar (lambda (span) (append span (list :pane id :context-command "desktop-window-menu" :arguments arguments)))
                   (append spans
                 (when (getf pane :floating)
-                  (list (list :x (1+ x) :y y :text "─" :sgr (getf (first spans) :sgr) :drag :top)
-                        (list :x x :y (+ y height -1) :text "└" :sgr (getf (first spans) :sgr) :drag :bottom-left)
-                        (list :x (+ x width -1) :y (+ y height -1) :text "┘" :sgr (getf (first spans) :sgr) :drag :bottom-right)))
+                  (list (list :x (1+ x) :y y :text "─" :sgr bar-sgr :drag :top)
+                        (list :x x :y (+ y height -1) :text "└" :sgr bar-sgr :drag :bottom-left)
+                        (list :x (+ x width -1) :y (+ y height -1) :text "┘" :sgr bar-sgr :drag :bottom-right)))
                 (loop for edge in (remove-duplicates (list x (+ x width -1)))
                       collect (list :x edge :y y :text "│"
-                                    :sgr (list 0 38 5 (desktop-color id) 48 5 235)
+                                    :sgr bar-sgr
                                     :drag (if (getf pane :floating)
                                               (if (= edge x) :top-left :top-right) :top)
                                     :action (list :focus :pane id)))
