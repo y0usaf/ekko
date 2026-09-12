@@ -283,6 +283,25 @@
     (customization-check
      (null (ekko/runtime::session-hooks session))
      "empty-read hook does not rerun for unrelated context"))
+  ;; One slow hook answer must not disable the hook permanently: the desktop
+  ;; repaint hook would then lose every window frame.  An answer clears the
+  ;; count, and only repeated unanswered dispatches disable the owner.
+  (let ((session (ekko/runtime::make-session :name "hook-timeouts")))
+    (ekko/runtime::note-hook-timeout session "chrome")
+    (customization-check (null (ekko/runtime::session-disabled-hooks session))
+                         "one late hook answer is not a hang")
+    (ekko/runtime::note-hook-answered session "chrome")
+    (customization-check (null (ekko/runtime::session-hook-failures session))
+                         "an answered hook clears its timeout count")
+    (dotimes (i 2) (ekko/runtime::note-hook-timeout session "chrome"))
+    (customization-check (null (ekko/runtime::session-disabled-hooks session))
+                         "two consecutive timeouts still recover")
+    (setf (ekko/runtime::session-hooks session) (list "chrome" "other"))
+    (ekko/runtime::note-hook-timeout session "chrome")
+    (customization-check (equal (ekko/runtime::session-disabled-hooks session) (list "chrome"))
+                         "a repeatedly unanswered hook is disabled")
+    (customization-check (equal (ekko/runtime::session-hooks session) (list "other"))
+                         "a disabled hook leaves the dispatch queue"))
   ;; A primary action may complete with one trailing mode transition and status
   ;; contribution. Validation still happens for the whole batch first.
   (let* ((pane (ekko/runtime::make-pane :id 1 :label "one" :vt (ekko/vt:make-terminal)))

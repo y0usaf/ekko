@@ -20,8 +20,10 @@ configuration path; `config check` uses the caller's environment.
 These are trusted Lisp files with your OS permissions, like an Emacs init file.
 They run in a separate process. This boundary isolates host state and lets the
 daemon terminate a runaway callback; it is not an arbitrary-Lisp security sandbox.
-Configuration loading has a five-second deadline; each callback has a 50 ms
-wall-clock deadline. Messages are limited to 64 KiB and the init file to 32 KiB.
+Configuration loading has a five-second deadline; each command and initialization
+callback has a 50 ms wall-clock deadline, while a change hook gets 500 ms because
+it paints UI chrome and a loaded machine may answer late. Messages are limited to
+64 KiB and the init file to 32 KiB.
 Load local helper files with `load` if needed. Reloading a worker also reloads
 those files; recovery retains the accepted init text, not copies of its dependencies.
 
@@ -100,8 +102,10 @@ A change hook runs initially and when one of its declared keys changes; changes
 can coalesce while a handler runs. Hook results are discarded when a declared
 dependency changes before completion; unrelated snapshot changes do not discard
 them. Hooks with no declared reads run once after installation. Hooks may
-only return `:status` or `:decorate` contributions, preventing reactive action loops. A timed-out
-hook is disabled until explicit reload. After worker failure, Ekko reconstructs
+only return `:status` or `:decorate` contributions, preventing reactive action loops. Each answer
+clears the owner's timeout count; a hook that misses three consecutive deadlines
+is disabled until explicit reload, so one scheduling delay cannot permanently
+remove an owner's chrome. After worker failure, Ekko reconstructs
 registrations from the accepted init source; worker-local variables reset.
 
 A component may also supply `:initialize`, a `(snapshot event)` function returning

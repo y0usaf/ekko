@@ -1,0 +1,40 @@
+{
+  "date": "2026-09-12",
+  "symptom": "The desktop chrome (every window frame, control buttons and the taskbar) vanished for the rest of the session with the viewer and daemon still alive. Daemon logs of affected sessions contain 'configuration: Extension (:HOOK \"defaults\") timed out' minutes into the run.",
+  "root_cause": "poll-worker raised 'Extension (:HOOK \"defaults\") timed out' when the desktop repaint hook missed its 50 ms wall-clock deadline once. The timeout handler pushed that hook onto session-disabled-hooks, killed the worker and recovered from the accepted source; recovery preserves the disabled set, install-registry had already cleared session-decorations, and schedule-hooks skips disabled owners forever. Nothing re-armed the :defaults repaint hook, so its chrome never came back.",
+  "fix": "src/commands.lisp gives change hooks their own 500 ms deadline (commands and initialization keep 50 ms) and counts consecutive unanswered dispatches per owner in the new session-hook-failures slot. note-hook-answered clears the count whenever a hook answers; note-hook-timeout disables the owner only on the third consecutive miss, removing it from the dispatch queue. Non-recovery reloads clear counts with the disabled set, and install-registry prunes counters for removed owners, so a hung hook still stops restarting the worker while one scheduling delay can no longer take the UI down.",
+  "test": "tests/ui_stall.py now has a second phase: it records a mark in the viewer's PTY output, SIGSTOPs the extension worker past the hook deadline, waits for the daemon's timeout and recovery, then requires the viewer to stay alive, disabled-hooks to stay empty and the dock text to reappear after the mark. tests/customization.lisp covers the counter itself: one timeout keeps the hook, an answer clears the count, and the third consecutive timeout disables it and drops it from the queue.",
+  "checks": [
+    {
+      "command": "nix build --no-link -L .#checks.x86_64-linux.ui-stall",
+      "exit_code": 0,
+      "output": {
+        "path": "/nix/store/4m3fqdxai3lsrwh4pcz76hpxzf3706nm-ekko-ui-stall",
+        "result": {
+          "viewer_alive_after_stall": true,
+          "daemon_alive": true,
+          "status_ok": true,
+          "hook_timeout_recovered": true,
+          "viewer_alive_after_hook_timeout": true,
+          "daemon_exit": 0
+        }
+      },
+      "baseline": "The same test run against the pre-fix binary (/nix/store/r1y5wp41ikgw7lfwznhprn1ylnqw2jgh-ekko-0.1.0/bin/ekko) failed with 'condition did not become true: chrome_back': after one late hook answer :defaults was disabled and the dock never reappeared."
+    },
+    {
+      "command": "nix build --no-link -L .#checks.x86_64-linux.daily",
+      "exit_code": 0,
+      "result": "Both the regular and bare runs pass. A runaway change hook is still disabled after bounded retries, so the restart-loop protection this timeout path exists for is preserved."
+    },
+    {
+      "command": "nix build --no-link -L .#checks.x86_64-linux.build",
+      "exit_code": 0,
+      "result": "Lisp unit suites pass, including the new hook-timeout counter checks in tests/customization.lisp."
+    },
+    {
+      "command": "nix flake check --keep-going -L .",
+      "exit_code": 0,
+      "result": "All checks pass (the final invocation reported 'all checks passed!'). One earlier run of the same tree failed only checks.x86_64-linux.zellij-pane-workflow with 'move: application cell geometry'. That gate is flaky on the pinned Zellij reference, not on this change: PROGRESS already records the same extra same-cell-size WINCH, docs/evidence/text-selection/verification.json records the identical gate failing at move-next, a pristine-commit worktree (75c7987) reproduces the flake, and Ekko's recorded FIRST/WINCH history is identical in passing and failing runs. Re-running the check alone on this tree exited 0."
+    }
+  ]
+}
