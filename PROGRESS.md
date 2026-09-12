@@ -701,3 +701,30 @@ Final validation: `nix flake check --keep-going -L .` exited zero across all 28 
   above), reproduces on a pristine `75c7987` worktree, and passed on re-run
   with Ekko's geometry history unchanged.
   [Verification receipt](docs/evidence/ui-hook-timeout/verification.json).
+
+### Session creation latency
+
+- Root cause: `daemon-step` serviced each starting session once per reactor
+  iteration and then polled with a deadline of `now + 1s`. A creation phase can
+  finish without leaving a pending worker request — the `:LOAD` answer, a
+  committed initial layout, a skipped initialization — so the next phase waited
+  out that whole idle poll before it ran. A start therefore paid one or two
+  idle seconds before its pane spawned. A daemon with other traffic woke early
+  and hid the cost, which is why the shared long-running instance looked fast.
+- Fix: `src/daemon.lisp` services each creation repeatedly until a worker
+  answer is pending, the phase stops changing, or the creation was finished or
+  rejected. Phases are monotonic and each one either leaves a request pending
+  or advances, so the loop cannot spin; polling and deadlines are untouched.
+- Measurement: over a 120x40 PTY, from exec to the child's first output on an
+  isolated idle instance, the installed build needed 2.270 s cold and
+  1.170/1.182/1.193 s warm. The rebuilt build needs 0.218 s cold and
+  0.143/0.132/0.122 s warm, and 0.190 s cold with 0.129 s warm under
+  `examples/profiles/layouts.lisp`. `strace` shows the mechanism directly: the
+  worker answered `:READY` 0.10 s after its exec and the daemon then sat in a
+  single 1000 ms poll before it sent `(:DISPATCH :LAYOUT "tiled" ...)`.
+- Verification: `nix flake check path:. --no-update-lock-file --keep-going
+  --max-jobs 4 -L` exited 0 with "all checks passed"; a live daemon run with
+  the rebuilt binary created a two-command session (panes 1 and 2, child PIDs
+  7213 and 7214), answered `list` and `status`, and stopped cleanly. New
+  behavior has no automated coverage.
+  [Verification receipt](docs/evidence/creation-servicing/verification.json).
