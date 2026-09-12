@@ -558,8 +558,26 @@
       (unless (search "disconnected" (princ-to-string condition))
         (format *error-output* "client: ~A~%" condition))
       (drop-daemon-peer daemon peer))))
+(defun service-creations (daemon buffer)
+  "Advance every starting session until it has to wait for the worker.
+
+A phase can finish without leaving a pending worker request: the :LOAD answer,
+a committed initial layout and a skipped initialization all move the creation
+straight into work that needs no I/O.  Waiting for the poll timeout after such
+a transition put one idle second in front of every pane spawn, so service the
+next phase immediately instead.  The loop stops on a pending request, an
+unchanged phase, or a creation that was finished or rejected."
+  (dolist (creation (copy-list (daemon-creations daemon)))
+    (loop
+      (let* ((session (creation-session creation)) (worker (session-worker session))
+             (phase (creation-phase creation)))
+        (service-creation daemon creation buffer)
+        (when (or (not (find creation (daemon-creations daemon)))
+                  (eq phase (creation-phase creation))
+                  (and worker (extension-worker-request worker)))
+          (return))))))
 (defun daemon-step (daemon buffer)
-  (dolist (creation (copy-list (daemon-creations daemon))) (service-creation daemon creation buffer))
+  (service-creations daemon buffer)
   (dolist (session (copy-list (daemon-sessions daemon)))
     (handler-case (unless (session-stopping session) (service-ready-session session buffer))
       (error (condition)
