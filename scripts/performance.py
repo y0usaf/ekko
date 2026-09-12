@@ -10,6 +10,7 @@ import platform
 import pty
 import random
 import select
+import signal
 import struct
 import subprocess
 import sys
@@ -128,6 +129,26 @@ def distribution(samples):
                                      for p in (50, 95)}}
 
 
+def stop_private_daemon(binary, env):
+    """Stop only the daemon in this harness's private XDG_RUNTIME_DIR."""
+    result = subprocess.run([binary, "list"], env=env, capture_output=True, timeout=10)
+    if result.returncode:
+        return  # No reachable daemon remains in this private runtime directory.
+    pid = json.loads(result.stdout)["daemon_pid"]
+    try:
+        fd = os.pidfd_open(pid)
+    except ProcessLookupError:
+        return
+    try:
+        signal.pidfd_send_signal(fd, signal.SIGTERM)
+        if not select.select([fd], [], [], 5)[0]:
+            signal.pidfd_send_signal(fd, signal.SIGKILL)
+            if not select.select([fd], [], [], 5)[0]:
+                raise RuntimeError("Private Ekko daemon did not exit")
+    finally:
+        os.close(fd)
+
+
 def benchmark(binary, mode, seconds, direct=False, width=512, height=512, fps=5, frame_path=None):
     with tempfile.TemporaryDirectory(prefix="ekko-perf-") as directory:
         log = Path(directory) / "input.log"
@@ -221,8 +242,7 @@ def benchmark(binary, mode, seconds, direct=False, width=512, height=512, fps=5,
             return result
         finally:
             if not direct:
-                subprocess.run([binary, "stop", "perf"], env=env, stdout=subprocess.DEVNULL,
-                               stderr=subprocess.DEVNULL, timeout=10)
+                stop_private_daemon(binary, env)
             if process.poll() is None:
                 process.terminate()
             process.wait(timeout=5)

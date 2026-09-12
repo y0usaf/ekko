@@ -57,6 +57,26 @@ def wait_owned_processes(work, seconds=5):
     return remaining
 
 
+def stop_private_daemon(binary, env):
+    """Stop only the daemon in this harness's private XDG_RUNTIME_DIR."""
+    result = subprocess.run([binary, "list"], env=env, capture_output=True, timeout=10)
+    if result.returncode:
+        return  # No reachable daemon remains in this private runtime directory.
+    pid = json.loads(result.stdout)["daemon_pid"]
+    try:
+        fd = os.pidfd_open(pid)
+    except ProcessLookupError:
+        return
+    try:
+        signal.pidfd_send_signal(fd, signal.SIGTERM)
+        if not select.select([fd], [], [], 5)[0]:
+            signal.pidfd_send_signal(fd, signal.SIGKILL)
+            if not select.select([fd], [], [], 5)[0]:
+                raise RuntimeError("Private Ekko daemon did not exit")
+    finally:
+        os.close(fd)
+
+
 def fixture(path):
     tty.setraw(0)
     save(path, {"winsize_rows_cols_xpixels_ypixels": winsize()})
@@ -284,6 +304,8 @@ def run_side(kind, args, root):
                     except subprocess.TimeoutExpired:
                         process.kill()
                         process.wait(timeout=5)
+                if kind == "ekko":
+                    stop_private_daemon(args.ekko, child_env)
                 remaining = wait_owned_processes(work)
                 save(dest / "cleanup.json", {
                     "stop_exit_code": stopped.returncode if stopped is not None else None,
@@ -691,6 +713,8 @@ def run_workflow_side(kind, args, root):
                     except subprocess.TimeoutExpired:
                         process.kill()
                         process.wait(timeout=5)
+                if kind == "ekko":
+                    stop_private_daemon(args.ekko, child_env)
                 remaining = wait_owned_processes(work)
                 save(dest / "cleanup.json", {"stop_exit_code": stopped.returncode if stopped else None,
                                               "stop_error": stop_error, "remaining_pids": remaining})
