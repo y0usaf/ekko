@@ -35,37 +35,72 @@
 (define-alien-routine ("ek_resize" resize) int (fd int) (cols int) (rows int) (x int) (y int))
 (define-alien-routine ("ek_size" %size) int (fd int) (values (* int)))
 (define-alien-routine ("ek_poll" %poll) int (fds (* int)) (events (* int)) (count int) (timeout int))
-(define-alien-routine ("ek_spawn" %spawn) int (argv (* c-string)) (cols int) (rows int) (x int) (y int) (pid (* int)))
+(define-alien-routine ("ek_spawn" %spawn) int
+  (argv (* (* char))) (cols int) (rows int) (x int) (y int)
+  (directory c-string) (environment (* (* char))) (pid (* int)))
 (define-alien-routine ("ek_read" %read) int (fd int) (data system-area-pointer) (size int))
 (define-alien-routine ("ek_write" %write) int (fd int) (data system-area-pointer) (size int))
 (define-alien-routine ("ek_inflate" %inflate) int (data system-area-pointer) (size int) (out system-area-pointer) (capacity int))
 (define-alien-routine ("ek_deflate" %deflate) int (data system-area-pointer) (size int) (out system-area-pointer) (capacity int))
 (define-alien-routine ("ek_snapshot_shm" snapshot-shm) int (name c-string) (path c-string) (size int))
 
-(defun spawn (argv cols rows cw ch)
-  (let ((args (make-alien c-string (1+ (length argv)))))
+(defun spawn (argv cols rows cw ch &key directory (environment nil environment-p))
+  "Spawn ARGV on a PTY. DIRECTORY is a nonempty path string or NIL to inherit.
+ENVIRONMENT is a full list of NAME=VALUE strings. Omit it to inherit; pass NIL
+explicitly for an empty environment. Neither option changes the parent."
+  (dolist (strings (list argv environment))
+    (unless (handler-case (list-length strings) (type-error () nil))
+      (error "Spawn argv and environment must be proper, finite lists"))
+    (unless (every (lambda (value) (and (stringp value) (not (find #\Null value)))) strings)
+      (error "Spawn argv and environment must contain strings without NUL")))
+  (unless (and argv (plusp (length (first argv))))
+    (error "Spawn argv must name a program"))
+  (unless (or (null directory)
+              (and (stringp directory) (plusp (length directory)) (not (find #\Null directory))))
+    (error "Spawn directory must be a nonempty string without NUL, or NIL"))
+  (dolist (entry environment)
+    (let ((separator (position #\= entry)))
+      (unless (and separator (plusp separator))
+        (error "Invalid environment entry ~S: expected NAME=VALUE" entry))))
+  ;; One pointer block holds both null-terminated vectors. Each encoded string
+  ;; has explicit foreign ownership until the exec-error pipe closes.
+  (let* ((entries (append argv (list nil) (when environment-p (append environment (list nil)))))
+         (args (make-alien (* char) (length entries)))
+         (initialized 0))
     (unwind-protect
          (progn
-           (loop for arg in argv for i from 0 do (setf (deref args i) arg))
-           (setf (deref args (length argv)) nil)
+           (loop for entry in entries for i from 0 do
+             (setf (deref args i) (if entry (make-alien-string entry :external-format :utf-8)
+                                          (sb-sys:int-sap 0)))
+             (incf initialized))
            (with-alien ((pid int))
-             (let ((fd (checked (%spawn args cols rows (* cols cw) (* rows ch) (addr pid))
+             (let ((fd (checked (%spawn args cols rows (* cols cw) (* rows ch) directory
+                                       (if environment-p (addr (deref args (1+ (length argv))))
+                                           (sb-sys:int-sap 0))
+                                       (addr pid))
                                 (format nil "exec ~A" (first argv)))))
                (values fd pid))))
+      (dotimes (i initialized) (free-alien (deref args i)))
       (free-alien args))))
 (defun terminal-size (fd)
   (with-alien ((values (array int 4)))
     (checked (%size fd (cast (addr values) (* int))) "terminal size")
     (loop for i below 4 collect (deref values i))))
 (defun poll-fds (items timeout)
-  (with-alien ((fds (array int 128)) (events (array int 128)))
-    (loop for (fd . event) in items for i from 0 do
-      (setf (deref fds i) fd (deref events i) event))
-    (let ((n (%poll (cast (addr fds) (* int)) (cast (addr events) (* int)) (length items) timeout)))
-      (when (= n -4) (return-from poll-fds nil))
-      (checked n "poll")
-      (loop for (fd . event) in items for i from 0
-            unless (zerop (deref events i)) collect (cons fd (deref events i))))))
+  (let ((count (handler-case (list-length items) (type-error () nil))))
+    ;; The C ABI accepts an int count; there is no separate peer/pane limit.
+    (check-type count (unsigned-byte 31))
+    (let ((storage (make-alien int (* 2 count))))
+      (unwind-protect
+           (let ((events (addr (deref storage count))))
+             (loop for (fd . event) in items for i from 0 do
+               (setf (deref storage i) fd (deref events i) event))
+             (let ((n (%poll storage events count timeout)))
+               (when (= n -4) (return-from poll-fds nil))
+               (checked n "poll")
+               (loop for (fd . event) in items for i from 0
+                     unless (zerop (deref events i)) collect (cons fd (deref events i)))))
+        (free-alien storage)))))
 (defun read-fd (fd buffer)
   (sb-sys:with-pinned-objects (buffer)
     (%read fd (sb-sys:vector-sap buffer) (length buffer))))

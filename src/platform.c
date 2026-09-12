@@ -30,12 +30,16 @@ int ek_nonblock(int fd) {
 int ek_read(int fd, void *data, int size) { return result(read(fd, data, size)); }
 int ek_write(int fd, const void *data, int size) { return result(write(fd, data, size)); }
 int ek_poll(int *fds, int *events, int count, int timeout) {
-    if (count < 0 || count > 128) return -EINVAL;
-    struct pollfd items[128];
+    if (count < 0 || (count && (!fds || !events))) return -EINVAL;
+    if (!count) return result(poll(NULL, 0, timeout));
+    /* calloc checks the input-sized allocation for multiplication overflow. */
+    struct pollfd *items = calloc(count, sizeof(*items));
+    if (!items) return -ENOMEM;
     for (int i = 0; i < count; i++) items[i] = (struct pollfd){fds[i], events[i], 0};
-    int n = poll(items, count, timeout);
-    if (n < 0) return -errno;
-    for (int i = 0; i < count; i++) events[i] = items[i].revents;
+    int n = result(poll(items, count, timeout));
+    if (n >= 0)
+        for (int i = 0; i < count; i++) events[i] = items[i].revents;
+    free(items);
     return n;
 }
 int ek_size(int fd, int *values) {
@@ -71,10 +75,16 @@ int ek_restore(void) {
     saved_fd = -1;
     return result(n);
 }
-int ek_spawn(char **argv, int cols, int rows, int x, int y, int *pid_out) {
+int ek_spawn(char **argv, int cols, int rows, int x, int y,
+             const char *directory, char **environment, int *pid_out) {
+    if (!argv || !argv[0] || !pid_out) return -EINVAL;
     int master, slave, errors[2];
     struct winsize ws = {rows, cols, x, y};
     if (openpty(&master, &slave, NULL, NULL, &ws) < 0) return -errno;
+    int n = ek_nonblock(master);
+    if (n < 0 || fcntl(master, F_SETFD, FD_CLOEXEC) < 0) {
+        int e = n < 0 ? -n : errno; close(master); close(slave); return -e;
+    }
     if (pipe2(errors, O_CLOEXEC) < 0) {
         int e = errno; close(master); close(slave); return -e;
     }
@@ -86,31 +96,38 @@ int ek_spawn(char **argv, int cols, int rows, int x, int y, int *pid_out) {
             if (dup3(errors[1], 3, O_CLOEXEC) < 0) goto failed;
             close(errors[1]); errors[1] = 3;
         }
-        close_range(4, UINT_MAX, 0);
+        if (close_range(4, UINT_MAX, 0) < 0) goto failed;
         sigset_t mask;
         sigemptyset(&mask);
-        sigprocmask(SIG_SETMASK, &mask, NULL);
+        if (sigprocmask(SIG_SETMASK, &mask, NULL) < 0) goto failed;
         for (int s = 1; s < NSIG; s++) signal(s, SIG_DFL);
+        if (directory && chdir(directory) < 0) goto failed;
+        /* This fork owns its environment. execvp must search this PATH, not
+         * the daemon's; execvpe would still search the calling environment. */
+        if (environment) environ = environment;
         execvp(argv[0], argv);
 failed:;
         int e = errno;
-        (void)!write(errors[1], &e, sizeof(e));
+        ssize_t written;
+        do { written = write(errors[1], &e, sizeof(e)); } while (written < 0 && errno == EINTR);
         _exit(127);
     }
     int e = errno;
     close(slave); close(errors[1]);
     if (pid < 0) { close(master); close(errors[0]); return -e; }
     int child_error = 0;
-    ssize_t n;
-    do { n = read(errors[0], &child_error, sizeof(child_error)); } while (n < 0 && errno == EINTR);
+    ssize_t received;
+    do { received = read(errors[0], &child_error, sizeof(child_error)); }
+    while (received < 0 && errno == EINTR);
+    e = received < 0 ? errno : (received == sizeof(child_error) && child_error > 0 ? child_error : EIO);
     close(errors[0]);
-    if (n != 0) {
+    if (received != 0) {
         close(master);
+        /* A pipe read failure must not leave a running child or wait forever. */
+        kill(pid, SIGKILL);
         while (waitpid(pid, NULL, 0) < 0 && errno == EINTR) {}
-        return -(child_error ? child_error : EIO);
+        return -e;
     }
-    fcntl(master, F_SETFD, FD_CLOEXEC);
-    ek_nonblock(master);
     *pid_out = pid;
     return master;
 }
@@ -142,7 +159,7 @@ int ek_listen(const char *path) {
     if (n < 0) return n;
     int fd = socket(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC | SOCK_NONBLOCK, 0);
     if (fd < 0) return -errno;
-    if (bind(fd, (struct sockaddr *)&addr, sizeof(addr)) < 0 || listen(fd, 8) < 0) {
+    if (bind(fd, (struct sockaddr *)&addr, sizeof(addr)) < 0 || listen(fd, SOMAXCONN) < 0) {
         int e = errno; close(fd); return -e;
     }
     chmod(path, 0600);
