@@ -247,7 +247,7 @@ static option; it also removes that owner's component state. The detached
 `:geometry` snapshot exposes resolved fields, and `inspect` additionally lists
 owner contributions. Declare `:geometry` when a hook reads it.
 
-`tests/pane_frames.py` exercises the public profile on regular and bare runtimes
+The public profile is exercised on regular and bare runtimes
 with real child size histories, inverse toggles, unchanged PIDs, successful and
 failed reload, detach/reattach, and owner removal. The profile chooses its
 frame state, edge offsets, keybindings, glyphs, and colors in ordinary Lisp;

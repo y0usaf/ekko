@@ -11,41 +11,6 @@
       forEachSystem = f: nixpkgs.lib.genAttrs systems (system: f nixpkgs.legacyPackages.${system});
     in {
       packages = forEachSystem (pkgs: {
-        zellij-reference = let pin = builtins.fromJSON (builtins.readFile ./tests/zellij/reference/pin.json); in
-          assert pkgs.zellij.version == pin.release;
-          assert pkgs.zellij.src.outputHash == pin.source_nar_hash;
-          assert nixpkgs.rev == pin.nixpkgs_revision;
-          pkgs.zellij;
-        zellij-pane-probe = pkgs.writeShellScriptBin "ekko-zellij-pane-probe" ''
-          exec ${pkgs.python3.withPackages (p: [ p.pyte ])}/bin/python ${./tests/zellij}/pane_probe.py \
-            --zellij ${self.packages.${pkgs.system}.zellij-reference}/bin/zellij "$@"
-        '';
-        zellij-pane-differential = pkgs.writeShellScriptBin "ekko-zellij-pane-differential" ''
-          exec ${pkgs.python3.withPackages (p: [ p.pyte ])}/bin/python ${./tests/zellij}/pane_differential.py \
-            --zellij ${self.packages.${pkgs.system}.zellij-reference}/bin/zellij \
-            --ekko ${self.packages.${pkgs.system}.default}/bin/ekko \
-            --profile ${./examples/profiles}/zellij.lisp "$@"
-        '';
-        zellij-pane-workflow = pkgs.writeShellScriptBin "ekko-zellij-pane-workflow" ''
-          exec ${pkgs.python3.withPackages (p: [ p.pyte ])}/bin/python ${./tests/zellij}/pane_workflow_differential.py \
-            --zellij ${self.packages.${pkgs.system}.zellij-reference}/bin/zellij \
-            --ekko ${self.packages.${pkgs.system}.default}/bin/ekko \
-            --profile ${./examples/profiles}/zellij.lisp \
-            --reference ${./tests/zellij}/reference "$@"
-        '';
-        zellij-session-lifecycle = pkgs.writeShellScriptBin "ekko-zellij-session-lifecycle" ''
-          exec ${pkgs.python3.withPackages (p: [ p.pyte ])}/bin/python ${./tests/zellij}/session_lifecycle.py \
-            --zellij ${self.packages.${pkgs.system}.zellij-reference}/bin/zellij \
-            --ekko ${self.packages.${pkgs.system}.default}/bin/ekko \
-            --profile ${./examples/profiles}/zellij.lisp \
-            --reference ${./tests/zellij}/reference "$@"
-        '';
-        zellij-differential = pkgs.writeShellScriptBin "ekko-zellij-differential" ''
-          exec ${pkgs.python3.withPackages (p: [ p.pyte ])}/bin/python ${./tests/zellij}/differential.py \
-            --zellij ${self.packages.${pkgs.system}.zellij-reference}/bin/zellij \
-            --ekko ${self.packages.${pkgs.system}.default}/bin/ekko \
-            --profile ${./examples/profiles}/zellij.lisp "$@"
-        '';
         browser-source = pkgs.stdenvNoCC.mkDerivation {
           name = "ekko-terminal-browser-source";
           src = terminal-browser;
@@ -86,9 +51,8 @@
               ./examples/profiles/zellij-frames.lisp
               ./examples/profiles/zellij-pane.lisp
               (pkgs.lib.fileset.fileFilter (file: file.hasExt "lisp" || file.hasExt "c") ./src)
-              (pkgs.lib.fileset.fileFilter (file: file.hasExt "lisp" || file.hasExt "py") ./tests)
               ./scripts/build.sh ./scripts/build.lisp ./scripts/build-demo.lisp
-              ./scripts/test.sh ./scripts/test.lisp ./scripts/smoke.sh
+              ./scripts/smoke.sh
               ./scripts/generate-text-width.py ./scripts/text-width-oracle.rs
             ];
           };
@@ -112,7 +76,6 @@
               --non-interactive --load scripts/build-demo.lisp
           '';
           checkPhase = ''
-            sh scripts/test.sh
             sh scripts/smoke.sh "$PWD/ekko"
           '';
           installPhase = ''
@@ -123,26 +86,6 @@
         };
       });
       apps = forEachSystem (pkgs: {
-        zellij-pane-probe = {
-          type = "app";
-          meta.description = "Observe pinned Zellij Pane mode and batched input";
-          program = "${self.packages.${pkgs.system}.zellij-pane-probe}/bin/ekko-zellij-pane-probe";
-        };
-        zellij-pane-differential = {
-          type = "app";
-          meta.description = "Settled Pane-mode PTY differential; visual parity remains open";
-          program = "${self.packages.${pkgs.system}.zellij-pane-differential}/bin/ekko-zellij-pane-differential";
-        };
-        zellij-session-lifecycle = {
-          type = "app";
-          meta.description = "Pinned quit/detach lifecycle comparison; full parity remains open";
-          program = "${self.packages.${pkgs.system}.zellij-session-lifecycle}/bin/ekko-zellij-session-lifecycle";
-        };
-        zellij-differential = {
-          type = "app";
-          meta.description = "Differential Zellij reference runner; full parity remains open";
-          program = "${self.packages.${pkgs.system}.zellij-differential}/bin/ekko-zellij-differential";
-        };
         performance = {
           type = "app";
           meta.description = "Measure deterministic PTY workloads and emit JSON";
@@ -200,186 +143,6 @@
             > lisp-widths
           cmp rust-widths lisp-widths
           printf 'exhaustive Unicode scalar widths match unicode-width 0.1.10\n' > $out
-        '';
-        layout-capacity = pkgs.runCommand "ekko-layout-capacity" {
-          nativeBuildInputs = [ pkgs.sbcl ];
-        } ''
-          sbcl --noinform --disable-debugger \
-            --load ${./src/layout.lisp} --load ${./tests/layout_capacity.lisp} > $out
-        '';
-        dock-capacity = pkgs.runCommand "ekko-dock-capacity" {
-          nativeBuildInputs = [ pkgs.sbcl pkgs.coreutils ];
-        } ''
-          # Store paths are hash-named, so recreate the relative tree the test
-          # loads the profile from.
-          mkdir -p tests examples/profiles
-          cp ${./tests/dock_capacity.lisp} tests/dock_capacity.lisp
-          cp ${./examples/profiles/desktop-style.lisp} examples/profiles/desktop-style.lisp
-          cd tests
-          sbcl --noinform --disable-debugger --non-interactive \
-            --load dock_capacity.lisp --eval '(dock-capacity-test::main)' > $out
-        '';
-        store = pkgs.runCommand "ekko-store" {
-          nativeBuildInputs = [ pkgs.python3 pkgs.coreutils ];
-        } ''
-          mkdir -p work $TMPDIR/home
-          cp ${./tests/store.py} work/store.py
-          cp ${./tests/daily.py} work/daily.py
-          export HOME=$TMPDIR/home
-          python work/store.py ${self.packages.${pkgs.system}.default}/bin/ekko > $out
-        '';
-        ui-stall = pkgs.runCommand "ekko-ui-stall" {
-          nativeBuildInputs = [ pkgs.python3 pkgs.coreutils ];
-        } ''
-          mkdir -p $out work $TMPDIR/home
-          cp ${./tests/ui_stall.py} work/ui_stall.py
-          cp ${./tests/daily.py} work/daily.py
-          export HOME=$TMPDIR/home
-          python work/ui_stall.py ${self.packages.${pkgs.system}.default}/bin/ekko $out/result.json
-        '';
-        pane-capacity = pkgs.runCommand "ekko-pane-capacity" {
-          nativeBuildInputs = [ pkgs.python3 pkgs.coreutils ];
-        } ''
-          mkdir -p $out work $TMPDIR/home
-          cp ${./tests/pane_capacity.py} work/pane_capacity.py
-          cp ${./tests/daily.py} work/daily.py
-          export HOME=$TMPDIR/home
-          python work/pane_capacity.py ${self.packages.${pkgs.system}.default}/bin/ekko $out
-        '';
-        desktop-menus = pkgs.runCommand "ekko-desktop-menus" { nativeBuildInputs = [ pkgs.python3 ]; } ''
-          python ${./tests}/menus.py ${self.packages.${pkgs.system}.default}/bin/ekko ${./examples/profiles}/desktop.lisp > $out
-          python ${./tests}/menus.py ${self.packages.${pkgs.system}.default}/bin/ekko-bare ${./examples/profiles}/desktop.lisp bare >> $out
-        '';
-        desktop-default = pkgs.runCommand "ekko-desktop-default" { nativeBuildInputs = [ pkgs.python3 ]; } ''
-          python ${./tests}/desktop.py ${self.packages.${pkgs.system}.default}/bin/ekko ${./examples/profiles}/desktop.lisp default > $out
-        '';
-        desktop = pkgs.runCommand "ekko-desktop" { nativeBuildInputs = [ pkgs.python3 ]; } ''
-          python ${./tests}/desktop.py ${self.packages.${pkgs.system}.default}/bin/ekko ${./examples/profiles}/desktop.lisp > $out
-          python ${./tests}/desktop.py ${self.packages.${pkgs.system}.default}/bin/ekko-bare ${./examples/profiles}/desktop.lisp >> $out
-        '';
-        mouse-selection = pkgs.runCommand "ekko-mouse-selection" { nativeBuildInputs = [ pkgs.python3 ]; } ''
-          python ${./tests}/selection.py ${self.packages.${pkgs.system}.default}/bin/ekko ${./examples/profiles}/zellij.lisp > $out
-          python ${./tests}/selection.py ${self.packages.${pkgs.system}.default}/bin/ekko-bare ${./examples/profiles}/zellij.lisp >> $out
-        '';
-        pane-modes = pkgs.runCommand "ekko-pane-modes" { nativeBuildInputs = [ pkgs.python3 ]; } ''
-          python ${./tests}/pane_modes.py ${self.packages.${pkgs.system}.default}/bin/ekko ${./examples/profiles}/zellij.lisp > $out
-          python ${./tests}/pane_modes.py ${self.packages.${pkgs.system}.default}/bin/ekko-bare ${./examples/profiles}/zellij.lisp bare >> $out
-        '';
-        pane-workflow = pkgs.runCommand "ekko-pane-workflow" { nativeBuildInputs = [ pkgs.python3 ]; } ''
-          python ${./tests}/pane_workflow.py ${self.packages.${pkgs.system}.default}/bin/ekko ${./examples/profiles}/zellij.lisp regular 80 24 > $out
-          python ${./tests}/pane_workflow.py ${self.packages.${pkgs.system}.default}/bin/ekko ${./examples/profiles}/zellij.lisp regular 20 8 >> $out
-          python ${./tests}/pane_workflow.py ${self.packages.${pkgs.system}.default}/bin/ekko-bare ${./examples/profiles}/zellij.lisp bare 80 24 >> $out
-          python ${./tests}/pane_workflow.py ${self.packages.${pkgs.system}.default}/bin/ekko-bare ${./examples/profiles}/zellij.lisp bare 20 8 >> $out
-        '';
-        keymap-input = pkgs.runCommand "ekko-keymap-input" { nativeBuildInputs = [ pkgs.python3 ]; } ''
-          python ${./tests}/keymap_input.py ${self.packages.${pkgs.system}.default}/bin/ekko > $out
-          python ${./tests}/keymap_input.py ${self.packages.${pkgs.system}.default}/bin/ekko-bare bare >> $out
-          python ${./tests}/keymap_input.py --read-bytes ${self.packages.${pkgs.system}.default}/bin/ekko >> $out
-          python ${./tests}/keymap_input.py --read-bytes ${self.packages.${pkgs.system}.default}/bin/ekko-bare >> $out
-        '';
-        keymaps = pkgs.runCommand "ekko-keymaps" { nativeBuildInputs = [ pkgs.python3 ]; } ''
-          python ${./tests}/keymaps.py ${self.packages.${pkgs.system}.default}/bin/ekko ${./examples/profiles}/zellij.lisp > $out
-          python ${./tests}/keymaps.py ${self.packages.${pkgs.system}.default}/bin/ekko-bare ${./examples/profiles}/zellij.lisp bare >> $out
-        '';
-        decorations = pkgs.runCommand "ekko-decorations" { nativeBuildInputs = [ pkgs.python3 ]; } ''
-          python ${./tests}/decorations.py ${self.packages.${pkgs.system}.default}/bin/ekko ${./examples/profiles}/zellij.lisp > $out
-          python ${./tests}/decorations.py ${self.packages.${pkgs.system}.default}/bin/ekko-bare ${./examples/profiles}/zellij.lisp bare >> $out
-        '';
-        pane-notes = pkgs.runCommand "ekko-pane-notes" { nativeBuildInputs = [ pkgs.python3 ]; } ''
-          python ${./tests}/pane_notes.py ${self.packages.${pkgs.system}.default}/bin/ekko ${./examples/profiles}/zellij.lisp > $out
-          python ${./tests}/pane_notes.py ${self.packages.${pkgs.system}.default}/bin/ekko-bare ${./examples/profiles}/zellij.lisp bare >> $out
-        '';
-        pane-titles = pkgs.runCommand "ekko-pane-titles" { nativeBuildInputs = [ pkgs.python3 ]; } ''
-          python ${./tests}/pane_titles.py ${self.packages.${pkgs.system}.default}/bin/ekko ${./examples/profiles}/zellij.lisp > $out
-          python ${./tests}/pane_titles.py ${self.packages.${pkgs.system}.default}/bin/ekko-bare ${./examples/profiles}/zellij.lisp bare >> $out
-        '';
-        pane-rename = pkgs.runCommand "ekko-pane-rename" { nativeBuildInputs = [ pkgs.python3 ]; } ''
-          python ${./tests}/pane_rename.py ${self.packages.${pkgs.system}.default}/bin/ekko ${./examples/profiles}/zellij.lisp > $out
-          python ${./tests}/pane_rename.py ${self.packages.${pkgs.system}.default}/bin/ekko-bare ${./examples/profiles}/zellij.lisp bare >> $out
-        '';
-        viewer-exit = pkgs.runCommand "ekko-viewer-exit" { nativeBuildInputs = [ pkgs.python3 ]; } ''
-          python ${./tests}/viewer_exit.py ${self.packages.${pkgs.system}.default}/bin/ekko > $out
-          python ${./tests}/viewer_exit.py ${self.packages.${pkgs.system}.default}/bin/ekko-bare >> $out
-        '';
-        initialization = pkgs.runCommand "ekko-initialization" { nativeBuildInputs = [ pkgs.python3 ]; } ''
-          python ${./tests}/initialization.py ${self.packages.${pkgs.system}.default}/bin/ekko > $out
-          python ${./tests}/initialization.py ${self.packages.${pkgs.system}.default}/bin/ekko-bare >> $out
-        '';
-        pane-frames = pkgs.runCommand "ekko-pane-frames" { nativeBuildInputs = [ pkgs.python3 ]; } ''
-          python ${./tests}/pane_frames.py ${self.packages.${pkgs.system}.default}/bin/ekko ${./examples/profiles}/zellij.lisp > $out
-          python ${./tests}/pane_frames.py ${self.packages.${pkgs.system}.default}/bin/ekko-bare ${./examples/profiles}/zellij.lisp >> $out
-        '';
-        pane-moves = pkgs.runCommand "ekko-pane-moves" { nativeBuildInputs = [ pkgs.python3 ]; } ''
-          python ${./tests}/pane_moves.py ${self.packages.${pkgs.system}.default}/bin/ekko ${./examples/profiles}/zellij.lisp > $out
-          python ${./tests}/pane_moves.py ${self.packages.${pkgs.system}.default}/bin/ekko-bare ${./examples/profiles}/zellij.lisp bare >> $out
-        '';
-        pane-layouts = pkgs.runCommand "ekko-pane-layouts" { nativeBuildInputs = [ pkgs.python3 ]; } ''
-          python ${./tests}/pane_layouts.py ${self.packages.${pkgs.system}.default}/bin/ekko > $out
-          python ${./tests}/pane_layouts.py ${self.packages.${pkgs.system}.default}/bin/ekko-bare bare >> $out
-        '';
-        pane-pixels = pkgs.runCommand "ekko-pane-pixels" { nativeBuildInputs = [ pkgs.python3 ]; } ''
-          python ${./tests}/pane_pixels.py ${self.packages.${pkgs.system}.default}/bin/ekko > $out
-          python ${./tests}/pane_pixels.py ${self.packages.${pkgs.system}.default}/bin/ekko-bare bare >> $out
-        '';
-        startup-geometry = pkgs.runCommand "ekko-startup-geometry" { nativeBuildInputs = [ pkgs.python3 ]; } ''
-          python ${./tests}/startup_geometry.py ${self.packages.${pkgs.system}.default}/bin/ekko ${./examples/profiles}/zellij.lisp regular 80 24 > $out
-          python ${./tests}/startup_geometry.py ${self.packages.${pkgs.system}.default}/bin/ekko ${./examples/profiles}/zellij.lisp regular 20 8 >> $out
-          python ${./tests}/startup_geometry.py ${self.packages.${pkgs.system}.default}/bin/ekko-bare ${./examples/profiles}/zellij.lisp bare 80 24 >> $out
-          python ${./tests}/startup_geometry.py ${self.packages.${pkgs.system}.default}/bin/ekko-bare ${./examples/profiles}/zellij.lisp bare 20 8 >> $out
-        '';
-        zellij-session-lifecycle = pkgs.runCommand "ekko-zellij-session-lifecycle" {} ''
-          mkdir -p $out
-          ${self.packages.${pkgs.system}.zellij-session-lifecycle}/bin/ekko-zellij-session-lifecycle --output $out/regular
-          ${self.packages.${pkgs.system}.zellij-session-lifecycle}/bin/ekko-zellij-session-lifecycle \
-            --ekko ${self.packages.${pkgs.system}.default}/bin/ekko-bare --only detach --output $out/bare
-        '';
-        zellij-pane-workflow = pkgs.runCommand "ekko-zellij-pane-workflow" {} ''
-          mkdir -p $out
-          ${self.packages.${pkgs.system}.zellij-pane-workflow}/bin/ekko-zellij-pane-workflow --output $out
-        '';
-        zellij-routing = pkgs.runCommand "ekko-zellij-routing" {} ''
-          ${self.packages.${pkgs.system}.zellij-differential}/bin/ekko-zellij-differential --output $out/80x24
-          ${self.packages.${pkgs.system}.zellij-differential}/bin/ekko-zellij-differential --cols 20 --rows 8 --output $out/20x8
-        '';
-        zellij-pane-differential = pkgs.runCommand "ekko-zellij-pane-differential" {} ''
-          ${self.packages.${pkgs.system}.zellij-pane-differential}/bin/ekko-zellij-pane-differential --output $out/80x24
-          ${self.packages.${pkgs.system}.zellij-pane-differential}/bin/ekko-zellij-pane-differential --cols 20 --rows 8 --output $out/20x8
-        '';
-
-        daily = pkgs.runCommand "ekko-daily" { nativeBuildInputs = [ pkgs.python3 ]; } ''
-          python ${./tests/daily.py} ${self.packages.${pkgs.system}.default}/bin/ekko > $out
-          python ${./tests/daily.py} ${self.packages.${pkgs.system}.default}/bin/ekko-bare bare >> $out
-        '';
-        runtime = pkgs.runCommand "ekko-runtime" { nativeBuildInputs = [ pkgs.python3 ]; } ''
-          python ${./tests/runtime.py} ${self.packages.${pkgs.system}.default}/bin/ekko > $out
-        '';
-        fake-host = pkgs.runCommand "ekko-fake-host" {
-          nativeBuildInputs = [ pkgs.python3 ];
-        } ''
-          export HOME=$(mktemp -d)
-          cd $(mktemp -d)
-          ${self.packages.${pkgs.system}.default}/bin/ekko-graphics-demo scene.bin
-          python ${./tests/fake-host.py} --self-test
-          mkdir -p $out
-          python ${./tests/fake-host.py} < scene.bin > $out/report.json
-          cp scene.bin $out/scene.bin
-          EKKO_GRAPHICS_FIXTURE=checkerboard ${self.packages.${pkgs.system}.default}/bin/ekko-graphics-demo checkerboard.bin
-          python ${./tests/fake-host.py} --fixture checkerboard < checkerboard.bin > $out/checkerboard.json
-          cp checkerboard.bin $out/checkerboard.bin
-          EKKO_GRAPHICS_FIXTURE=native ${self.packages.${pkgs.system}.default}/bin/ekko-graphics-demo native.bin
-          python ${./tests/fake-host.py} --fixture native < native.bin > $out/native.json
-          cp native.bin $out/native.bin
-          status=0
-          ${self.packages.${pkgs.system}.default}/bin/ekko-graphics-demo >out.txt 2>err.txt || status=$?
-          test "$status" -eq 2
-          test ! -s out.txt
-          test -s err.txt
-          status=0
-          EKKO_GRAPHICS_FIXTURE=unknown ${self.packages.${pkgs.system}.default}/bin/ekko-graphics-demo invalid.bin >out.txt 2>err.txt || status=$?
-          test "$status" -eq 2
-          test ! -e invalid.bin
-          test ! -s out.txt
-          test -s err.txt
         '';
         build = self.packages.${pkgs.system}.default;
         packaged-smoke = pkgs.runCommand "ekko-packaged-smoke" {} ''

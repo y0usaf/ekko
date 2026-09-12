@@ -180,7 +180,7 @@ hide this discrepancy.
 ## Startup PTY sizing
 
 The paired custom two-pane run starts its outer PTY at the requested size before
-launching either program (`tests/zellij/pane_differential.py`: `Terminal`
+launching either program (the differential runner's `Terminal`
 constructs a PTY, applies `TIOCSWINSZ`, then `Popen`). Zellij receives that PTY
 as its session terminal and creates each pane at its final content rectangle:
 `READY 38x22` at 80×24 and `READY 8×6` at 20×8.

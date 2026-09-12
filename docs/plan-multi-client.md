@@ -106,8 +106,7 @@ Slot names are from `src/server.lisp:3-18`.
 ## Verification
 
 - `nix build` and `nix flake check` must pass (`[[principle:nix-verify]]`).
-- Existing single-client behavior: the `tests/` suites and the zellij
-  differential runner must not regress.
+- Existing single-client behavior must not regress.
 - Manual acceptance: two clients on one session with independent focus;
   detach and reattach; a version-13 attach rejected with a clear error; the
   server survives client death; PTY size equals the minimum after a resize.

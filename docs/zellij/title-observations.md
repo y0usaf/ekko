@@ -5,7 +5,7 @@ regular/bare lifecycle checks pass; the private workflow has exact settled
 pixel/cell matches but startup and broader behavioral gaps remain. See
 [evidence](../evidence/zellij/title-metadata/README.md). The pinned
 source checkout is `/nix/store/2q437kxp07ki50dkh6a4nmmcc4nlylqw-source`,
-corresponding to `tests/zellij/reference/pin.json` (`v0.43.1`, nixpkgs
+corresponding to the pinned `v0.43.1` reference (nixpkgs
 revision `ac62194c3917d5f474c1a844b6fd6da2db95077d`).
 
 `terminal_pane.rs:338-381` selects the frame title in this order: temporary

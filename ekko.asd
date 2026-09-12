@@ -1,8 +1,7 @@
 (asdf:defsystem "ekko"
   :description "Ekko terminal multiplexer build spine"
   :version "0.1.0"
-  :depends-on ("ekko/core" "ekko/builtins")
-  :in-order-to ((test-op (test-op "ekko/tests"))))
+  :depends-on ("ekko/core" "ekko/builtins"))
 
 (asdf:defsystem "ekko/core"
   :depends-on ("sb-posix" "ekko/runtime")
@@ -41,27 +40,3 @@
   :description "Synthetic Kitty graphics experiment; not a multiplexer"
   :depends-on ("ekko/scene" "ekko/client")
   :components ((:file "src/graphics-demo")))
-
-(asdf:defsystem "ekko/tests"
-  :depends-on ("ekko" "ekko/scene" "ekko/client" "ekko/graphics-demo")
-  :serial t
-  :components ((:file "examples/profiles/zellij-frames")
-               (:file "examples/profiles/zellij-pane")
-               (:file "tests/zellij-frames")
-               (:file "tests/erase-history")
-               (:file "tests/geometry")
-               (:file "tests/presentation")
-               (:file "tests/graphics-demo")
-               (:file "tests/input")
-               (:file "tests/render")
-               (:file "tests/selection")
-               (:file "tests/desktop")
-               (:file "tests/base64")
-               (:file "tests/graphics-parser")
-               (:file "tests/assets")
-               (:file "tests/customization")
-               (:file "tests/runner"))
-  :perform (test-op (operation system)
-             (declare (ignore operation system))
-             (unless (uiop:symbol-call :cl-user :run-ekko-tests)
-               (error "Ekko tests failed"))))

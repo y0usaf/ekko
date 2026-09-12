@@ -163,15 +163,13 @@ nix flake check
 nix run . -- --help
 ```
 
-Checks include independent graphics receivers, real PTYs, reply and input routing,
-clipping, scoped deletion, client death, reconnect, zoom/swap, shell job control,
-terminal restoration, configuration rollback, callback termination, dependency hooks,
-bare builds, split trees, and persistent copy buffers. The original synthetic fixtures remain under
+Checks include the exhaustive Unicode width oracle, the packaged binary smoke
+test, and the default build. The original synthetic fixtures remain under
 `nix run .#demo-graphics`. The isolated Xvfb precursor is `nix run .#test-kitty`;
 its GLX limitation is separate from the working live Wayland launch.
 
 `nix develop` supplies SBCL, a C toolchain, zlib, and Python. Native fallback:
-`sh scripts/build.sh`, then `sh scripts/test.sh`. The executable disables Lisp
+`sh scripts/build.sh`. The executable disables Lisp
 init files, needs no Quicklisp cache, and ships its OS adapter in the Nix closure.
 
 Measure fixed idle, scrolling-text, 1 MiB graphics, and 16 KiB paste workloads:
