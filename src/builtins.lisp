@@ -1,11 +1,13 @@
 (defpackage #:ekko/builtins
   (:use #:cl #:ekko/extensions)
+  (:import-from #:ekko/layout-providers #:install-layouts)
   (:export #:install))
 (in-package #:ekko/builtins)
 
 (defun install ()
+  (install-layouts)
   (register-component :id :defaults
-                      :reads '(:session :focus :panes :viewport :mode :zoom :layout :component-state :time)
+                      :reads '(:session :sessions :focus :panes :viewport :mode :zoom :layout :component-state :time)
                       :handler #'ekko/desktop:hook)
   (set-option :component :defaults :name :pane-insets :value '(1 1 1 1))
   (set-option :component :defaults :name :viewport-insets :value '(0 0 1 0))
@@ -40,6 +42,16 @@
         :handler (lambda (snapshot event) (declare (ignore event))
                    (let ((pane (nth index (value snapshot :panes))))
                      (when pane (list (action :focus :pane (getf pane :id)))))))))
+  (register-command :component :defaults :name "session-next"
+    :handler (lambda (snapshot event)
+               (declare (ignore event))
+               (let* ((sessions (value snapshot :sessions))
+                      (current (position (value snapshot :session) sessions
+                                         :key (lambda (entry) (getf entry :name)) :test #'equal)))
+                 (when sessions
+                   (list (action :show-session :name
+                                 (getf (nth (mod (1+ (or current -1)) (length sessions)) sessions) :name)))))))
+  (bind-key :component :defaults :key ")" :command "session-next")
   (register-keymap :component :defaults :name :scroll :unbound :copy)
   (dolist (spec '(("copy-mode" :copy-mode :scroll) ("copy-exit" :copy-exit :normal)
                   ("copy-selection" :copy-selection :normal)))

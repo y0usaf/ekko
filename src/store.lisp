@@ -4,20 +4,27 @@
 ;;; read with *READ-EVAL* disabled and bounded before they enter a session.
 (defpackage #:ekko/store
   (:use #:cl)
-  (:export #:store-directory #:store-file #:store-load #:store-write #:store-namespace))
+  (:export #:*directory* #:store-directory #:store-file #:store-load #:store-write #:store-namespace))
 (in-package #:ekko/store)
 
 (defparameter +namespace-limit+ 256)
 (defparameter +file-limit+ (* 64 1024))
 
-(defun store-directory ()
-  "Durable state location. EKKO_STORE_DIR overrides XDG_STATE_HOME."
-  (or (let ((override (uiop:getenv "EKKO_STORE_DIR")))
-        (when override (uiop:ensure-directory-pathname override)))
-      (let ((state (uiop:getenv "XDG_STATE_HOME")))
-        (if (and state (plusp (length state)))
-            (merge-pathnames "ekko/store/" (uiop:ensure-directory-pathname state))
-            (merge-pathnames ".local/state/ekko/store/" (user-homedir-pathname))))))
+(defvar *directory* nil)
+
+(defun store-directory (&optional (instance "default"))
+  "Resolve a validated INSTANCE once; EKKO_STORE_DIR always overrides it.
+The daemon binds *DIRECTORY* to this result for its entire lifetime."
+  (or *directory*
+      (let* ((override (uiop:getenv "EKKO_STORE_DIR"))
+             (state (uiop:getenv "XDG_STATE_HOME"))
+             (base (if override
+                       (uiop:ensure-directory-pathname override)
+                       (if (and state (plusp (length state)))
+                           (merge-pathnames "ekko/store/" (uiop:ensure-directory-pathname state))
+                           (merge-pathnames ".local/state/ekko/store/" (user-homedir-pathname))))))
+        (if (or override (string= instance "default")) base
+            (merge-pathnames (format nil "instances/~A/" instance) base)))))
 
 (defun store-namespace (owner)
   "Namespace string for a component owner, or NIL without one."

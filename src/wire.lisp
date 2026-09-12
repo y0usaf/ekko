@@ -3,13 +3,18 @@
   (:export #:run-session #:serve #:attach-session #:control-session #:restore-terminal))
 (in-package #:ekko/runtime)
 
-;; Versions 8 and 10 were the isolated Finix overlay variants.
-;; Version 11 provides their generic capabilities in the shared runtime.
-;; Version 12 adds clipboard packet 23, sent only to viewers >= 12.
-(defconstant +wire-version+ 13)
+;; Version 15 binds every viewer input transaction to a connection generation.
+;; Routes, attach/resize separation and daemon-global pane identities remain.
+(defconstant +wire-version+ 15)
+(defvar *instance* "default")
 (defconstant +queue-limit+ (* 8 1024 1024))
+(define-condition wire-protocol-error (simple-error) ())
+(defun reject-protocol (message)
+  (error 'wire-protocol-error :format-control message :format-arguments nil))
 (defstruct wire fd (version +wire-version+) (packet-limit +queue-limit+) (queue nil) (queue-tail nil) (queued 0) (offset 0) (prefix (octets 4))
   (prefix-used 0) body (body-used 0) (known (make-hash-table :test 'equal))
+  greeted route selected-view-id view closing pending-switch
+  (binding-generation 0) binding-accepted
   attached revision awaiting-scene (leases nil) (at (now)))
 (defun u32 (bytes offset)
   (+ (ash (aref bytes offset) 24) (ash (aref bytes (+ offset 1)) 16)
@@ -69,17 +74,28 @@
 (defun close-wire (wire) (close-fd (wire-fd wire)) (setf (wire-fd wire) -1)
   (setf (wire-queue wire) nil (wire-queue-tail wire) nil (wire-body wire) nil)
   (clrhash (wire-known wire)) (acknowledge-scene wire))
-(defun socket-path (name)
-  (unless (and (<= 1 (length name) 40) (every (lambda (c) (or (alphanumericp c) (find c "_-"))) name))
-    (error "Session names must contain 1–40 letters, digits, underscores or hyphens"))
-  (let* ((base (or (uiop:getenv "XDG_RUNTIME_DIR") (format nil "/tmp/ekko-v2-~D" (sb-posix:getuid))))
-         (dir (format nil "~A/ekko-v2/" base)))
+(defun checked-name (name &optional (kind "Session"))
+  (unless (and (stringp name) (<= 1 (length name) 40)
+               (every (lambda (c) (or (find c "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789")
+                                     (find c "_-"))) name))
+    (error "~A names must contain 1–40 ASCII letters, digits, underscores or hyphens" kind))
+  name)
+(defun socket-path ()
+  (checked-name *instance* "Instance")
+  (let* ((base (uiop:getenv "XDG_RUNTIME_DIR"))
+         (dir (if (and base (plusp (length base)))
+                  (format nil "~A/ekko/" (string-right-trim "/" base))
+                  (format nil "/tmp/ekko-~D/" (sb-posix:getuid)))))
     (ensure-directories-exist dir)
     (let ((st (sb-posix:lstat (string-right-trim "/" dir))))
       (unless (and (= (sb-posix:stat-uid st) (sb-posix:getuid))
-                   (sb-posix:s-isdir (sb-posix:stat-mode st))) (error "Unsafe session directory")))
+                   (sb-posix:s-isdir (sb-posix:stat-mode st))) (error "Unsafe daemon directory")))
     (sb-posix:chmod dir #o700)
-    (format nil "~A~A.sock" dir name)))
+    (format nil "~A~A.sock" dir (if (string= *instance* "default") "ekko"
+                                   (concatenate 'string "instance-" *instance*)))))
+(defun send-route (wire name &optional view-id)
+  (when name (checked-name name))
+  (send-packet wire 0 (encode-scene (list +wire-version+ name view-id))))
 (defun encode-scene (scene)
   (text-bytes (with-standard-io-syntax (let ((*print-readably* t) (*print-pretty* nil)) (write-to-string scene)))))
 (defun decode-scene (bytes)

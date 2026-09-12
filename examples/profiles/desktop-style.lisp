@@ -134,9 +134,11 @@
 (defun windows (snapshot event)
   (declare (ignore event))
   (let ((focus (ekko/extensions:value snapshot :focus))
-        (mode (ekko/extensions:value snapshot :mode)))
+        (mode (ekko/extensions:value snapshot :mode))
+        (viewport (ekko/extensions:value snapshot :viewport)))
     (list (ekko/extensions:action :decorate :spans
-      (append
+      (ekko/extensions:clip-decorations
+       (append
         (loop for pane in (ekko/extensions:value snapshot :panes)
               when (getf pane :visible)
               append
@@ -185,7 +187,8 @@
                                       :hover-sgr (list 0 1 38 5 16 48 5 color)
                                       :action (list action :pane id))))))))))
         (unless (find-if (lambda (pane) (getf pane :visible)) (ekko/extensions:value snapshot :panes))
-          (backdrop snapshot)))))))
+          (backdrop snapshot)))
+       (getf viewport :cols) (getf viewport :rows))))))
 
 (defun dock (snapshot event &optional (hints *hints*))
   (declare (ignore event))

@@ -46,10 +46,7 @@
             root = ./.;
             fileset = pkgs.lib.fileset.unions [
               ./ekko.asd
-              ./examples/profiles/zellij-bindings.lisp
-              ./examples/profiles/desktop-style.lisp
-              ./examples/profiles/zellij-frames.lisp
-              ./examples/profiles/zellij-pane.lisp
+              (pkgs.lib.fileset.fileFilter (file: file.hasExt "lisp") ./examples/profiles)
               (pkgs.lib.fileset.fileFilter (file: file.hasExt "lisp" || file.hasExt "c") ./src)
               ./scripts/build.sh ./scripts/build.lisp ./scripts/build-demo.lisp
               ./scripts/smoke.sh

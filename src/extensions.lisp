@@ -1,7 +1,8 @@
 (defpackage #:ekko/extensions
   (:use #:cl)
   (:export #:register-component #:unregister-component #:register-command #:bind-key
-           #:register-keymap #:set-option #:value #:action #:api-version #:display-width))
+           #:register-keymap #:register-layout-provider #:set-option #:value #:action
+           #:api-version #:layout-api-version #:display-width #:clip-decorations))
 (in-package #:ekko/extensions)
 
 (defun display-width (value)
@@ -9,8 +10,12 @@
   (ekko/text:display-width value))
 
 (defun api-version () 1)
-(defparameter *context-keys* '(:session :focus :panes :layout :mode :zoom :viewport :chrome-status :pane-notes :component-state :store :geometry :time))
-(defstruct component id reads handler initialize commands bindings options keymaps)
+(defun layout-api-version () 1)
+(defconstant +maximum-pane-budget+ 128)
+(defparameter *context-keys*
+  '(:session :view :focus :panes :layout :mode :zoom :viewport :chrome-status :pane-notes
+    :component-state :store :geometry :time :sessions :all-panes :workspace))
+(defstruct component id reads handler initialize commands bindings options keymaps layouts)
 (defvar *components* nil)
 (defvar *reads* nil)
 (defvar *dispatching* nil)
@@ -42,6 +47,19 @@
   (let* ((owner (owner component)) (name (name-string name)))
     (setf (component-commands owner)
           (acons name handler (remove name (component-commands owner) :key #'car :test #'equal)))) name)
+(defun register-layout-provider (&key component name (api-version 1) reads handler)
+  "Register an owned, isolated callback returning a versioned :PLACE-PANES action."
+  (registration-phase)
+  (unless (and (eql api-version (layout-api-version)) (functionp handler)
+               (listp reads) (every (lambda (key) (member key *context-keys*)) reads)
+               (= (length reads) (length (remove-duplicates reads)))
+               (every (lambda (key) (member key reads)) '(:panes :focus :viewport :geometry)))
+    (error "A layout provider needs API version 1 and declared pane, focus, viewport and geometry reads"))
+  (let* ((owner (owner component)) (name (name-string name)))
+    (setf (component-layouts owner)
+          (acons name (list :reads (copy-list reads) :handler handler)
+                 (remove name (component-layouts owner) :key #'car :test #'equal)))
+    name))
 (defparameter *named-keys*
   '(("Tab" . 9) ("Enter" . 13) ("Escape" . 27)
     ("Left" . :left) ("Right" . :right) ("Up" . :up) ("Down" . :down)
@@ -68,6 +86,7 @@
 Control folds into the legacy control code; Alt and Super return (MODS . KEY) with
 bit 1 for Alt and bit 2 for Super."
   (cond ((and (integerp key) (<= 0 key #x10ffff)) key)
+        ((and (stringp key) (= (length key) 1)) (char-code (char key 0)))
         ((stringp key)
          (let ((tokens (split-key-tokens key)))
            (if (= 1 (length tokens))
@@ -116,9 +135,10 @@ bit 1 for Alt and bit 2 for Super."
   "Validate a startup tree and return its one-based command slots."
   (let ((leaves nil) (nodes 0))
     (labels ((visit (node)
-               (when (> (incf nodes) 31) (error "Initial layout exceeds sixteen panes"))
+               (when (> (incf nodes) (1- (* 2 +maximum-pane-budget+)))
+                 (error "Initial layout exceeds ~D panes" +maximum-pane-budget+))
                (cond
-                 ((typep node '(integer 1 16))
+                 ((typep node `(integer 1 ,+maximum-pane-budget+))
                   (when (member node leaves) (error "Duplicate initial layout slot ~D" node))
                   (push node leaves))
                  ((and (listp node) (= (length node) 4)
@@ -136,6 +156,9 @@ bit 1 for Alt and bit 2 for Super."
   (unless (case name
             (:initial-keymap (or (null value) (and (keywordp value) (not (member value '(:prefix :copy))))))
             (:initial-layout (progn (initial-layout-leaves value) t))
+            (:layout-provider (and value (name-string value)))
+            (:workspace-scope (member value '(:session :all-panes)))
+            (:pane-budget (typep value `(integer 1 ,+maximum-pane-budget+)))
             (:prefix (and (integerp (key-code value)) (<= 1 (key-code value) 26)))
             (:shell (and (listp value) (<= 1 (length value) 64) (every (lambda (s) (and (stringp s) (<= (length s) 4096) (not (find #\Null s)))) value)
                          (plusp (length (first value)))))
@@ -157,7 +180,8 @@ bit 1 for Alt and bit 2 for Super."
             (:pty-pixel-source (member value '(:effective :reported))))
     (error "Invalid option ~S: ~S" name value))
   (setf (getf (component-options (owner component)) name)
-        (if (eq name :prefix) (key-code value) value)) nil)
+        (case name (:prefix (key-code value)) (:layout-provider (name-string value))
+          (otherwise value))) nil)
 (defun value (snapshot key)
   (unless (member key *reads*) (error "Undeclared snapshot dependency: ~S" key))
   (getf snapshot key))
@@ -171,6 +195,10 @@ bit 1 for Alt and bit 2 for Super."
         :keymaps (loop for c in *components* append
                    (loop for (name . unbound) in (component-keymaps c) collect
                      (list :name name :unbound unbound :owner (component-id c))))
+        :layout-providers (loop for c in *components* append
+                            (loop for (name . provider) in (component-layouts c) collect
+                              (list :name name :owner (component-id c) :api-version 1
+                                    :reads (copy-list (getf provider :reads)))))
         :commands (loop for c in *components* append
                     (loop for (name . fn) in (component-commands c) collect
                       (list :name name :owner (component-id c))))
@@ -181,12 +209,58 @@ bit 1 for Alt and bit 2 for Super."
         :options (loop with options = nil for c in *components* do
                    (loop for (key val) on (component-options c) by #'cddr do (setf (getf options key) val))
                    finally (return options))))
+(defun copy-data (value)
+  "Detach strings as well as cons cells before handing data to extension code."
+  (typecase value
+    (cons (cons (copy-data (car value)) (copy-data (cdr value))))
+    (string (copy-seq value))
+    (t value)))
+(defun clipped-decoration-text (text left width)
+  (with-output-to-string (out)
+    (let ((column 0) (right (+ left width)) (base-visible nil))
+      (loop for character across text for size = (display-width character) do
+        (if (zerop size)
+            (when base-visible (write-char character out))
+            (let* ((end (+ column size))
+                   (overlap (max 0 (- (min end right) (max column left)))))
+              (setf base-visible (and (>= column left) (<= end right)))
+              (if base-visible
+                  (write-char character out)
+                  ;; Never emit one half of a wide glyph or its combining marks.
+                  (dotimes (cell overlap) (write-char #\Space out)))
+              (setf column end)))))))
+
+(defun clip-decorations (spans cols rows)
+  "Clip detached decoration spans to a cell viewport, keeping their actions."
+  (unless (and (typep cols '(integer 1 500)) (typep rows '(integer 1 300)) (listp spans))
+    (error "Invalid decoration clipping viewport"))
+  (loop for span in spans
+        for x = (getf span :x) for y = (getf span :y)
+        for text = (getf span :text) for height = (getf span :rows 1)
+        do (unless (and (integerp x) (integerp y) (stringp text) (typep height '(integer 1 300)))
+             (error "Invalid decoration clipping input"))
+        append
+        (let* ((left (max 0 x)) (top (max 0 y)) (bottom (min rows (+ y height)))
+               (visible (when (and (< left cols) (< top bottom))
+                          (clipped-decoration-text text (max 0 (- x)) (- cols left)))))
+          (when (and visible (plusp (display-width visible)))
+            (let ((clipped (copy-data span)))
+              (setf (getf clipped :x) left (getf clipped :y) top
+                    (getf clipped :text) visible (getf clipped :rows) (- bottom top))
+              (list clipped))))))
+
 (defun dispatch (kind name snapshot event)
   (let* ((c (if (member kind '(:hook :initialize)) (owner name)
-                (or (find-if (lambda (c) (assoc name (component-commands c) :test #'equal)) (reverse *components*))
-                    (error "Unknown command: ~A" name))))
+                (or (find-if (lambda (c)
+                               (assoc name (if (eq kind :layout) (component-layouts c)
+                                               (component-commands c)) :test #'equal))
+                             (reverse *components*))
+                    (error "Unknown callback: ~A" name))))
+         (provider (and (eq kind :layout) (cdr (assoc name (component-layouts c) :test #'equal))))
          (fn (case kind (:hook (component-handler c)) (:initialize (component-initialize c))
+               (:layout (getf provider :handler))
                (otherwise (cdr (assoc name (component-commands c) :test #'equal)))))
-         (*reads* (component-reads c)) (*dispatching* t)
-         (visible (loop for key in *reads* append (list key (copy-tree (getf snapshot key))))))
-    (list :owner (component-id c) :actions (funcall fn visible (copy-tree event)))))
+         (*reads* (if provider (getf provider :reads) (component-reads c)))
+         (*dispatching* t)
+         (visible (loop for key in *reads* append (list key (copy-data (getf snapshot key))))))
+    (list :owner (component-id c) :actions (funcall fn visible (copy-data event)))))

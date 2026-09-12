@@ -8,6 +8,9 @@
 ;; can be NIL. In that case its default pathname is the configuration
 ;; directory. The helper is deliberately a sibling of this profile so copied
 ;; test configurations can remain self-contained.
+(load (merge-pathnames "layouts.lisp"
+                       (or *load-truename* *default-pathname-defaults*)))
+(ekko/layout-providers:install-layouts)
 (load (merge-pathnames "zellij-frames.lisp"
                        (or *load-truename* *default-pathname-defaults*)))
 (load (merge-pathnames "zellij-pane.lisp"
