@@ -8,7 +8,8 @@ profile implementation boundary.
 
 The reference configuration enters rename mode from Pane mode with
 `c`: `SwitchToMode "RenamePane"; PaneNameInput 0`
-(`tests/zellij/reference/config.kdl:39`). The KDL parser accepts the numeric
+(the pinned Zellij reference configuration, keybinding line 39). The KDL parser
+accepts the numeric
 byte argument for `PaneNameInput` at
 `zellij-utils/src/kdl/mod.rs:1475-1477`. Entering RenamePane first stores the
 active pane's prior name, but byte zero does not clear the editable name:
@@ -20,7 +21,7 @@ showed `Enter name...` on `rename-enter`, then `ABC` after typing.
 
 The mode's direct bindings are `Ctrl c -> SwitchToMode Normal` and
 `Esc -> UndoRenamePane; SwitchToMode Pane`
-(`tests/zellij/reference/config.kdl:110-112`). Enter and Escape also come
+(the same reference configuration, keybinding lines 110-112). Enter and Escape also come
 from the shared binding `shared_except "normal" "locked"` at
 `config.kdl:195-197`, so Enter commits the current edit by leaving the mode
 and returning Normal. Ctrl-C likewise leaves the mode and keeps the edit.

@@ -8,7 +8,8 @@ are recorded in [frame-toggle evidence](../evidence/zellij/frame-toggle/README.m
 ## Pinned behavior
 
 The reference binding is `z` → `TogglePaneFrames` followed by
-`SwitchToMode "Normal"` (`tests/zellij/reference/config.kdl:35-37`). The
+`SwitchToMode "Normal"` (the pinned Zellij reference configuration, keybinding
+lines 35-37). The
 configuration default is enabled (`zellij-utils/src/setup.rs:792`; KDL option
 parsing at `zellij-utils/src/kdl/mod.rs:2285-2286`).
 
