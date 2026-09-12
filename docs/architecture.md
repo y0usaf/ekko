@@ -57,7 +57,10 @@ replacement reconstructs owned contributions while preserving session state.
 Hooks react only to declared context changes and may contribute status. Candidate
 loads run alongside the reactor; failed loads leave the active worker in place.
 A callback deadline kills the worker and reconstructs it from the accepted init
-text. Details and current restrictions are in [customization](customization.md).
+text; a change hook has a longer deadline than a command, and only a hook that
+misses three consecutive deadlines is disabled, so one late chrome repaint does
+not take the decorations down. Details and current restrictions are in
+[customization](customization.md).
 
 Command dispatch is asynchronous. Input following a command is deferred in a
 bounded queue, then replayed after the action commits, so focus/split commands

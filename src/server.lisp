@@ -14,7 +14,7 @@
   tree (next-pane-id 1) retired worker candidate registry (config-generation 0) config-error
   (geometry-contributions nil) (contributions nil) (decorations nil) (pane-notes nil) hook-context (hooks nil) (input-queue nil) (input-bytes 0)
   (input-read-framed nil) (input-read-bytes nil)
-  command-queue disabled-hooks reload-peer (clipboard "") stopping (notice "")
+  command-queue disabled-hooks hook-failures reload-peer (clipboard "") stopping (notice "")
   key-fragment key-fragment-mode component-state store)
 (defun pty-cell-size (session)
   (if (eq (option session :pty-pixel-source :effective) :reported)

@@ -655,3 +655,34 @@ Final validation: `nix flake check --keep-going -L .` exited zero across all 28 
 - This closes the storage mechanism only. The Zellij profile does not yet use it
   for release-note markers; startup floating/plugin presentation and pointer
   routing remain the next bounded actions.
+
+### Hook timeout chrome loss
+
+- Root cause: the daemon treated the first miss of a change hook's 50 ms
+  deadline as a hang, disabled that hook and reconstructed the worker from the
+  accepted source. Recovery keeps the disabled set, so the desktop repaint hook
+  (`:defaults`, which draws every window frame and the dock) never ran again and
+  the chrome vanished for the rest of the session. Real sessions hit it on a
+  loaded machine; their daemon logs contain `configuration: Extension (:HOOK
+  "defaults") timed out` minutes into the run.
+- Fix: `src/commands.lisp` dispatches change hooks with a 500 ms deadline and
+  counts consecutive unanswered dispatches per owner. Each answer clears the
+  count; only the third consecutive miss disables the owner and removes it from
+  the dispatch queue, so one scheduling delay cannot take the UI down while a
+  hung hook still stops restarting the worker. Commands and initialization keep
+  the 50 ms deadline. A non-recovery reload clears counts with the disabled set,
+  and registry installation prunes counters for removed owners.
+- Test: `tests/ui_stall.py` now also stops the extension worker past the hook
+  deadline and requires the viewer to live, `disabled-hooks` to stay empty and
+  the dock chrome to reappear in the viewer's bytes. Against the pre-fix binary
+  it fails at "the chrome never returned"; `tests/customization.lisp` covers
+  one timeout surviving, an answer clearing the count, and the third
+  consecutive timeout disabling the hook and dropping it from the queue.
+- Verification: `nix build --no-link -L .#checks.x86_64-linux.ui-stall
+  .#checks.x86_64-linux.daily` and the full `nix flake check --keep-going -L .`
+  exited 0 with all checks passed. One earlier full run failed only the
+  `zellij-pane-workflow` `move` geometry gate; that gate is flaky on the pinned
+  Zellij reference (the same extra same-cell-size WINCH already recorded
+  above), reproduces on a pristine `75c7987` worktree, and passed on re-run
+  with Ekko's geometry history unchanged.
+  [Verification receipt](docs/evidence/ui-hook-timeout/verification.json).

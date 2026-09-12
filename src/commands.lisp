@@ -158,7 +158,11 @@
     (setf (session-geometry-contributions session)
           (remove-if-not (lambda (entry)
                           (find (car entry) owners :key (lambda (c) (getf c :id)) :test #'equal))
-                        (session-geometry-contributions session))))
+                        (session-geometry-contributions session)))
+    (setf (session-hook-failures session)
+          (remove-if-not (lambda (entry)
+                          (find (car entry) owners :key (lambda (c) (getf c :id)) :test #'equal))
+                        (session-hook-failures session))))
   (setf (session-registry session) registry (session-config-error session) nil
         (session-contributions session) nil (session-decorations session) nil
         (session-popup session) nil (session-transition session) nil (session-window-drag session) nil
@@ -366,7 +370,9 @@ Super stay distinct as (MODS . KEY), with bit 1 for Alt and bit 2 for Super."
               (apply-initialization session (extension-worker-initialization-actions candidate))
               (setf (extension-worker-initialization-context candidate) nil
                     (extension-worker-initialization-actions candidate) nil)
-              (unless (extension-worker-recovery candidate) (setf (session-disabled-hooks session) nil))
+              (unless (extension-worker-recovery candidate)
+                (setf (session-disabled-hooks session) nil
+                      (session-hook-failures session) nil))
               (setf (session-notice session) "")
               (command-reply (session-reload-peer session) "") (setf (session-reload-peer session) nil)
               (replay-input session)))
@@ -385,6 +391,10 @@ Super stay distinct as (MODS . KEY), with bit 1 for Alt and bit 2 for Super."
           (let ((response (poll-worker worker buffer)) (request (extension-worker-request worker)))
             (when response
               (setf (extension-worker-request worker) nil)
+              ;; An answer, including an error answer, proves the worker ran the
+              ;; hook; clear its timeout count before judging the result.
+              (when (and (listp request) (eq (first request) :hook))
+                (note-hook-answered session (second request)))
               (handler-case
                   (progn
                     (when (eq (first response) :error) (error "~A" (second response)))
@@ -407,7 +417,7 @@ Super stay distinct as (MODS . KEY), with bit 1 for Alt and bit 2 for Super."
             ;; Recover from the last successfully loaded source, even if the file
             ;; on disk has since become invalid. Never reload inside a callback.
             (when (and (listp request) (eq (first request) :hook))
-              (pushnew (second request) (session-disabled-hooks session) :test #'equal))
+              (note-hook-timeout session (second request)))
             (handler-case
                 (unless (session-candidate session) (start-reload session nil t))
               (error (recovery-error) (note-error session recovery-error)))
@@ -419,6 +429,23 @@ Super stay distinct as (MODS . KEY), with bit 1 for Alt and bit 2 for Super."
           (error (e) (note-error session e) (command-reply (third command) (princ-to-string e) t)
             (replay-input session))))))
   (schedule-hooks session))
+(defconstant +hook-deadline+ 1/2
+  "Change hooks repaint the UI chrome.  A loaded machine may need longer than
+an interactive command's deadline; a late answer must not be read as a hang.")
+(defconstant +hook-timeout-limit+ 3
+  "Consecutive unanswered dispatches before a change hook is disabled.")
+(defun note-hook-timeout (session owner)
+  "Count one unanswered dispatch, disabling OWNER only after repeated hangs.
+A single scheduling delay must not permanently remove an owner's UI."
+  (let ((entry (assoc owner (session-hook-failures session) :test #'equal)))
+    (if entry (incf (cdr entry)) (push (cons owner 1) (session-hook-failures session)))
+    (when (>= (cdr (assoc owner (session-hook-failures session) :test #'equal))
+              +hook-timeout-limit+)
+      (pushnew owner (session-disabled-hooks session) :test #'equal)
+      (setf (session-hooks session) (remove owner (session-hooks session) :test #'equal)))))
+(defun note-hook-answered (session owner)
+  (setf (session-hook-failures session)
+        (remove owner (session-hook-failures session) :key #'car :test #'equal)))
 (defun schedule-hooks (session)
   (let ((context (context-data session)) (previous (session-hook-context session)))
     (unless (equal context previous)
@@ -434,7 +461,7 @@ Super stay distinct as (MODS . KEY), with bit 1 for Alt and bit 2 for Super."
     (when (and worker (null (extension-worker-request worker)) (session-hooks session))
       (let ((id (pop (session-hooks session))) (context (context-data session)))
         (setf (extension-worker-request worker) (list :hook id context)
-              (extension-worker-deadline worker) (+ (now) 1/20))
+              (extension-worker-deadline worker) (+ (now) +hook-deadline+))
         (extension-send (extension-worker-output worker)
                         (list :dispatch :hook id context (list :type :change)))))))
 

@@ -1,10 +1,18 @@
-"""Regression: stalled viewer must not be dropped by the daemon (UI dies).
+"""Regression: daemon-side hiccups must not take the UI down.
 
 Starts a real daemon with the desktop defaults, attaches a real viewer
-process on a PTY, then SIGSTOPs the viewer past the daemon's 10-second
-scene-acknowledgement deadline and SIGCONTs it. On the buggy baseline the
-daemon drops the peer, the viewer sees EOF and exits (the reported "UI
-randomly dies"). After the fix the viewer survives and keeps rendering.
+process on a PTY, then exercises two failures that previously ended the UI:
+
+1. SIGSTOP the viewer past the daemon's 10-second scene-acknowledgement
+   deadline: the daemon used to drop the peer, the viewer saw EOF and exited
+   (the reported "UI randomly dies").
+2. SIGSTOP the extension worker past a change-hook deadline: the desktop's
+   repaint hook used to be disabled after one late answer, so its window
+   frames and dock vanished for the rest of the session (the reported "UI
+   disappears").
+
+After both fixes the viewer survives, the chrome returns and the session
+keeps its registered hooks.
 """
 import json
 import os
@@ -56,8 +64,24 @@ def integration(binary, out_path, stall=12.0):
                                       start_new_session=True)
             os.close(slave)
             os.set_blocking(fd, False)
+            raw = bytearray()
+
+            def drain():
+                # Keep the PTY drained so post-recovery frames are never stuck
+                # behind earlier output, and retain them for chrome assertions.
+                while True:
+                    try:
+                        chunk = os.read(fd, 65536)
+                    except OSError as error:
+                        if error.errno in (errno.EAGAIN, errno.EIO):
+                            return
+                        raise
+                    if not chunk:
+                        return
+                    raw.extend(chunk)
 
             def viewer_alive():
+                drain()
                 return viewer.poll() is None
 
             eventually(viewer_alive, timeout=4)
@@ -84,6 +108,38 @@ def integration(binary, out_path, stall=12.0):
                 'UI died across a viewer stall (daemon dropped the peer)')
             assert result['daemon_alive']
             assert result['status_ok']
+
+            # A late change-hook answer must not disable the desktop repaint
+            # hook. The dock clock changes every second, so stopping the
+            # extension worker forces a dispatch past the hook deadline.
+            def inspect():
+                return json.loads(subprocess.run([binary, 'inspect', name], env=env,
+                                                 capture_output=True, timeout=8).stdout)
+
+            assert any(d['owner'] == 'defaults' for d in inspect()['decorations']), (
+                'desktop decorations missing before the hook stall')
+            mark = len(raw)
+            worker = json.loads(subprocess.run([binary, 'status', name], env=env,
+                                               capture_output=True, timeout=8).stdout)['extension_pid']
+            os.kill(worker, signal.SIGSTOP)
+            eventually(lambda: b'timed out' in (root / 'daemon.log').read_bytes(), timeout=10)
+            live = json.loads(subprocess.run([binary, 'status', name], env=env,
+                                             capture_output=True, timeout=8).stdout)
+            if live['extension_pid'] == worker:
+                os.kill(worker, signal.SIGCONT)
+
+            # Required outcome: the repaint hook survives and the dock returns.
+            def chrome_back():
+                drain()
+                return b'EKKO' in bytes(raw[mark:])
+
+            eventually(chrome_back, timeout=10)
+            state = inspect()
+            assert not state['disabled-hooks'], state['disabled-hooks']
+            assert any(d['owner'] == 'defaults' and d['spans'] for d in state['decorations'])
+            result['hook_timeout_recovered'] = True
+            result['viewer_alive_after_hook_timeout'] = viewer_alive()
+            assert result['viewer_alive_after_hook_timeout'], 'viewer exited after hook timeout'
 
             subprocess.run([binary, 'stop', name], env=env, capture_output=True, timeout=8)
             daemon.wait(timeout=4)
