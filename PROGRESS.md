@@ -1,5 +1,20 @@
 # Implementation progress
 
+Shared-daemon refactor (2026-09-12): one default reactor owns global sessions
+and panes. Independent views use public Lisp layout providers, including tiled,
+floating and all-session scrolling policies. Wire15 binds input to acknowledged
+connection generations. Reload validates affected views before replacing their
+worker and quarantines a failed view without blocking healthy peers.
+
+Upstream's test-suite removal is preserved. The remaining Nix package, packaged
+CLI smoke and Unicode-width checks pass with
+`nix flake check path:. --no-update-lock-file --keep-going --max-jobs 4 -L`.
+The existing performance runner completed idle, text, graphics and paste at
+`--seconds 0.25`; these are short functional runs, not a performance comparison
+or exhaustive multi-client acceptance. A private bare runtime also exercised
+public scrolling, split/reload, independent view state and session-local stop
+without replacing surviving application PIDs.
+
 Style refinement (2026-09-08): frozen selection now retains styled VT/history
 cells and uses the live row renderer; only selected backgrounds change. Headers
 span each pane in its border colour with centred, display-width-clipped titles.

@@ -14,8 +14,8 @@ ekko command --session workspace label-work
 
 `ekko config reload SESSION` reloads the configuration. Editing a file takes effect after
 reload, without rebuilding or restarting applications. A bad reload reports an
-error and keeps the previous configuration. Each daemon remembers its startup
-configuration path; `config check` uses the caller's environment.
+error and keeps the previous configuration. Each session remembers its creation
+configuration path and launch environment; `config check` uses the caller's environment.
 
 These are trusted Lisp files with your OS permissions, like an Emacs init file.
 They run in a separate process. This boundary isolates host state and lets the
@@ -27,6 +27,104 @@ it paints UI chrome and a loaded machine may answer late. Messages are limited t
 Load local helper files with `load` if needed. Reloading a worker also reloads
 those files; recovery retains the accepted init text, not copies of its dependencies.
 
+## Shared sessions and views
+
+Sessions share one daemon, global pane IDs and the durable component store.
+A session keeps its launch cwd, environment, worker, configuration and applications.
+Each view has its own focus, mode, zoom, selection, geometry contributions,
+component state, decorations and layout camera. The first attachment uses the
+session's home view; a default reconnect can resume that detached view.
+
+Callbacks receive an immutable snapshot of their originating view. Commands
+capture that view's epoch and default pane target before dispatch. Completion
+cannot use another view's focus. Detach or session switching cancels old-origin
+actions and pending input. A shared structural edit refreshes affected views.
+Use `ekko command --session NAME --view ID COMMAND` when several views are attached.
+The public `:show-session :name NAME` action switches the originating view.
+
+## Layout providers
+
+A provider is an owned, isolated callback, not a host layout enum:
+
+```lisp
+(layout-api-version) ; => 1
+(register-layout-provider
+ :component :workspace :name "my-layout" :api-version 1
+ :reads '(:panes :focus :viewport :geometry)
+ :handler function)
+(set-option :component :workspace :name :layout-provider :value "my-layout")
+(set-option :component :workspace :name :workspace-scope :value :all-panes)
+```
+
+Register the component first. The provider's handler receives `(snapshot event)`
+and returns exactly one action:
+
+```lisp
+(list (action :place-panes :version 1
+              :placements '((:pane 42 :x -19 :y 1 :cols 60 :rows 20
+                              :outer (-20 0 62 22)))
+              :camera '(100 0)))
+```
+
+IDs must come from the supplied pane catalog. Content must fit its full outer
+rectangle. Placements are ordered back to front; they may overlap, be offscreen,
+or omit panes. `:visible nil` retains a logical size demand without displaying
+that placement; visibility defaults to `t`. Omitted panes have no demand from
+that view and keep their size if no other view participates. The host subtracts
+the camera only for presentation and input coordinates. Panning never resizes a
+PTY to its visible sliver.
+
+`:panes`, `:focus`, `:viewport` and `:geometry` are required reads. Additional
+reads use the same declared-dependency API as hooks. Provider pane metadata omits
+derived geometry/output fields so a placement does not trigger its own feedback
+loop. `:sessions` and `:all-panes` expose the daemon-wide catalog;
+`:workspace-scope` chooses `:session` or `:all-panes` for the view's `:panes`.
+`:workspace` includes scope and camera. There is no built-in-only placement API.
+The default `"tiled"` and `"floating"` providers use this boundary too.
+They live in `examples/profiles/layouts.lisp`; a bare config can load that file
+and call `ekko/layout-providers:install-layouts`. `ekko/layout` supplies optional
+public pure split-tree helpers.
+
+The host validates the complete answer before committing it. It rejects duplicate
+or unknown IDs, invalid containment, stale declared inputs, old view epochs and
+old config generations. Callback execution has a 500 ms deadline. A failed answer
+keeps the last valid placement. Removing/replacing an owner removes its placement
+and camera contribution, not its applications. The bare host can display a focused
+pane; a multi-pane policy is supplied through the same public registration API.
+
+Bounds are explicit: at most 128 placements, content 1–500 columns by 1–300 rows,
+outer frames at most 532 by 332 cells, and coordinates/camera within
+−1,000,000 to 1,000,000. `:pane-budget` is 1–128, default 16. These are finite
+resource limits, not a claim of unlimited terminals.
+
+At most 128 sessions (including pending/retiring sessions), 16 concurrent
+creations and 256 peers are admitted. The daemon keeps every home/live view and
+the eight newest detached extra views per session. Older detached extra state
+may be reclaimed; this never removes an application or the home view.
+
+[scrolling.lisp](../examples/profiles/scrolling.lisp) demonstrates fixed-width
+columns over all sessions, focus-following camera, explicit pan commands and
+live column sizing. Load the same file in regular Ekko or `ekko-bare`.
+To use project-separated workspaces, select `:workspace-scope :session` and a
+provider per session. Reloading policy does not restart PTYs.
+
+### Shared application sizing and native pixels
+
+Each pane has one VT/PTY. Its size is the componentwise minimum of participating
+views' full logical content rectangles, after insets, not their visible crops.
+Minimized and frozen-copy views do not constrain it. The public tiled/floating
+providers return hidden base-layout demands during zoom to preserve application
+sizes. The host does not derive these demands from a built-in layout name.
+Without participants,
+a running pane keeps its last size. New headless panes use their creation viewport.
+
+The oldest participating view supplies canonical cell and reported pixel metrics.
+Other views retain their own host metrics for rendering. Images stay at native
+pixel size; they are not resampled to match another terminal's font. Cell mouse
+input uses local host cells. Pixel-mode mouse input uses native local pixels,
+clamped to the application's canonical pixel bounds. Offscreen text, images and
+cursors are clipped to the host content viewport.
+
 ## Public API, version 1
 
 The public package is `ekko/extensions`, supplied by the ASDF system of the same
@@ -34,6 +132,12 @@ name. Its exports are:
 
 ```lisp
 (api-version) ; => 1
+(layout-api-version) ; => 1
+(display-width "work") ; => 4
+(clip-decorations spans cols rows)
+(register-layout-provider :component :name :name "layout" :api-version 1
+                          :reads '(:panes :focus :viewport :geometry)
+                          :handler function)
 (register-component :id :name :api-version 1 :reads '(:focus)
                     :handler function :initialize initialization-function)
 (unregister-component :name)
@@ -56,14 +160,18 @@ cross this boundary.
 
 | Snapshot key | Value |
 | --- | --- |
-| `:session` | Session name |
-| `:focus` | Stable focused pane ID |
+| `:session` | Originating session name |
+| `:view` | Origin view `:id` and `:epoch` |
+| `:sessions` | Daemon-global session catalog |
+| `:all-panes` | Daemon-global pane metadata |
+| `:workspace` | Scope, session and camera metadata |
+| `:focus` | Origin view's daemon-global focused pane ID |
 | `:mode` | Active custom keymap keyword, or `nil` for built-in routing |
 | `:panes` | Plists with `:id`, raw `:label`, explicit `:name` (nil until rename), detached `:argv`, `:launch-kind` (`:command` or `:shell`), immutable `:creation-position`, `:terminal-title` (nil until OSC title, empty when cleared), `:display-label`, `:pid`, `:cols`, `:rows`, `:exit`, content `:x`/`:y`, `:outer-rect` `(x y width height)`, `:layout-rect`, `:activation-order`, `:visible`, `:pty-size`, `:history-rows`, and `:activity` |
 | `:viewport` | Plist with `:cols`, `:rows`, effective pixel `:cell-width`/`:cell-height`, nullable `:reported-cell-width`/`:reported-cell-height`, resolved `:insets` and `:gaps` |
 | `:zoom` | Lisp boolean (`t` or `nil`) |
 | `:chrome-status` | Resolved status `:text` and SGR `:style` |
-| `:component-state` | Detached alist of component ID strings to daemon-owned plain values; other components can read it when declared |
+| `:component-state` | Per-view detached alist of component ID strings to daemon-owned plain values; other components can read it when declared |
 | `:pane-notes` | Active temporary contributions, each with `:owner`, `:pane`, `:text`, and `:sgr`, ordered by component registration |
 | `:layout` | Pane ID leaves; branches `(axis percentage first second)` |
 | `:time` | Wall-clock seconds (CL universal time); a component that reads it re-runs its hook when the second changes |
@@ -109,20 +217,24 @@ remove an owner's chrome. After worker failure, Ekko reconstructs
 registrations from the accepted init source; worker-local variables reset.
 
 A component may also supply `:initialize`, a `(snapshot event)` function returning
-only `:set-state`, `:set-keymap`, `:status` and `:decorate` actions. Initialization
-runs once per accepted configuration generation, including startup and worker
-recovery. The event is `(:type :initialize :reason :startup)`, `:reload` or
-`:recovery`. The entire initializer group has the ordinary 50 ms callback deadline.
+only `:set-state`, `:store-set`, `:set-keymap`, `:status` and `:decorate` actions.
+Initialization runs once per view in an accepted configuration generation,
+including startup, a new attachment and worker recovery. The event is
+`(:type :initialize :reason :startup)`, `:attach`, `:reload` or `:recovery`.
+The entire initializer group has the ordinary 50 ms callback deadline.
 Registrations remain load-only. Commands, PTY writes, geometry changes, process
 creation and other session actions are rejected in initialization.
 
-At startup, initialization runs after the inert pane tree receives its geometry
-and before any child process or listening socket exists; pane PIDs are `nil`.
+At session creation, the home view is initialized before its application PTYs
+start; pane PIDs are `nil`. The shared daemon socket and other sessions may
+already exist and remain responsive.
 During reload, callbacks see a detached snapshot of the last committed geometry,
 mode and pane state, with removed owners filtered out of `:component-state`.
 They do not see candidate option geometry or other initializers' proposed state.
-All callbacks use the same snapshot and run in registration order; later owners'
-mode choices win. State survives successful owner-preserving reload, so an
+All callbacks for one view use the same snapshot and run in registration order;
+later owners' mode choices win. Candidate mode and focus are normalized to the
+candidate keymaps and workspace scope. Provider validation follows initialization
+for every affected view and sees the aggregate staged store writes. State survives successful owner-preserving reload, so an
 initializer can distinguish first installation from later generations:
 
 ```lisp
@@ -170,21 +282,32 @@ change that session state; removing their component does not undo past user acti
 `inspect` reports the active `:mode`, the `:zoom` state as a JSON boolean,
 registered keymaps (including each map's owner and unbound policy), bindings,
 contributions, disabled hooks, and the last error. Builtins use the same API in
-`ekko/builtins`; `ekko-bare` is packaged
-and tested with no builtins and an externally loaded command.
+`ekko/builtins`; `ekko-bare` is packaged without builtins and can load external
+commands and layout providers.
 
-These keymap additions are additive to public API version 1; `(api-version)`
-continues to return `1`. Attachment wire version `13` defines back-to-front window composition using the existing pane outer rectangles; older viewers can attach only to tiled sessions. Version `12` adds clipboard export to the shared runtime. Version `11` provides shared opaque
-overlays, explicit input actions, and viewer exit text. Versions `8` and `10`
-were the separately patched Finix variants; those generic capabilities are now
-part of the shared runtime. Versions `6` through `12` are accepted and the
-requested version is published in each scene. Older viewers retain their
-existing supported behavior; they can ignore additive metadata and do not gain
-new rendering capabilities without updating.
-Geometry metadata includes outer rectangles, decoration spans, and separate
-reported-cell metrics. Packet 15 carries two
-big-endian unsigned 32-bit values (cell width 1–128 and height 1–256) from the
-attached writer. Unsupported attachment versions reject explicitly.
+Public extension API version 1 remains distinct from wire version **15**.
+All clients, including controls, must first send packet 0 with bounded data
+`(15 SESSION-OR-NIL VIEW-ID-OR-NIL)`. Older versions and unversioned traffic are
+rejected; there is no legacy tiled-only attachment path.
+
+Packet 1 attaches once with five big-endian u32 values: version, columns, rows,
+cell width and cell height. Packet 17 resizes an attached view with four u32
+viewport values. Packet 15 carries two reported cell metrics (width 1–128,
+height 1–256). Scene and asset framing keep their existing layout, with
+daemon-global pane identities. Packet 14 remains the graphics acknowledgement;
+its packet number is not a wire version.
+
+On attachment and each session switch, packet 24 announces one big-endian u32
+connection binding generation. Packet 25 acknowledges that generation. The
+client cancels old parser and original-read state at cutover. It retains only
+cancellation knowledge for a split paste delimiter and discards the old paste
+through its terminator before acknowledging. An ambiguous interrupted delimiter
+closes that client rather than forwarding uncertain bytes; applications survive.
+Input packets 2, 4, 5, 6 and 16 prepend the binding generation to their payload;
+packet 16 retains the original bytes from a host input read. Old-generation
+input is discarded, including a late packet after switching away and back to
+the same view. No input is accepted before the new binding acknowledgement.
+This boundary is separate from graphics acknowledgement and lease cleanup.
 
 | Option | Value |
 | --- | --- |
@@ -194,7 +317,10 @@ attached writer. Unsupported attachment versions reject explicitly.
 | `:viewport-insets` | Same order/range; default `(0 0 1 0)` |
 | `:split-gaps` | `(column-gap row-gap)`, each integer 0–16; default `(1 0)` |
 | `:erase-display-history` | Lisp boolean, default `nil`; ED2 transfers materialized main-screen rows into history when true |
-| `:initial-layout` | Optional startup tree, e.g. `(:columns 50 1 (:rows 50 2 3))`; leaves name one-based startup command slots, each exactly once; percentages 1–99, at most 16 leaves |
+| `:initial-layout` | Optional startup tree, e.g. `(:columns 50 1 (:rows 50 2 3))`; leaves name one-based startup command slots, each exactly once; mapped to global pane IDs at creation; percentages 1–99, bounded by `:pane-budget` |
+| `:pane-budget` | Integer 1–128, default 16 |
+| `:layout-provider` | Registered provider name, or `nil` for the focused-pane bootstrap |
+| `:workspace-scope` | `:session` (default) or `:all-panes` |
 | `:initial-keymap` | Registered custom keymap keyword, or `nil` |
 | `:prefix` | `"C-a"` through `"C-z"`, or integer 1–26 |
 | `:shell` | Executable argument list for new panes; defaults to `$SHELL -i` |
@@ -268,6 +394,13 @@ SGR lists contain at most 16 integers from 0 through 255. Retained contributions
 across all owners allow at most 1,024 declared spans and 16,000 text characters,
 counting repetitions. Worker message limits also apply. An empty span list
 clears that owner's contribution. Invalid batches preserve previous contributions.
+
+For camera-projected chrome, call `(clip-decorations spans cols rows)` before
+returning the action. This pure helper accepts negative logical positions, clips
+to the viewport, and preserves each span's style, actions and other attributes.
+It drops wide glyphs that cross a boundary and keeps combining marks with their
+accepted base glyph. Returned spans still pass ordinary host validation; this
+helper does not grant an unchecked decoration path.
 
 Later registered components paint above earlier components, independent of
 callback completion order. By default the daemon clips spans to the terminal
@@ -417,7 +550,10 @@ namespace file atomically through a temporary file and rename. They are never
 staged: a rejected candidate reload and a failed startup write nothing, and
 removing the owner keeps its durable values. The directory is
 `$EKKO_STORE_DIR` when set, otherwise `$XDG_STATE_HOME/ekko/store`, otherwise
-`~/.local/state/ekko/store`; it is created private to the current user. Files
+`~/.local/state/ekko/store`. A nondefault daemon instance uses `instances/NAME/`
+under the default store directory. An explicit `EKKO_STORE_DIR` always wins;
+pointing two instances at that same override deliberately shares its files.
+The store directory is created private to the current user. Files
 are read back with `*read-eval*` disabled and an unreadable file is skipped
 with a warning. A failed write is reported through the session's last error
 (visible in `inspect`) and never stops the daemon, so storage stays best-effort.
@@ -527,11 +663,10 @@ resets on replacement or disconnect. Deferred input from a replaced writer is
 discarded. Profile removal can clear an unfinished key but does not change the
 writer's framing capability.
 
-Wire version 7 adds packet 16 for original-read context. The daemon continues
-to accept version-6 attachments and emits scene version 6 for those viewers;
-version-7 viewers receive scene version 7. The optional profile uses
-`(getf event :read-bytes (getf event :bytes))` to reproduce the reference's
-rename batching while preserving legacy key clients.
+Wire 15 prefixes packet 16 original-read context with the connection binding generation. Framing belongs to the
+originating view and cannot cross a session switch. The optional profile uses
+`(getf event :read-bytes (getf event :bytes))` for complete-read rename batching
+and explicit key-event fallback.
 
 
 Viewer exit text is a static, owner-scoped option. Successful configuration
@@ -559,10 +694,10 @@ these same validated actions. Selection is daemon-owned pane state, cleared by
 
 `:copy-selection` copies either the character range or the existing keyboard
 line selection. Both use the session buffer and a bounded clipboard event.
-Wire packet 23 contains at most 1 MiB of UTF-8 text and is sent only to attached
-viewers negotiating version 12 or later. The viewer base64-encodes it into OSC 52
-for the system clipboard. No clipboard reads or shell subprocesses are involved.
-Version 6–11 viewers keep internal-buffer copying and receive no new packet.
+Wire packet 23 contains at most 1 MiB of UTF-8 text and is sent only to the
+originating attached view. Its client base64-encodes it into OSC 52 for the
+system clipboard. No clipboard reads or shell subprocesses are involved.
+Other attached clients do not receive the selection export.
 
 
 Selection shares the live cell-to-run renderer. Captured VT/history rows retain

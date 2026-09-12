@@ -1,9 +1,11 @@
 # Current module contracts
 
-The live preview has one daemon per named session, one attached interactive
-client, and up to 16 independently owned application PTYs. The daemon stores
-text screens, compressed inline image assets, and immutable local frame snapshots; a client reconstructs presentation on
-attach. Applications never write to the outer terminal directly.
+One daemon owns all sessions, application PTYs, terminal state, images, and the
+durable component store. Many clients can attach concurrently. Sessions group
+applications; they are not separate daemon processes. Each client renders an
+independent daemon-owned view. Applications never write to the outer terminal.
+The default socket is `$XDG_RUNTIME_DIR/ekko/ekko.sock`; `--instance NAME` provides
+explicit isolation. Pane IDs are daemon-global and are not reused during its life.
 
 | Module | Responsibility |
 | --- | --- |
@@ -14,8 +16,11 @@ attach. Applications never write to the outer terminal directly.
 | `worker.lisp`, `commands.lisp` | Worker transport and deadlines, atomic config replacement, validated actions, copy mode |
 | `graphics.lisp` | Pane-owned RGB/RGBA uploads, validation, compressed assets, native placements, deletion, quotas |
 | `assets.lisp` | Daemon-owned raw frame snapshots, byte quota, reference ownership and crash reclamation |
-| `wire.lisp` | Length-prefixed local IPC, wire version 7 (version-6 viewer support), bounded buffers, scene acknowledgements, private session directory |
-| `server.lisp` | Reactor, pane processes, layout application, focus, input routing, snapshots, status, shutdown |
+| `wire.lisp` | Version-15 routed IPC, input binding generations, bounded peer queues, scene acknowledgements, private daemon directory |
+| `daemon.lisp` | Global session registry, reactor, asynchronous creation, routing, session switching and shutdown |
+| `views.lisp` | Real per-view focus, interaction, geometry, selection state and captured command origins |
+| `layout-policy.lisp` | Owned layout-provider requests, detached dependencies, validated placements and stale-result rejection |
+| `server.lisp` | View projection, canonical PTY sizing, input routing, scenes and status |
 | `client.lisp` | Host input decoding, dimensions, text/Kitty rendering, per-client image IDs, terminal restoration |
 | `geometry.lisp`, `presentation.lisp` | Rational clipping and attachment identity/transaction contracts, also exercised by synthetic experiments |
 
@@ -24,12 +29,19 @@ stages assets until the associated snapshot arrives. Only one scene is in flight
 frame (DECSET 2026) holds publication until the application closes the frame or a one-second deadline expires, so a batched
 repaint presents once instead of frame by frame. The client acknowledges after its output
 drains and all local-file uploads receive host read acknowledgements. Later scene
-revisions coalesce in daemon state while it waits. Slow clients have an 8 MiB
-queue limit and a ten-second presentation timeout. Graphics frames use
+revisions coalesce in daemon state while it waits. Each client has an independent
+8 MiB queue limit; an outstanding frame does not block other clients. Session
+switching waits for the old frame's terminal acknowledgement before releasing
+its image leases. Graphics frames use
 bounded 16 KiB control strings, a 32 MiB upload/decoded-image limit, up to 64
 images and 128 MiB of retained asset data per pane, and a ten-second incomplete
-upload timeout. Layout changes resize the PTYs and clip old frames until the
-applications replace them.
+upload timeout. Providers return full logical rectangles and a camera separately.
+Panning clips text, images and cursors without resizing applications to visible
+slivers. PTY dimensions are the componentwise minimum of participating views'
+full content dimensions, including explicit hidden provider placements.
+With no participating view, a pane retains its size.
+The oldest participating view supplies canonical cell metrics. Images retain
+native pixels, not arbitrary scaling; each client clips them using its host metrics.
 
 The renderer serializes complete Kitty uploads and uses synchronized updates.
 It caches complete text rows and writes only changed rows, resetting rendition
@@ -46,10 +58,17 @@ uses upload/peer deadlines and a one-second child-reaping interval. Ready file
 descriptors wake either loop immediately. Status includes cumulative daemon
 allocation and GC time counters for performance measurement.
 
-Detach drops client caches and leaves the daemon, PTYs, and images alive.
-Shutdown closes sockets/PTYS and signals owned process groups with a bounded
-escalation period. Socket startup uses an exclusive lock; peers must have the
-same OS UID. There is no network listener or eval RPC.
+Detach drops client caches and cancels transient input, not applications. A
+session's home view retains focus and copy state for default reconnect; other
+views have separate identities. Stopping one session leaves other sessions and
+the empty daemon alive. Shutdown closes sockets/PTYs and signals owned process
+groups with a bounded escalation period. Socket startup uses an exclusive lock;
+peers must have the same OS UID. There is no network listener or eval RPC.
+
+Session creation is staged in the reactor. Loading or initializing one session
+must not stop existing PTY and client service. Each creation captures its cwd,
+environment and config path. Workers and subsequent panes use that launch
+context; only child processes change cwd/environment, never the daemon.
 
 Configuration is trusted Lisp in a separate worker process. The daemon sends
 only declared metadata snapshots; callbacks return validated actions. Registration
@@ -62,11 +81,16 @@ misses three consecutive deadlines is disabled, so one late chrome repaint does
 not take the decorations down. Details and current restrictions are in
 [customization](customization.md).
 
-Command dispatch is asynchronous. Input following a command is deferred in a
-bounded queue, then replayed after the action commits, so focus/split commands
-route trailing bytes to the resulting pane. Main-screen history and frozen copy
-snapshots live in the daemon. Copy mode suppresses graphics presentation without
-releasing the application's image ownership; exit or reattachment reconstructs it.
+Command dispatch captures the origin view, epoch, config generation and default
+target. A late callback cannot resolve another client's focus. Input following a
+command waits in that view's bounded queue and resumes through its committed
+state. Detach or switching invalidates pending input and old-origin actions.
+Each connection also has an acknowledged input binding generation. The client
+cancels old parser and paste fragments at cutover; every input packet retains
+its generation, so a late old-view event cannot enter the new session.
+PTYs/history are shared; focus, modes, camera, copy, selection and component UI
+contributions are per-view. Copy mode hides graphics only in that view without
+releasing the application's image ownership.
 
 Local transport uses the existing Kitty `t=s` ingress and `t=f` egress protocols.
 Ingress currently accepts complete uncompressed RGB/RGBA shared objects only;
@@ -86,9 +110,10 @@ forwarded to children. A failed upload terminates the attachment explicitly.
 
 All current and leased raw snapshots share a 256 MiB daemon quota, in addition
 to the per-pane quota. `status` exposes `snapshot_bytes` and pane `local_images`.
-Files live in a mode-0700 directory beside the session socket, normally on the
+Files live in a mode-0700 directory beside the daemon socket, normally on the
 runtime directory's tmpfs. A daemon crash can leave snapshots there; startup
-under that session's exclusive lock reclaims them. Normal replacement, deletion,
+under that daemon's exclusive lock reclaims them. Normal replacement, deletion,
 client death, and shutdown release references and unlink files. This is a bounded
 copy path, not zero-copy GPU sharing. Filesystem traffic and Kitty's pixel upload
-remain. Version 3 adds configurable status metadata and command IPC; older attachments are rejected.
+remain. Every peer begins with a version-15 route naming its session and optional
+view. Old versions and unversioned controls are rejected explicitly.

@@ -37,6 +37,40 @@ nix run . -- run --session workspace "$SHELL" -i
 cudaterm-finix -e nix run . -- run --session workspace "$SHELL" -i
 ```
 
+## One daemon, independent views
+
+Named sessions share one daemon by default. Run applications in separate project
+sessions, then attach from any number of terminals:
+
+```sh
+nix run . -- run --detached --session project-a "$SHELL" -i
+nix run . -- run --detached --session project-b "$SHELL" -i
+nix run . -- list                         # JSON: all sessions and views
+nix run . -- attach project-a
+nix run . -- switch --view VIEW_ID project-b
+```
+
+Focus, input modes, copy/selection and camera state belong to each view. Typing
+is not broadcast. A default reconnect reuses the detached home view. With more
+than one attached view, per-view controls require `--view VIEW_ID`. `stop` removes
+one session, not the daemon; use `--force` only when you intend to affect other
+viewers. `--instance NAME` creates an explicitly isolated daemon.
+
+Workspace layout is replaceable Lisp policy. The default tiled/floating providers
+and the [scrolling example](examples/profiles/scrolling.lisp) use the same public
+API. The example puts panes from all sessions into fixed-width columns:
+
+```sh
+EKKO_CONFIG="$PWD/examples/profiles/scrolling.lisp" \
+  nix run . -- run --session scrolling "$SHELL" -i
+```
+
+Use **Ctrl-a, then n/p** to change columns, **h/l** to pan, **+/-** to change
+column width, **c** to create a pane and **d** to detach. Reloading the session's
+configuration changes policy without restarting its applications. Panning crops
+the display, not the application's logical size. The workspace can expand, but
+PTYs, placements and messages remain bounded. See [layout providers](docs/customization.md#layout-providers).
+
 ## Text selection and scrollback
 
 Drag the left mouse button over shell text to highlight a character range.
@@ -61,7 +95,7 @@ blanks, and separates physical rows with newlines. Word/rectangle selection, dra
 autoscroll, soft-wrap-aware copying, and full Zellij search behavior remain open.
 Existing sessions need to be restarted with the rebuilt runtime for these features.
 
-A Linux/SBCL terminal multiplexer with real PTYs, a persistent session daemon,
+A Linux/SBCL terminal multiplexer with real PTYs, one persistent shared daemon,
 text terminals, and a limited Kitty graphics implementation. Each pane can run
 an ordinary shell, a terminal application, or terminal-browser. Ekko manages the
 panes; the Kitty graphics protocol draws images inside them.
@@ -96,7 +130,7 @@ shell; `TERMINAL_SLACK_URL` selects the Slack URL. Default session names are
 session; use a different name to create another workspace.
 
 Inside an existing terminal, launch arbitrary argument vectors with `:::`
-between pane commands (up to 16). For example, two shells:
+between pane commands (16 by default; `:pane-budget` can raise this to 128). For example, two shells:
 
 ```sh
 nix run . -- run --session shells "$SHELL" -i ::: "$SHELL" -i
@@ -151,9 +185,11 @@ owned files and negotiates file delivery with the outer terminal; hosts without
 local-file access receive inline frames. No frame-rate or resolution cap is imposed.
 Set `TERMINAL_BROWSER_FRAMES=inline` to compare the older transport.
 
-Attachment IPC is now version 7, including original-read input context; version-6 viewers remain supported. Existing daemons keep their executable;
-start a **new session name** to use these features. Incompatible attachments
-are rejected explicitly.
+IPC is now **version 15** for viewers and controls. Older versions are rejected
+explicitly. Existing daemons keep their executable: a new session name does not
+upgrade a shared daemon. To upgrade, end its sessions and send SIGTERM to its
+recorded daemon PID before starting the new executable. The old per-session
+socket layout is not migrated in place.
 
 Build and verify the packaged executable:
 
