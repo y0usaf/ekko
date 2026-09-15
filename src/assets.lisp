@@ -27,7 +27,7 @@
     (make-local-asset :path path :size size)))
 
 (defun initialize-assets (directory)
-  ;; Called only while holding this session's exclusive lock. Reclaim files
+  ;; Called only while holding this daemon's exclusive lock. Reclaim files
   ;; left by a daemon crash before accepting producers or attachments.
   (ensure-directories-exist directory)
   (let ((st (sb-posix:lstat (string-right-trim "/" directory))))

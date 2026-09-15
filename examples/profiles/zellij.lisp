@@ -23,10 +23,10 @@
         (notes (ekko/extensions:value snapshot :pane-notes)))
     (if (zellij-frame-hidden-p snapshot)
         (list (ekko/extensions:action
-               :decorate :spans (zellij-frame-boundary-spans snapshot)))
+               :decorate ':spans (zellij-frame-boundary-spans snapshot)))
         (list
      (ekko/extensions:action
-      :decorate :spans
+      :decorate ':spans
       (loop for pane in (ekko/extensions:value snapshot :panes)
             when (getf pane :visible t)
               append
@@ -48,34 +48,34 @@
 
 (ekko/extensions:unregister-component :defaults)
 (ekko/extensions:register-component
- :id :zellij-decoration
+ :id ':zellij-decoration
  :reads '(:focus :mode :panes :viewport :zoom :pane-notes :component-state)
  :handler #'zellij-decoration-hook)
-(ekko/extensions:set-option :component :zellij-decoration :name :pane-insets :value '(1 1 1 1))
-(ekko/extensions:set-option :component :zellij-decoration :name :viewport-insets :value '(1 0 1 0))
-(ekko/extensions:set-option :component :zellij-decoration :name :split-gaps :value '(0 0))
-(ekko/extensions:set-option :component :zellij-decoration :name :erase-display-history :value t)
-(ekko/extensions:set-option :component :zellij-decoration :name :pty-pixel-source :value :reported)
-(ekko/extensions:set-option :component :zellij-decoration :name :viewer-exit-text :value "Bye from Zellij!")
+(ekko/extensions:set-option :component ':zellij-decoration :name ':pane-insets :value '(1 1 1 1))
+(ekko/extensions:set-option :component ':zellij-decoration :name ':viewport-insets :value '(1 0 1 0))
+(ekko/extensions:set-option :component ':zellij-decoration :name ':split-gaps :value '(0 0))
+(ekko/extensions:set-option :component ':zellij-decoration :name ':erase-display-history :value t)
+(ekko/extensions:set-option :component ':zellij-decoration :name ':pty-pixel-source :value ':reported)
+(ekko/extensions:set-option :component ':zellij-decoration :name ':viewer-exit-text :value "Bye from Zellij!")
 (ekko/extensions:register-component
- :id :zellij-frames :reads '(:component-state)
+ :id ':zellij-frames :reads '(:component-state)
  :handler (lambda (snapshot event) (declare (ignore snapshot event)) nil))
-(ekko/extensions:register-command :component :zellij-frames :name "toggle-frames"
+(ekko/extensions:register-command :component ':zellij-frames :name "toggle-frames"
   :handler (lambda (snapshot event)
              (declare (ignore event))
              (let ((hidden (zellij-frame-hidden-p snapshot)))
                (list (ekko/extensions:action
                       :set-geometry
-                      :value (unless hidden
+                      ':value (unless hidden
                                '(:pane-insets (0 1 1 0)
                                  :boundary-insets (0 0 0 0)
                                  :split-gaps (0 0))))
-                     (ekko/extensions:action :set-keymap :name :normal)
+                     (ekko/extensions:action :set-keymap ':name :normal)
                      (ekko/extensions:action
-                      :set-state :value (unless hidden '(:hidden t)))))))
+                      :set-state ':value (unless hidden '(:hidden t)))))))
 (ekko/extensions:register-component
- :id :zellij-modes :reads '(:mode :focus :panes :viewport :zoom :layout :component-state))
-(ekko/extensions:bind-key :component :zellij-frames :map :pane
+ :id ':zellij-modes :reads '(:mode :focus :panes :viewport :zoom :layout :component-state))
+(ekko/extensions:bind-key :component ':zellij-frames :map ':pane
                            :key "z" :command "toggle-frames")
 (load (merge-pathnames "zellij-bindings.lisp"
                        (or *load-truename* *default-pathname-defaults*)))
@@ -84,5 +84,5 @@
 (load (merge-pathnames "zellij-bars.lisp"
                        (or *load-truename* *default-pathname-defaults*)))
 (ekko/extensions:register-component
- :id :zellij-bars :reads '(:session :viewport :focus :panes :mode)
+ :id ':zellij-bars :reads '(:session :viewport :focus :panes :mode)
  :handler #'zellij-bars-hook)

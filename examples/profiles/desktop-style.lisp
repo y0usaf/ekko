@@ -100,7 +100,7 @@
                                 (pane-title pane))
                         (list :focus :pane (getf pane :id))))))
     (list (ekko/extensions:action :show-menu
-            :x (max 0 (floor (- (getf viewport :cols) 26) 2))
+            ':x (max 0 (floor (- (getf viewport :cols) 26) 2))
             :y (max 0 (floor (- (getf viewport :rows) (+ 2 (length items))) 2))
             :spans (menu-spans items 154)))))
 
@@ -136,7 +136,7 @@
   (let ((focus (ekko/extensions:value snapshot :focus))
         (mode (ekko/extensions:value snapshot :mode))
         (viewport (ekko/extensions:value snapshot :viewport)))
-    (list (ekko/extensions:action :decorate :spans
+    (list (ekko/extensions:action :decorate ':spans
       (ekko/extensions:clip-decorations
        (append
         (loop for pane in (ekko/extensions:value snapshot :panes)
@@ -206,7 +206,7 @@
                                 '(0 1 38 5 250 48 5 235)))
                     (cons (list (format nil "  ~A " (string-upcase (symbol-name mode)))
                                 '(0 1 38 5 221 48 5 235))
-                          (loop for (key label) in (cdr (assoc mode hints))
+                          (loop for (key label) in (rest (assoc mode hints))
                                 collect (list (format nil " ~A ~A " key label) base)))))
          (left-used (loop for segment in left sum (ekko/extensions:display-width (first segment))))
          (right-used (loop for segment in right sum (ekko/extensions:display-width (first segment))))
@@ -265,15 +265,15 @@
           (dolist (segment right)
             (place (list :x 0 :y y :text (first segment) :sgr (second segment)
                          :context-command "desktop-taskbar-menu"))))
-        (list (ekko/extensions:action :decorate :spans (nreverse spans)))))))
+        (list (ekko/extensions:action :decorate ':spans (nreverse spans)))))))
 
 (defun hook (snapshot event)
-  (list (ekko/extensions:action :decorate :spans
+  (list (ekko/extensions:action :decorate ':spans
           (append (getf (rest (first (windows snapshot event))) :spans)
                   (getf (rest (first (dock snapshot event))) :spans)))))
 
 (defun install-controls (owner)
-  (ekko/extensions:set-option :component owner :name :window-animation-ms :value 160)
+  (ekko/extensions:set-option :component owner :name ':window-animation-ms :value 160)
   (ekko/extensions:register-command :component owner :name "desktop-toggle-floating"
     :handler (lambda (snapshot event) (declare (ignore event))
                (let ((pane (find (ekko/extensions:value snapshot :focus)
@@ -282,20 +282,20 @@
                  (when pane
                    (list (ekko/extensions:action (if (getf pane :floating) :tile :float)
                                                 :pane (getf pane :id))
-                         (ekko/extensions:action :set-keymap :name :normal))))))
-  (ekko/extensions:bind-key :component owner :map :pane :key "t" :command "desktop-toggle-floating")
+                         (ekko/extensions:action :set-keymap ':name :normal))))))
+  (ekko/extensions:bind-key :component owner :map ':pane :key "t" :command "desktop-toggle-floating")
   (ekko/extensions:register-command :component owner :name "desktop-window-menu"
     :handler (lambda (snapshot event)
                (let* ((id (parse-integer (first (getf event :arguments))))
                       (pane (find id (ekko/extensions:value snapshot :panes) :key (lambda (p) (getf p :id)))))
                  (unless pane (error "Window no longer exists"))
-                 (list (ekko/extensions:action :show-menu :x (getf event :x) :y (getf event :y)
+                 (list (ekko/extensions:action :show-menu ':x (getf event :x) :y (getf event :y)
                          :spans (window-menu pane (ekko/extensions:value snapshot :focus)
                                              (ekko/extensions:value snapshot :zoom)))))))
   (ekko/extensions:register-command :component owner :name "desktop-taskbar-menu"
     :handler (lambda (snapshot event)
                (let ((focus (ekko/extensions:value snapshot :focus)))
-                 (list (ekko/extensions:action :show-menu :x (getf event :x) :y (getf event :y)
+                 (list (ekko/extensions:action :show-menu ':x (getf event :x) :y (getf event :y)
                          :spans (menu-spans
                                   (list (list "New window right" (list :split :pane focus :axis :columns))
                                         (list "New window down" (list :split :pane focus :axis :rows))
@@ -307,24 +307,24 @@
                  (unless (find id (ekko/extensions:value snapshot :panes) :key (lambda (p) (getf p :id)))
                    (error "Window no longer exists"))
                  (setf (getf copy :focus) id)
-                 (append (list (ekko/extensions:action :focus :pane id))
+                 (append (list (ekko/extensions:action :focus ':pane id))
                          (cl-user::zellij-pane-rename-enter-actions copy (string-downcase (string owner)))))))
   (ekko/extensions:register-command :component owner :name "desktop-next"
     :handler (lambda (snapshot event) (declare (ignore snapshot event))
                (list (ekko/extensions:action :focus-next))))
-  (ekko/extensions:bind-key :component owner :map :pane :key "Tab" :command "desktop-next")
+  (ekko/extensions:bind-key :component owner :map ':pane :key "Tab" :command "desktop-next")
   (ekko/extensions:register-command :component owner :name "desktop-minimize"
     :handler (lambda (snapshot event) (declare (ignore snapshot event))
                (list (ekko/extensions:action :minimize)
-                     (ekko/extensions:action :set-keymap :name :normal))))
-  (ekko/extensions:bind-key :component owner :map :pane :key "m" :command "desktop-minimize")
+                     (ekko/extensions:action :set-keymap ':name :normal))))
+  (ekko/extensions:bind-key :component owner :map ':pane :key "m" :command "desktop-minimize")
   (ekko/extensions:register-command :component owner :name "desktop-window-list"
     :handler (lambda (snapshot event) (declare (ignore event))
                (window-list-menu snapshot)))
   (ekko/extensions:register-command :component owner :name "desktop-switcher"
     :handler (lambda (snapshot event) (declare (ignore event))
                (window-list-menu snapshot)))
-  (ekko/extensions:bind-key :component owner :map :normal :key "M-Tab" :command "desktop-switcher")
+  (ekko/extensions:bind-key :component owner :map ':normal :key "M-Tab" :command "desktop-switcher")
   (ekko/extensions:register-command :component owner :name "desktop-cycle"
     :handler (lambda (snapshot event)
                (let* ((panes (ekko/extensions:value snapshot :panes))
@@ -333,7 +333,7 @@
                       (direction (or (getf event :direction) 1)))
                  (when (and focus panes)
                    (let ((pane (nth (mod (+ focus direction) (length panes)) panes)))
-                     (list (ekko/extensions:action :focus :pane (getf pane :id))))))))
+                     (list (ekko/extensions:action :focus ':pane (getf pane :id))))))))
   (ekko/extensions:register-command :component owner :name "desktop-close"
     :handler (lambda (snapshot event)
                (let* ((argument (first (getf event :arguments)))
@@ -341,15 +341,15 @@
                       (pane (find id (ekko/extensions:value snapshot :panes)
                                   :key (lambda (pane) (getf pane :id)))))
                  (unless pane (error "Window no longer exists"))
-                 (list (ekko/extensions:action :close :pane id)))))
+                 (list (ekko/extensions:action :close ':pane id)))))
   (ekko/extensions:register-command :component owner :name "desktop-focus-slot"
     :handler (lambda (snapshot event)
                (let* ((argument (first (getf event :arguments)))
                       (slot (and argument (parse-integer argument :junk-allowed t)))
                       (panes (ekko/extensions:value snapshot :panes))
                       (pane (and slot (<= 1 slot) (nth (1- slot) panes))))
-                 (when pane (list (ekko/extensions:action :focus :pane (getf pane :id)))))))
+                 (when pane (list (ekko/extensions:action :focus ':pane (getf pane :id)))))))
   (loop for index from 1 to 9 do
-    (ekko/extensions:bind-key :component owner :map :normal :key (format nil "Super-~D" index)
+    (ekko/extensions:bind-key :component owner :map ':normal :key (format nil "Super-~D" index)
                               :command "desktop-focus-slot"
                               :arguments (list (write-to-string index)))))

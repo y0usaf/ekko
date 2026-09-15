@@ -3,7 +3,7 @@
   (:export #:initialize #:spawn #:read-fd #:write-fd #:poll-fds #:terminal-size
            #:resize #:raw #:restore #:close-fd #:reap #:signal-group #:server-signals
            #:listen-local #:connect-local #:accept-local #:lock-file #:compress-bytes
-           #:decompress-bytes #:octets #:text-bytes #:bytes-text #:now #:checked))
+           #:decompress-bytes #:octets #:text-bytes #:bytes-text #:now #:checked #:*asset-bytes* #:nonblock))
 (in-package #:ekko/platform)
 
 (defparameter *library* (or (uiop:getenv "EKKO_PLATFORM_LIBRARY")
@@ -16,8 +16,8 @@
 (defun checked (value &optional (operation "OS operation"))
   (when (minusp value) (error "~A failed (errno ~D)" operation (- value))) value)
 (defun octets (size) (make-array size :element-type '(unsigned-byte 8)))
-(defun text-bytes (text) (sb-ext:string-to-octets text :external-format :utf-8))
-(defun bytes-text (bytes) (sb-ext:octets-to-string bytes :external-format :utf-8))
+(defun text-bytes (text) (sb-ext:string-to-octets text :external-format ':utf-8))
+(defun bytes-text (bytes) (sb-ext:octets-to-string bytes :external-format ':utf-8))
 (defun now () (/ (get-internal-real-time) internal-time-units-per-second))
 
 (define-alien-routine ("ek_close" close-fd) int (fd int))
@@ -70,7 +70,7 @@ explicitly for an empty environment. Neither option changes the parent."
     (unwind-protect
          (progn
            (loop for entry in entries for i from 0 do
-             (setf (deref args i) (if entry (make-alien-string entry :external-format :utf-8)
+             (setf (deref args i) (if entry (make-alien-string entry :external-format ':utf-8)
                                           (sb-sys:int-sap 0)))
              (incf initialized))
            (with-alien ((pid int))

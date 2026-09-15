@@ -20,7 +20,7 @@
     (labels ((check (value depth)
                (when (or (minusp (decf budget)) (> depth 40)) (error "Extension data too complex"))
                (typecase value
-                 (cons (check (car value) (1+ depth)) (check (cdr value) depth))
+                 (cons (check (first value) (1+ depth)) (check (rest value) depth))
                  (string (when (> (length value) 32768) (error "Extension string too long")))
                  (integer (unless (<= (- (expt 2 53)) value (expt 2 53)) (error "Extension integer too large")))
                  (symbol (unless (or (null value) (eq value t) (keywordp value)) (error "Extension symbol is not data")))
@@ -40,20 +40,20 @@
       ;; Process streams own these descriptors; do not close them a second time.
       (sb-ext:process-close process))))
 (defun start-worker (source path log &key directory (environment (sb-ext:posix-environ)))
-  ;; A session may supply another cwd and PATH. Launch the running host image,
+  ;; The workspace may supply another cwd and PATH. Launch the running host image,
   ;; not argv[0], which can be only the relative command used to start it.
   (let* ((process (sb-ext:run-program "/proc/self/exe" '("--extension-worker")
                                     :directory directory :environment environment
-                                    :wait nil :input :stream :output :stream :error log :if-error-exists :append))
+                                    :wait nil :input ':stream :output ':stream :error log :if-error-exists ':append))
          (in (make-wire :fd (sb-sys:fd-stream-fd (sb-ext:process-output process)) :packet-limit (1+ +extension-packet-limit+)))
          (out (make-wire :fd (sb-sys:fd-stream-fd (sb-ext:process-input process))))
          (worker (make-extension-worker :process process :input in :output out :source source :path path
                                         :directory directory :environment (copy-list environment)
-                                        :deadline (+ (now) 5) :request :load)) (ready nil))
+                                        :deadline (+ (now) 5) :request ':load)) (ready nil))
     (unwind-protect
          (progn
-           (checked (ekko/platform::nonblock (wire-fd in)))
-           (checked (ekko/platform::nonblock (wire-fd out)))
+           (checked (ekko/platform:nonblock (wire-fd in)))
+           (checked (ekko/platform:nonblock (wire-fd out)))
            (extension-send out (list :load source path))
            (setf ready t) worker)
       (unless ready (stop-worker worker)))))
@@ -75,7 +75,7 @@
       ;; worker completed normally. Consume a ready response before timing out.
       ((and (extension-worker-request worker) (> (now) (extension-worker-deadline worker)))
        ;; Requests retain the actual originating view. Printing the complete
-       ;; request would recurse through view -> session -> worker -> request.
+       ;; request would recurse through view -> daemon -> worker -> request.
        (error "Extension callback timed out")))))
 (defun load-worker (source path log &key directory (environment (sb-ext:posix-environ)))
   ;; Startup/check only: no running PTYs are held up by this wait. Reload uses
@@ -95,7 +95,7 @@
 
 (defun extension-worker-main ()
   (initialize)
-  (checked (ekko/platform::nonblock 0)) (checked (ekko/platform::nonblock 1))
+  (checked (ekko/platform:nonblock 0)) (checked (ekko/platform:nonblock 1))
   (let ((input (make-wire :fd 0 :packet-limit (1+ +extension-packet-limit+))) (output (make-wire :fd 1)) (buffer (octets 65536)))
     (loop
       (dolist (packet (receive-packets input buffer))
@@ -104,23 +104,23 @@
               (let ((request (extension-data (subseq packet 1))))
                 (case (first request)
                   (:load
-                   (setf ekko/extensions::*components* nil)
+                   (setf ekko/extensions:*components* nil)
                    (let ((package (find-package :ekko/builtins)))
                      (when package (funcall (find-symbol "INSTALL" package))))
                    (let* ((path (pathname (third request)))
                           (*default-pathname-defaults* (uiop:pathname-directory-pathname path)))
                      (load (make-string-input-stream (second request)) :verbose nil :print nil))
-                   (extension-send output (list :ready (ekko/extensions::registry))))
+                   (extension-send output (list :ready (ekko/extensions:registry))))
                   (:initialize
                    (extension-send output
                      (list :initialized
-                       (loop for c in (getf (ekko/extensions::registry) :components)
+                       (loop for c in (getf (ekko/extensions:registry) :components)
                              when (getf c :initialize) collect
-                             (ekko/extensions::dispatch :initialize (getf c :id)
+                             (ekko/extensions:dispatch :initialize (getf c :id)
                                                        (second request) (third request))))))
                   (:dispatch
                    (extension-send output
-                     (list :result (apply #'ekko/extensions::dispatch (rest request)))))
+                     (list :result (apply #'ekko/extensions:dispatch (rest request)))))
                   (otherwise (error "Unknown extension request"))))
             (error (e) (extension-send output (list :error (subseq (princ-to-string e) 0 (min 2000 (length (princ-to-string e))))))))))
       (flush-wire output)

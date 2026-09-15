@@ -1,11 +1,12 @@
 (defpackage #:ekko/runtime
   (:use #:cl #:ekko/platform #:ekko/vt #:ekko/graphics)
-  (:export #:run-session #:serve #:attach-session #:control-session #:restore-terminal #:note-client-error))
+  (:export #:run #:serve #:attach #:control #:restore-terminal #:extension-worker-main #:initialize #:config-path #:load-worker #:config-source #:install-registry #:make-daemon #:extension-worker-registry #:stop-worker #:*instance* #:checked-name #:note-client-error))
 (in-package #:ekko/runtime)
 
-;; Version 15 binds every viewer input transaction to a connection generation.
-;; Routes, attach/resize separation and daemon-global pane identities remain.
-(defconstant +wire-version+ 15)
+;; Version 16 removes session routing: one daemon hosts one workspace and every
+;; peer attaches to it. Input transactions stay bound to connection generations
+;; and pane identities remain daemon-global.
+(defconstant +wire-version+ 16)
 (defvar *instance* "default")
 (defconstant +queue-limit+ (* 8 1024 1024))
 (define-condition wire-protocol-error (simple-error) ())
@@ -13,7 +14,7 @@
   (error 'wire-protocol-error :format-control message :format-arguments nil))
 (defstruct wire fd (version +wire-version+) (packet-limit +queue-limit+) (queue nil) (queue-tail nil) (queued 0) (offset 0) (prefix (octets 4))
   (prefix-used 0) body (body-used 0) (known (make-hash-table :test 'equal))
-  greeted route selected-view-id view closing pending-switch
+  greeted selected-view-id view closing
   (binding-generation 0) binding-accepted
   attached revision awaiting-scene (leases nil) (at (now)))
 (defun u32 (bytes offset)
@@ -28,7 +29,7 @@
   (when (> (+ (wire-queued wire) (length data)) +queue-limit+) (error "Output queue limit exceeded"))
   (let ((cell (list data)))
     (if (wire-queue-tail wire)
-        (setf (cdr (wire-queue-tail wire)) cell)
+        (setf (rest (wire-queue-tail wire)) cell)
         (setf (wire-queue wire) cell))
     (setf (wire-queue-tail wire) cell))
   (incf (wire-queued wire) (length data)))
@@ -74,7 +75,7 @@
 (defun close-wire (wire) (close-fd (wire-fd wire)) (setf (wire-fd wire) -1)
   (setf (wire-queue wire) nil (wire-queue-tail wire) nil (wire-body wire) nil)
   (clrhash (wire-known wire)) (acknowledge-scene wire))
-(defun checked-name (name &optional (kind "Session"))
+(defun checked-name (name &optional (kind "Instance"))
   (unless (and (stringp name) (<= 1 (length name) 40)
                (every (lambda (c) (or (find c "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789")
                                      (find c "_-"))) name))
@@ -93,9 +94,8 @@
     (sb-posix:chmod dir #o700)
     (format nil "~A~A.sock" dir (if (string= *instance* "default") "ekko"
                                    (concatenate 'string "instance-" *instance*)))))
-(defun send-route (wire name &optional view-id)
-  (when name (checked-name name))
-  (send-packet wire 0 (encode-scene (list +wire-version+ name view-id))))
+(defun send-route (wire &optional view-id)
+  (send-packet wire 0 (encode-scene (list +wire-version+ view-id))))
 (defun encode-scene (scene)
   (text-bytes (with-standard-io-syntax (let ((*print-readably* t) (*print-pretty* nil)) (write-to-string scene)))))
 (defun decode-scene (bytes)

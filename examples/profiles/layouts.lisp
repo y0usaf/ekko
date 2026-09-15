@@ -90,7 +90,7 @@
                                 (setf (getf hidden :visible) nil)
                                 hidden))
                 (list (frame-placement snapshot focus left top width height)))))))
-  (list (action :place-panes :version 1 :placements placements :camera '(0 0))))
+  (list (action :place-panes ':version 1 :placements placements :camera '(0 0))))
 
 (defun tiled-layout (snapshot event)
   (declare (ignore event))
@@ -113,7 +113,7 @@
                             tree width height
                             (if (find focus tiled :key (lambda (pane) (getf pane :id)))
                                 focus (getf (first tiled) :id)) nil
-                            :leaf-min (lambda (id) (cdr (assoc id minimums)))
+                            :leaf-min (lambda (id) (rest (assoc id minimums)))
                             :column-gap (first gaps) :row-gap (second gaps))))
                 (loop for pane in (sort (copy-list panes) #'<
                                        :key (lambda (pane) (getf pane :activation-order 0)))
@@ -134,11 +134,10 @@
                              (floating-rectangle pane index left top width height))))))
 
 (defun install-layouts ()
-  (register-component :id :layouts)
+  (register-component :id ':layouts)
   (dolist (provider (list (cons "tiled" #'tiled-layout) (cons "floating" #'floating-layout)))
-    (register-layout-provider :component :layouts :name (car provider)
+    (register-layout-provider :component ':layouts :name (first provider)
                               :reads '(:panes :focus :viewport :geometry :layout :zoom)
-                              :handler (cdr provider)))
-  (set-option :component :layouts :name :layout-provider :value "tiled")
-  (set-option :component :layouts :name :workspace-scope :value :session)
-  (set-option :component :layouts :name :pane-budget :value 16))
+                              :handler (rest provider)))
+  (set-option :component ':layouts :name ':layout-provider :value "tiled")
+  (set-option :component ':layouts :name ':pane-budget :value 16))

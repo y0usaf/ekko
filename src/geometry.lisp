@@ -50,8 +50,7 @@
   "Return disjoint half-open pieces of SUBJECT not covered by OCCLUDER."
   (require-rect subject) (require-rect occluder)
   (let ((cut (rect-intersection subject occluder)))
-    (if (null cut)
-        (list subject)
+    (if cut
         (remove nil
                 (list
                  (and (< (rect-y subject) (rect-y cut))
@@ -65,7 +64,8 @@
                                  (- (rect-x cut) (rect-x subject)) (rect-height cut)))
                  (and (< (rect-right cut) (rect-right subject))
                       (make-rect (rect-right cut) (rect-y cut)
-                                 (- (rect-right subject) (rect-right cut)) (rect-height cut))))))))
+                                 (- (rect-right subject) (rect-right cut)) (rect-height cut)))))
+        (list subject))))
 
 (defstruct (mapped-fragment (:constructor %make-mapped-fragment (destination source)))
   (destination nil :read-only t) (source nil :read-only t))

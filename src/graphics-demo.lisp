@@ -148,9 +148,9 @@ edge.  An opaque 8 by 16 overlay in the middle leaves two fragments."
     (unwind-protect
          (progn
            (let ((fixture (or (uiop:getenv "EKKO_GRAPHICS_FIXTURE") "red-blue")))
-             (cond ((string= fixture "red-blue") (replay client :fixture :red-blue))
-                   ((string= fixture "checkerboard") (replay client :fixture :checkerboard))
-                   ((string= fixture "native") (replay client :fixture :native-checkerboard))
+             (cond ((string= fixture "red-blue") (replay client :fixture ':red-blue))
+                   ((string= fixture "checkerboard") (replay client :fixture ':checkerboard))
+                   ((string= fixture "native") (replay client :fixture ':native-checkerboard))
                    (t (error "Unknown EKKO_GRAPHICS_FIXTURE: ~A" fixture))))
                 (with-open-file (stream pathname :direction :output :if-exists :supersede
                                         :element-type '(unsigned-byte 8))
@@ -165,7 +165,7 @@ edge.  An opaque 8 by 16 overlay in the middle leaves two fragments."
 
 (defun executable-main ()
   (sb-ext:exit :code
-   (let ((arguments (cdr sb-ext:*posix-argv*)))
+   (let ((arguments (rest sb-ext:*posix-argv*)))
     (if (= (length arguments) 1)
         (handler-case (progn (write-demo (first arguments)) 0)
           (error (condition) (format *error-output* "ekko graphics demo: ~A~%" condition) 2))

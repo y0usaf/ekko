@@ -243,8 +243,8 @@ def run_side(kind, args, root):
                 "--new-session-with-layout", str(work / "layout.kdl"), "--session", "oracle"]
         stop = [args.zellij, "kill-session", "oracle"]
     else:
-        argv = [args.ekko, "run", "--session", "oracle", *fixture_argv]
-        stop = [args.ekko, "stop", "oracle"]
+        argv = [args.ekko, "--instance", "oracle", "run", *fixture_argv]
+        stop = [args.ekko, "--instance", "oracle", "stop"]
     child_env = dict(env)
     if kind == "ekko":
         child_env["EKKO_CONFIG"] = str(args.profile)
@@ -556,13 +556,13 @@ def run_workflow_side(kind, args, root):
     else:
         config = write_workflow_config(work, args.profile.resolve(), shell)
         env["EKKO_CONFIG"] = str(config)
-        argv = [args.ekko, "run", "--session", "workflow"]
+        argv = [args.ekko, "--instance", "workflow", "run"]
         for index, label in enumerate(("A", "B", "C")):
             argv.extend([sys.executable, str(script), "--workflow-fixture", label,
                          str(paths[label][0]), str(paths[label][1])])
             if index != 2:
                 argv.append(":::")
-        stop = [args.ekko, "stop", "workflow"]
+        stop = [args.ekko, "--instance", "workflow", "stop"]
     fixture_argv = {label: [sys.executable, str(script), "--workflow-fixture", label,
                             str(paths[label][0]), str(paths[label][1])]
                     for label in ("A", "B", "C")}
@@ -613,7 +613,7 @@ def run_workflow_side(kind, args, root):
                         if kind == "zellij":
                             return zellij_flash_ready(work, dest, child_env,
                                                       flash_ansi_offset)
-                        result = subprocess.run([args.ekko, "inspect", "workflow"],
+                        result = subprocess.run([args.ekko, "--instance", "workflow", "inspect"],
                                                 env=child_env, capture_output=True, timeout=8)
                         if result.returncode:
                             return False
@@ -668,9 +668,9 @@ def run_workflow_side(kind, args, root):
                 shutil.copyfile(work / "output.ansi", dest / (name + ".ansi"))
                 inspect = status = None
                 if kind == "ekko" and name != "quit":
-                    inspect_result = subprocess.run([args.ekko, "inspect", "workflow"], env=child_env,
+                    inspect_result = subprocess.run([args.ekko, "--instance", "workflow", "inspect"], env=child_env,
                                                     capture_output=True, timeout=8, check=True)
-                    status_result = subprocess.run([args.ekko, "status", "workflow"], env=child_env,
+                    status_result = subprocess.run([args.ekko, "--instance", "workflow", "status"], env=child_env,
                                                    capture_output=True, timeout=8, check=True)
                     inspect = json.loads(inspect_result.stdout)
                     status = json.loads(status_result.stdout)

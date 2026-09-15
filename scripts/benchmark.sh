@@ -14,13 +14,13 @@ current_terminal=false
 while (($#)); do
   case "$1" in
     --current-terminal) current_terminal=true; shift ;;
-    --session|--browser-url)
+    --session|--instance|--browser-url)
       if (($# < 2)); then printf '%s requires a value\n' "$1" >&2; exit 2; fi
-      if [[ $1 == --session ]]; then session=$2; else browser_url=$2; fi
+      if [[ $1 == --browser-url ]]; then browser_url=$2; else session=$2; fi
       shift 2 ;;
     --help|-h)
-      printf '%s\n' 'Usage: nix run .#benchmark -- [--current-terminal] [--session NAME] [--browser-url URL]' \
-        '       nix run .#workspace -- [--current-terminal] [--session NAME] [--browser-url URL]' \
+      printf '%s\n' 'Usage: nix run .#benchmark -- [--current-terminal] [--instance NAME] [--browser-url URL]' \
+        '       nix run .#workspace -- [--current-terminal] [--instance NAME] [--browser-url URL]' \
         'benchmark: browser + Slack. workspace: your shell + browser. Both open a Kitty window.' \
         'EKKO_SLACK_SOURCE overrides ~/dev/sandbox/terminal-slack. TERMINAL_SLACK_URL overrides the Slack URL.'
       exit 0 ;;
@@ -45,11 +45,11 @@ export TERMINAL_BROWSER_GRAPHICS=kitty
 export FONTCONFIG_FILE="$EKKO_FONTCONFIG"
 unset TMUX STY HERDR_SOCKET HERDR_PANE_ID
 if [[ $mode == shell-browser ]]; then
-  command=("$EKKO_BINARY" run --session "$session" "${EKKO_SHELL:-${SHELL:-bash}}" -i
+  command=("$EKKO_BINARY" --instance "$session" run "${EKKO_SHELL:-${SHELL:-bash}}" -i
            ::: "$benchmark_dir/bin/terminal-browser" open "$browser_url")
 else
   slack_package=$(nix build --no-link --print-out-paths "path:$slack_source" "${browser_options[@]}")
-  command=("$EKKO_BINARY" run --session "$session" "$benchmark_dir/bin/terminal-browser" open "$browser_url"
+  command=("$EKKO_BINARY" --instance "$session" run "$benchmark_dir/bin/terminal-browser" open "$browser_url"
            ::: "$slack_package/bin/terminal-slack")
 fi
 if "$current_terminal"; then

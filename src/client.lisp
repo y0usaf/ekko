@@ -100,14 +100,14 @@
   ;; advance a probe or release a presentation lease.
   (when (and (> (length bytes) 5) (= (aref bytes 2) 71))
     (let* ((semi (position 59 bytes))
-           (keys (and semi (ekko/graphics::header (map 'string #'code-char (subseq bytes 3 semi)))))
-           (id (and keys (ekko/graphics::number-key keys #\i)))
+           (keys (and semi (ekko/graphics:header (map 'string #'code-char (subseq bytes 3 semi)))))
+           (id (and keys (ekko/graphics:number-key keys #\i)))
            (ok (and semi (equalp (subseq bytes (1+ semi) (- (length bytes) 2)) #(79 75)))))
       (cond
         ((and (eql id 4294967295) (eq (viewer-transport viewer) :probing))
          (setf (viewer-transport viewer) (if ok :file :inline) (viewer-probe-deadline viewer) nil))
         ((and id (gethash id (viewer-uploads viewer))
-              (= (ekko/graphics::number-key keys #\p) 1))
+              (= (ekko/graphics:number-key keys #\p) 1))
          (unless ok (error "Host rejected local image ~D" id))
          (remhash id (viewer-uploads viewer)))))))
 
@@ -342,7 +342,7 @@
              (not (viewer-discard-paste viewer)) (not (viewer-cancel-paste-marker viewer)))
     (setf (viewer-binding-state viewer) :ready)
     (send-packet (viewer-connection viewer) 25 (integers (list (viewer-binding-generation viewer))))
-    ;; Physical connection observations survive a session switch. They are not
+    ;; Physical connection observations survive view rebinding. They are not
     ;; an old stdin transaction, so they use the newly accepted generation.
     (send-packet (viewer-connection viewer) 6
       (concatenate '(vector (unsigned-byte 8)) (integers (list (viewer-binding-generation viewer)))
@@ -537,20 +537,46 @@
 (defun restore-terminal ()
   (initialize)
   (write-fd 1 (text-bytes *terminal-leave*))
-  (uiop:run-program '("stty" "sane") :input :interactive :output :interactive :error-output :interactive)
+  (uiop:run-program '("stty" "sane") :input ':interactive :output ':interactive :error-output ':interactive)
   0)
-(defun attach-session (name &optional connected-fd view-id)
+(defun disconnected-p (condition)
+  "The peer vanished mid-handshake: a draining daemon accepted, then quit."
+  (let ((message (princ-to-string condition)))
+    (or (search "disconnect" message) (search "connect failed" message)
+        (search "stopping" message))))
+(defun connect-workspace (wire request &optional view-id)
+  "Route, ensure, and wait for the workspace on a fresh connection. Retries
+while a previous daemon finishes draining, which a socket backlog hides."
+  (let ((deadline (+ (now) 4)))
+    (loop
+      (handler-case
+          (progn
+            (send-route wire view-id)
+            (send-packet wire 8 (encode-scene request))
+            (wait-control-result wire)
+            (return wire))
+        (error (condition)
+          (close-wire wire)
+          (unless (and (disconnected-p condition) (< (now) deadline)) (error condition))
+          (setf wire (make-wire :fd (ensure-daemon))))))))
+
+(defun attach (&optional view-id)
   (initialize)
-  (checked-name name)
   (let* ((viewport (or (terminal-viewport) (error "attach requires a terminal")))
-         (fd (or connected-fd (checked (connect-local (socket-path)) "attach")))
+         (fd (ensure-daemon))
          (viewer (make-viewer :connection (make-wire :fd fd) :io (make-wire :fd 1)))
          (buffer (octets 65536)) (last-size 0))
     (dolist (sig (list sb-posix:sigterm sb-posix:sighup))
       (sb-sys:enable-interrupt sig (lambda (&rest arguments) (declare (ignore arguments)) (setf (viewer-done viewer) t))))
     (unwind-protect
          (progn
-           (send-route (viewer-connection viewer) name view-id)
+           ;; Ensure the workspace exists, then attach. A cold daemon creates it
+           ;; here; the reply arrives when startup commits.
+           (setf (viewer-connection viewer)
+                 (connect-workspace (viewer-connection viewer)
+                                   (list nil viewport (namestring (truename (uiop:getcwd)))
+                                         (sb-ext:posix-environ) (creation-config-path))
+                                   view-id))
            (send-packet (viewer-connection viewer) 1 (integers (cons +wire-version+ viewport)))
            (checked (raw 0) "enter terminal raw mode")
            (terminal-write viewer *terminal-enter*) (send-size viewer)
@@ -577,12 +603,12 @@
                (dolist (event (poll-fds (append (list (cons 0 1) (cons fd (wire-events (viewer-connection viewer))))
                                                 (when (wire-queue (viewer-io viewer)) (list (cons 1 4))))
                                       (max 0 (ceiling (* 1000 (- deadline current))))))
-               (let ((flags (cdr event)))
-                 (cond ((= (car event) 0)
+               (let ((flags (rest event)))
+                 (cond ((= (first event) 0)
                         (let ((n (read-fd 0 buffer)))
                           (cond ((plusp n) (input-feed viewer buffer n)) ((not (member n '(-11 -4))) (setf (viewer-done viewer) t)))))
-                       ((= (car event) 1) (flush-wire (viewer-io viewer)))
-                       ((= (car event) fd)
+                       ((= (first event) 1) (flush-wire (viewer-io viewer)))
+                       ((= (first event) fd)
                         (when (logtest flags 4) (flush-wire (viewer-connection viewer)))
                         (when (logtest flags 25)
                           (handler-case (dolist (packet (receive-packets (viewer-connection viewer) buffer)) (receive-view viewer packet))
@@ -603,8 +629,8 @@
   (let ((buffer (octets 65536)) (deadline (+ (now) timeout)))
     (loop while (< (now) deadline) do
       (dolist (event (poll-fds (list (cons (wire-fd wire) (wire-events wire))) 100))
-        (when (logtest (cdr event) 4) (flush-wire wire))
-        (when (logtest (cdr event) 25)
+        (when (logtest (rest event) 4) (flush-wire wire))
+        (when (logtest (rest event) 25)
           (dolist (packet (receive-packets wire buffer))
             (case (aref packet 0)
               (21 (error "~A" (bytes-text (subseq packet 1))))
@@ -612,15 +638,13 @@
               (otherwise (error "Unexpected control reply")))))))
     (error "Control request timed out")))
 
-(defun control-session (name command &key arguments view-id)
+(defun control (command &key arguments view-id)
   (initialize)
   (let ((wire (make-wire :fd (checked (connect-local (socket-path)) "connect"))))
     (unwind-protect
          (progn
-           (send-route wire name view-id)
-           (cond ((equal command "switch")
-                  (send-packet wire 9 (text-bytes (first arguments))))
-                 (arguments
+           (send-route wire view-id)
+           (cond (arguments
                   (send-packet wire 7
                     (text-bytes (with-output-to-string (out)
                                   (loop for value in arguments for first = t then nil do
@@ -639,7 +663,7 @@
       (let ((log (concatenate 'string path ".log")) (deadline (+ (now) 10)))
         ;; A losing starter may exit before the lock winner listens.
         (sb-ext:run-program "/proc/self/exe" (list "--instance" *instance* "--serve")
-                            :wait nil :input nil :output log :error :output :if-output-exists :append)
+                            :wait nil :input nil :output log :error ':output :if-output-exists ':append)
         (loop while (and (minusp fd) (< (now) deadline)) do
           (poll-fds nil 30)
           (setf fd (connect-local path)))
@@ -663,16 +687,12 @@
               (- (get-universal-time) 2208988800) (sb-posix:getpid)
               (rest sb-ext:*posix-argv*) condition))))
 
-(defun run-session (name commands &key detached)
+(defun run (commands &key detached)
+  "Open COMMANDS as workspace panes (a default shell when empty), then attach."
   (initialize)
-  (checked-name name)
-  (let* ((request (list commands (terminal-viewport) (namestring (truename (uiop:getcwd)))
-                        (sb-ext:posix-environ) (creation-config-path)))
-         (wire (make-wire :fd (ensure-daemon))))
-    (unwind-protect
-         (progn
-           (send-route wire name)
-           (send-packet wire 8 (encode-scene request))
-           (wait-control-result wire))
-      (close-wire wire)))
-  (if detached 0 (attach-session name)))
+  (let ((wire (connect-workspace (make-wire :fd (ensure-daemon))
+                              (list commands (terminal-viewport)
+                                    (namestring (truename (uiop:getcwd)))
+                                    (sb-ext:posix-environ) (creation-config-path) t))))
+    (close-wire wire))
+  (if detached 0 (attach)))

@@ -7,14 +7,14 @@ file is an error. See [a complete example](../examples/init.lisp).
 
 ```sh
 ekko config check                  # validate the file in a disposable worker
-ekko config reload workspace       # replace this session's active configuration
-ekko inspect workspace             # JSON: owners, commands, keymaps, options, errors
-ekko command --session workspace label-work
+ekko config reload                 # replace the workspace's active configuration
+ekko inspect                       # JSON: owners, commands, keymaps, options, errors
+ekko command label-work
 ```
 
-`ekko config reload SESSION` reloads the configuration. Editing a file takes effect after
+`ekko config reload` reloads the configuration. Editing a file takes effect after
 reload, without rebuilding or restarting applications. A bad reload reports an
-error and keeps the previous configuration. Each session remembers its creation
+error and keeps the previous configuration. The workspace remembers its creation
 configuration path and launch environment; `config check` uses the caller's environment.
 
 These are trusted Lisp files with your OS permissions, like an Emacs init file.
@@ -27,20 +27,21 @@ it paints UI chrome and a loaded machine may answer late. Messages are limited t
 Load local helper files with `load` if needed. Reloading a worker also reloads
 those files; recovery retains the accepted init text, not copies of its dependencies.
 
-## Shared sessions and views
+## Shared workspace and views
 
-Sessions share one daemon, global pane IDs and the durable component store.
-A session keeps its launch cwd, environment, worker, configuration and applications.
-Each view has its own focus, mode, zoom, selection, geometry contributions,
-component state, decorations and layout camera. The first attachment uses the
-session's home view; a default reconnect can resume that detached view.
+One daemon hosts one workspace: all panes, the layout tree, the extension
+worker, the configuration and the durable component store live there. The
+workspace keeps its launch cwd, environment and applications; `run` opens
+additional panes in it. Each view has its own focus, mode, zoom, selection,
+geometry contributions, component state, decorations and layout camera. The
+first attachment uses the workspace's home view; a default reconnect can resume
+that detached view.
 
 Callbacks receive an immutable snapshot of their originating view. Commands
 capture that view's epoch and default pane target before dispatch. Completion
-cannot use another view's focus. Detach or session switching cancels old-origin
+cannot use another view's focus. Detach cancels old-origin
 actions and pending input. A shared structural edit refreshes affected views.
-Use `ekko command --session NAME --view ID COMMAND` when several views are attached.
-The public `:show-session :name NAME` action switches the originating view.
+Use `ekko command --view ID COMMAND` when several views are attached.
 
 ## Layout providers
 
@@ -53,7 +54,6 @@ A provider is an owned, isolated callback, not a host layout enum:
  :reads '(:panes :focus :viewport :geometry)
  :handler function)
 (set-option :component :workspace :name :layout-provider :value "my-layout")
-(set-option :component :workspace :name :workspace-scope :value :all-panes)
 ```
 
 Register the component first. The provider's handler receives `(snapshot event)`
@@ -77,9 +77,8 @@ PTY to its visible sliver.
 `:panes`, `:focus`, `:viewport` and `:geometry` are required reads. Additional
 reads use the same declared-dependency API as hooks. Provider pane metadata omits
 derived geometry/output fields so a placement does not trigger its own feedback
-loop. `:sessions` and `:all-panes` expose the daemon-wide catalog;
-`:workspace-scope` chooses `:session` or `:all-panes` for the view's `:panes`.
-`:workspace` includes scope and camera. There is no built-in-only placement API.
+loop. `:panes` and `:all-panes` both expose the daemon-global pane set; there is
+only one workspace. `:workspace` includes camera metadata. There is no built-in-only placement API.
 The default `"tiled"` and `"floating"` providers use this boundary too.
 They live in `examples/profiles/layouts.lisp`; a bare config can load that file
 and call `ekko/layout-providers:install-layouts`. `ekko/layout` supplies optional
@@ -97,16 +96,15 @@ outer frames at most 532 by 332 cells, and coordinates/camera within
 −1,000,000 to 1,000,000. `:pane-budget` is 1–128, default 16. These are finite
 resource limits, not a claim of unlimited terminals.
 
-At most 128 sessions (including pending/retiring sessions), 16 concurrent
-creations and 256 peers are admitted. The daemon keeps every home/live view and
-the eight newest detached extra views per session. Older detached extra state
+At most 128 panes and 256 peers are admitted. The daemon keeps every home/live
+view and the eight newest detached extra views. Older detached extra state
 may be reclaimed; this never removes an application or the home view.
 
 [scrolling.lisp](../examples/profiles/scrolling.lisp) demonstrates fixed-width
-columns over all sessions, focus-following camera, explicit pan commands and
+columns over every pane, focus-following camera, explicit pan commands and
 live column sizing. Load the same file in regular Ekko or `ekko-bare`.
-To use project-separated workspaces, select `:workspace-scope :session` and a
-provider per session. Reloading policy does not restart PTYs.
+For project-separated workspaces, run a second daemon with `--instance NAME`.
+Reloading policy does not restart PTYs.
 
 ### Shared application sizing and native pixels
 
@@ -160,11 +158,10 @@ cross this boundary.
 
 | Snapshot key | Value |
 | --- | --- |
-| `:session` | Originating session name |
+| `:session` | Instance name (the workspace's daemon) |
 | `:view` | Origin view `:id` and `:epoch` |
-| `:sessions` | Daemon-global session catalog |
 | `:all-panes` | Daemon-global pane metadata |
-| `:workspace` | Scope, session and camera metadata |
+| `:workspace` | Camera metadata |
 | `:focus` | Origin view's daemon-global focused pane ID |
 | `:mode` | Active custom keymap keyword, or `nil` for built-in routing |
 | `:panes` | Plists with `:id`, raw `:label`, explicit `:name` (nil until rename), detached `:argv`, `:launch-kind` (`:command` or `:shell`), immutable `:creation-position`, `:terminal-title` (nil until OSC title, empty when cleared), `:display-label`, `:pid`, `:cols`, `:rows`, `:exit`, content `:x`/`:y`, `:outer-rect` `(x y width height)`, `:layout-rect`, `:activation-order`, `:visible`, `:pty-size`, `:history-rows`, and `:activity` |
@@ -223,17 +220,17 @@ including startup, a new attachment and worker recovery. The event is
 `(:type :initialize :reason :startup)`, `:attach`, `:reload` or `:recovery`.
 The entire initializer group has the ordinary 50 ms callback deadline.
 Registrations remain load-only. Commands, PTY writes, geometry changes, process
-creation and other session actions are rejected in initialization.
+creation and other workspace actions are rejected in initialization.
 
-At session creation, the home view is initialized before its application PTYs
-start; pane PIDs are `nil`. The shared daemon socket and other sessions may
-already exist and remain responsive.
+At workspace creation, the home view is initialized before its application PTYs
+start; pane PIDs are `nil`. The daemon socket already exists and remains
+responsive.
 During reload, callbacks see a detached snapshot of the last committed geometry,
 mode and pane state, with removed owners filtered out of `:component-state`.
 They do not see candidate option geometry or other initializers' proposed state.
 All callbacks for one view use the same snapshot and run in registration order;
 later owners' mode choices win. Candidate mode and focus are normalized to the
-candidate keymaps and workspace scope. Provider validation follows initialization
+candidate keymaps. Provider validation follows initialization
 for every affected view and sees the aggregate staged store writes. State survives successful owner-preserving reload, so an
 initializer can distinguish first installation from later generations:
 
@@ -249,7 +246,7 @@ initializer can distinguish first installation from later generations:
 ```
 
 Every returned batch and aggregate ownership limit is checked on a detached
-session before the candidate replaces the live registry. An invalid later owner,
+workspace before the candidate replaces the live registry. An invalid later owner,
 callback error or timeout rejects the entire candidate. Child output continues;
 viewer input arriving during initialization is queued and replayed through the
 accepted map on success, or the previous map on rejection. If a declared snapshot
@@ -276,18 +273,18 @@ be `:prefix`, `:copy`, or a custom registered map; custom map references are
 validated when the complete registry is installed, so an unknown map rejects the
 reload and leaves the previous configuration active.
 
-The preserved state is the session's
+The preserved state is the workspace's
 PTYs, labels, layout, history, copy selections, and buffer. User-invoked commands
-change that session state; removing their component does not undo past user actions.
+change that workspace state; removing their component does not undo past user actions.
 `inspect` reports the active `:mode`, the `:zoom` state as a JSON boolean,
 registered keymaps (including each map's owner and unbound policy), bindings,
 contributions, disabled hooks, and the last error. Builtins use the same API in
 `ekko/builtins`; `ekko-bare` is packaged without builtins and can load external
 commands and layout providers.
 
-Public extension API version 1 remains distinct from wire version **15**.
+Public extension API version 1 remains distinct from wire version **16**.
 All clients, including controls, must first send packet 0 with bounded data
-`(15 SESSION-OR-NIL VIEW-ID-OR-NIL)`. Older versions and unversioned traffic are
+`(16 VIEW-ID-OR-NIL)`. Older versions and unversioned traffic are
 rejected; there is no legacy tiled-only attachment path.
 
 Packet 1 attaches once with five big-endian u32 values: version, columns, rows,
@@ -297,7 +294,7 @@ height 1–256). Scene and asset framing keep their existing layout, with
 daemon-global pane identities. Packet 14 remains the graphics acknowledgement;
 its packet number is not a wire version.
 
-On attachment and each session switch, packet 24 announces one big-endian u32
+On attachment, packet 24 announces one big-endian u32
 connection binding generation. Packet 25 acknowledges that generation. The
 client cancels old parser and original-read state at cutover. It retains only
 cancellation knowledge for a split paste delimiter and discards the old paste
@@ -305,7 +302,7 @@ through its terminator before acknowledging. An ambiguous interrupted delimiter
 closes that client rather than forwarding uncertain bytes; applications survive.
 Input packets 2, 4, 5, 6 and 16 prepend the binding generation to their payload;
 packet 16 retains the original bytes from a host input read. Old-generation
-input is discarded, including a late packet after switching away and back to
+input is discarded, including a late packet after detaching and reattaching to
 the same view. No input is accepted before the new binding acknowledgement.
 This boundary is separate from graphics acknowledgement and lease cleanup.
 
@@ -320,7 +317,6 @@ This boundary is separate from graphics acknowledgement and lease cleanup.
 | `:initial-layout` | Optional startup tree, e.g. `(:columns 50 1 (:rows 50 2 3))`; leaves name one-based startup command slots, each exactly once; mapped to global pane IDs at creation; percentages 1–99, bounded by `:pane-budget` |
 | `:pane-budget` | Integer 1–128, default 16 |
 | `:layout-provider` | Registered provider name, or `nil` for the focused-pane bootstrap |
-| `:workspace-scope` | `:session` (default) or `:all-panes` |
 | `:initial-keymap` | Registered custom keymap keyword, or `nil` |
 | `:prefix` | `"C-a"` through `"C-z"`, or integer 1–26 |
 | `:shell` | Executable argument list for new panes; defaults to `$SHELL -i` |
@@ -420,12 +416,12 @@ titles, split dividers, and status line use this same API in `ekko/builtins`.
 `:history-rows` is the bounded main-screen history count (zero on alternate
 screen); it does not expose a scroll position or history reflow.
 
-When `run` creates a session from a terminal, its initial cell and pixel size
+When `run` creates the workspace from a terminal, its initial cell and pixel size
 is handed to the daemon before applications spawn. The loaded geometry options
 therefore determine each application's first PTY size. New split panes likewise
 start at their planned content size; an unsuccessful spawn leaves the current
 layout and applications intact. A server started without a terminal viewport
-uses the default 120×36 session and 8×16 cell size. A pane initially hidden by
+uses the default 120×36 viewport and 8×16 cell size. A pane initially hidden by
 layout collapse starts at 1×1 until it is shown. Later attachments and reloads
 continue to resize existing PTYs without restarting their processes.
 
@@ -463,7 +459,7 @@ dependencies. On reload, Ekko keeps the selected mode if the new registry still
 registers it. If it does not, Ekko selects `:initial-keymap` (or no custom mode
 when that option is absent). A failed reload keeps both the old registry and its
 current mode. Map names and bindings are configuration contributions: removing
-the owning component removes them, while the session's prior user actions remain.
+the owning component removes them, while the workspace's prior user actions remain.
 
 The checked-in [Zellij profile](../examples/profiles/zellij.lisp) demonstrates
 Normal/Locked routing plus Pane entry, exits, locking, and fullscreen. It is still
@@ -474,7 +470,7 @@ bytes. Incomplete UTF-8 keys are transient input: changing modes or losing the
 writer discards them. Grapheme and modifier handling is not complete Zellij parity.
 
 Actions are plists prefixed by their kind. A batch accepts up to 32 actions,
-with at most **one primary session action**, optionally followed by one
+with at most **one primary workspace action**, optionally followed by one
 `:set-keymap` transition, plus contributions (including at most one `:set-state`). A map transition must
 follow the primary action when both are present; a map transition by itself is
 also valid. Status contributions may accompany either form. The complete batch
@@ -496,7 +492,7 @@ primary action made before raising are not rolled back.
 | `:set-keymap` | `:name` registered custom keymap |
 | `:status` | `:text`, owned by the returning component |
 | `:pane-note` | `:pane` ID, printable `:text` up to 512 characters, `:sgr` up to 16 integers 0–255, `:duration` 1–60000 milliseconds |
-| `:send-input` | `:bytes` list of at most 4,096 octets, sent literally to the focused PTY through its bounded input queue; a primary session action |
+| `:send-input` | `:bytes` list of at most 4,096 octets, sent literally to the focused PTY through its bounded input queue; a primary workspace action |
 | `:copy-move` | `:delta` rows |
 | `:copy-edge` | `:edge :start` or `:end` |
 | `:focus-next`, `:zoom`, `:swap`, `:detach`, `:stop`, `:reload`, `:help` | None |
@@ -555,27 +551,27 @@ under the default store directory. An explicit `EKKO_STORE_DIR` always wins;
 pointing two instances at that same override deliberately shares its files.
 The store directory is created private to the current user. Files
 are read back with `*read-eval*` disabled and an unreadable file is skipped
-with a warning. A failed write is reported through the session's last error
+with a warning. A failed write is reported through the workspace's last error
 (visible in `inspect`) and never stops the daemon, so storage stays best-effort.
 
 ## Panes and copy mode
 
-A session supports up to 16 panes in mixed row/column split trees. IDs remain
+A workspace supports up to 16 panes in mixed row/column split trees. IDs remain
 stable when panes close. If a terminal becomes too small for the tree, Ekko shows
 only the focused pane and restores the layout when space returns.
 
 ```sh
-ekko split --session workspace columns          # default shell
-ekko split --session workspace rows htop         # explicit executable
-ekko rename --session workspace 'build output'
-ekko command --session workspace close
-ekko buffer workspace > selection.txt
+ekko split columns          # default shell
+ekko split rows htop        # explicit executable
+ekko rename 'build output'
+ekko command close
+ekko buffer > selection.txt
 ```
 
 Default bindings use the desktop modes: Ctrl-p opens pane controls (r/d/n new,
 Tab cycle/restore, h/j/k/l focus, m minimize, f maximize, c rename, x close).
-Ctrl-h opens move controls, Ctrl-o opens session controls, Ctrl-g locks/unlocks,
-and Ctrl-q stops the session. Commands such as `copy-mode`, `paste-buffer`,
+Ctrl-h opens move controls, Ctrl-o opens the session keymap (detach/quit),
+Ctrl-g locks/unlocks, and Ctrl-q stops the workspace. Commands such as `copy-mode`, `paste-buffer`,
 `resize-left`, `resize-right`, `swap` and `reload` also remain callable through
 `ekko command` or custom bindings.
 
@@ -598,7 +594,7 @@ closing applications. Branch percentages are integers 1–99; every existing
 pane ID must appear exactly once. Invalid trees reject the complete action
 batch. Focus and fullscreen state are preserved: changing the tiled tree while
 fullscreen takes effect behind the focused pane until fullscreen is cleared.
-The tree is daemon-owned session state, so it survives detach, component
+The tree is daemon-owned workspace state, so it survives detach, component
 removal, and reload; `:initial-layout` is only a startup default. Profiles can
 compute layout choices from their detached `:layout` and `:panes` snapshots
 and return this ordinary action. The core performs geometry and PTY resizing.

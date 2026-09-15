@@ -1,7 +1,7 @@
 ;;; Durable per-component state: one file per namespace, atomic replacement.
-;;; The directory lives outside the session runtime directory so the values
+;;; The directory lives outside the daemon runtime directory so the values
 ;;; survive daemon restarts. Nothing here trusts file contents: values are
-;;; read with *READ-EVAL* disabled and bounded before they enter a session.
+;;; read with *READ-EVAL* disabled and bounded before they enter the workspace.
 (defpackage #:ekko/store
   (:use #:cl)
   (:export #:*directory* #:store-directory #:store-file #:store-load #:store-write #:store-namespace))
@@ -73,7 +73,7 @@ The daemon binds *DIRECTORY* to this result for its entire lifetime."
               (error "Invalid store file"))
             (unless (loop for entry in entries
                           always (and (consp entry)
-                                      (or (stringp (car entry)) (keywordp (car entry)))))
+                                      (or (stringp (first entry)) (keywordp (first entry)))))
               (error "Invalid store entry"))
             (cons namespace entries))))
     (error (e) (format *error-output* "store: ~A: ~A~%" path e) nil)))
@@ -91,7 +91,7 @@ The daemon binds *DIRECTORY* to this result for its entire lifetime."
   (let* ((path (store-file namespace))
          (temp (concatenate 'string (namestring path) ".tmp")))
     (private-directory (store-directory))
-    (with-open-file (out temp :direction :output :if-exists :supersede :if-does-not-exist :create)
+    (with-open-file (out temp :direction ':output :if-exists ':supersede :if-does-not-exist ':create)
       (with-standard-io-syntax
         (let ((*print-readably* nil) (*print-pretty* nil))
           (write (list :ekko-store 1 (coerce namespace 'simple-string) entries) :stream out)))

@@ -17,7 +17,7 @@ multiplexing to Zellij. Extend reusable public mechanisms wherever needed.
 inputs must match state, application-visible bytes, terminal cells, and screenshots
 under identical terminal dimensions, capabilities, fonts, theme, and deterministic
 application content. Only documented nondeterminism may be normalized. Modes,
-panes, tabs, layouts, all UI, mouse/copy/search/clipboard, sessions/persistence,
+panes, tabs, layouts, all UI, mouse/copy/search/clipboard, workspace persistence,
 CLI, bundled plugins, and remaining upstream features are in scope. Completion
 requires full functional and visual parity with no known unexplained differences,
 public API documentation, reproducible references, visual evidence, and passing
@@ -58,7 +58,7 @@ after a parser, a screenshot, a passthrough demo, or a text-only multiplexer.
 
 The applicable `~/dev/AGENTS.md` requires least code, declarative policy,
 reversible components, a functional core, public APIs for built-ins, daemon-owned
-durable session state, and Nix verification. These are implementation constraints.
+durable workspace state, and Nix verification. These are implementation constraints.
 Do not edit that file. A local exception requires evidence and the exception
 mechanism defined there; this document does not waive its rules.
 
@@ -109,7 +109,7 @@ operation responses and application tests, not an invented negotiation protocol.
 Linux x86-64 is the initial supported platform; Linux aarch64 is a later build
 target. Start with a pinned Kitty host. Do not initially implement Windows,
 macOS, GPU rendering, SSH transport, a package marketplace, collaborative input,
-session resurrection after daemon death, or arbitrary Lisp sandboxing. Do not
+workspace resurrection after daemon death, or arbitrary Lisp sandboxing. Do not
 write a browser or a Slack client. Do not embed tmux/zellij as the multiplexer.
 Other terminals get a truthful text fallback until tested.
 
@@ -187,7 +187,7 @@ Specify concrete structs, typed identifiers, and field invariants before adding
 methods. Prefer `defstruct` and ordinary functions for data and pure transforms;
 use CLOS where multiple real implementations benefit from generic dispatch.
 
-- `session`: pane registry, workspace tree, geometry lease, component context.
+- `daemon` (the workspace): pane registry, layout tree, geometry lease, component context.
 - `pane`: stable ID plus incarnation, PTY owner, process status, VT state,
   graphics namespace, input modes, quotas, title metadata.
 - `vt-state`: main/alternate screens, cursor and saved cursor, scroll region,
@@ -491,7 +491,7 @@ Chrome interactions belong to the UI. A drag captures its destination at press
 time until release/cancel; crossing a pane boundary must not split one gesture
 across applications. Define pixel-mouse behavior when metrics are unavailable.
 
-P2 has one interactive geometry owner per session. Additional clients are
+P2 has one interactive geometry owner per workspace. Additional clients are
 read-only mirrors with their own presentation caches. Reject a second writer
 unless the user explicitly transfers the lease. Smaller mirrors clip/pan the
 canonical view; they do not resize application PTYs. Different pixel metrics use
@@ -552,7 +552,7 @@ and rebuild affected context. Late worker completions are ignored. Dependency
 notifications go to exactly the matching resolved consumers after a commit.
 Define deterministic ordering and detect reactive update loops with a budget.
 
-Preserved state is named: user-created sessions/panes and application VT/image
+Preserved state is named: user-created panes and application VT/image
 state survive removal of a status/layout/keybinding component. Ephemeral preview
 panes explicitly owned by that component are disposed. User actions triggered
 through a component are not all secretly component-owned reversible effects.
@@ -569,7 +569,7 @@ configuration inspection. Lisp configuration is an explicit trusted code path,
 never silently loaded from the current project directory.
 
 Precedence: built-in defaults < user config < named workspace profile < explicit
-CLI options < documented session overrides. Reload validates a candidate before
+CLI options < documented workspace overrides. Reload validates a candidate before
 swapping contributions; failed reload preserves the active configuration and
 reports the offending source. Keep optional trusted code out of the daemon's
 mutable state domain. Worker isolation is a fault boundary, not an OS sandbox:
@@ -605,12 +605,12 @@ each queue and prevent image traffic from starving command responses.
 CLI target surface (implement progressively; document exact syntax):
 
 ```text
-ekko new --session work -- <argv...>
-ekko attach --session work
-ekko split --session work --axis horizontal -- <argv...>
+ekko --instance work run -- <argv...>
+ekko --instance work attach
+ekko --instance work split rows -- <argv...>
 ekko list --json
 ekko command <registered-command> --json <arguments>
-ekko inspect --session work --json
+ekko --instance work inspect --json
 ekko config check
 ekko config reload
 ekko doctor --json
@@ -934,7 +934,7 @@ external access remain the user's input when needed.
 ## 15. P2 release checklist
 
 - [ ] Fresh pinned Nix build, checks, packaged launch, and native fallback docs.
-- [ ] Real PTYs, interactive job control, session daemon, detach/reconnect.
+- [ ] Real PTYs, interactive job control, workspace daemon, detach/reconnect.
 - [ ] Advertised VT/terminfo behavior and per-pane input modes verified.
 - [ ] Two simultaneous independent graphics applications with colliding IDs.
 - [ ] Required graphics capability ledger complete with test evidence.

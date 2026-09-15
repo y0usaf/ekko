@@ -160,7 +160,7 @@ def benchmark(binary, mode, seconds, direct=False, width=512, height=512, fps=5,
         if frame_path:
             command.append(str(Path(frame_path).resolve()))
         if not direct:
-            command = [binary, "run", "--session", "perf", *command]
+            command = [binary, "--instance", "perf", "run", *command]
         process = subprocess.Popen(command, stdin=slave, stdout=slave, stderr=slave,
                                    env=env, start_new_session=True)
         os.close(slave)

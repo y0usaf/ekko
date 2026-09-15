@@ -123,12 +123,12 @@ and the option section of [`default.kdl`](https://github.com/zellij-org/zellij/b
 | `layout_dir`, `theme_dir` | Search roots for layouts and themes | `Unimplemented` |
 | `mouse_mode`, `advanced_mouse_actions` | Enable mouse input; hover and pane grouping behavior | `Unimplemented`/`Inventory`; Ekko has basic mouse routing but no Zellij option |
 | `pane_frames`, `styled_underlines` | Pane borders; styled/colored underlines | Standard ASCII tiled frames observed through public Lisp decorations; small-terminal/default-layout differences remain; underline `Unimplemented` |
-| `mirror_session` | Shared session with mirrored cursor versus per-client cursor | `Unimplemented`; Ekko currently supports one attached writer |
+| `mirror_session` | Shared session with mirrored cursor versus per-client cursor | `Unimplemented`; Ekko supports concurrent views, each with independent focus |
 | `on_force_close` (`detach`/`quit`) | SIGTERM/SIGINT/SIGQUIT/SIGHUP policy | `Unimplemented`; Ekko has bounded shutdown but no option parity |
 | `scroll_buffer_size` | Bounded FIFO scrollback, default 10,000 | `Implemented` with a different 10,000-row/8 MiB accounting policy |
 | `copy_command`, `copy_clipboard` (`system`/`primary`), `copy_on_select` | External clipboard or OSC 52 destination and mouse-copy policy | Host clipboard/OSC 52 `Unimplemented`; daemon buffer is `Implemented` |
 | `scrollback_editor` | Editor for pane scrollback, default `$EDITOR`/`$VISUAL` | `Unimplemented` |
-| `session_name`, `attach_to_session` | Startup session selection and attach policy | Session naming/attach are `Implemented` with a different CLI |
+| `session_name`, `attach_to_session` | Startup session selection and attach policy | `Implemented` differently: one workspace per `--instance`, `attach` with no name |
 | `auto_layout`, `stacked_resize`, `show_startup_tips`, `show_release_notes` | Automatic predefined layout and stacking on resize; startup tips and first-run release notes | `Unimplemented`; Ekko has mixed split trees and no release-note pane |
 | `session_serialization`, `serialize_pane_viewport`, `scrollback_lines_to_serialize`, `serialization_interval`, `post_command_discovery_hook` | Disk session resurrection, optional viewport/scrollback, interval, command rewrite hook | `Unimplemented`; daemon state survives client loss only |
 | `disable_session_metadata` | Suppress metadata writes | `Unimplemented` |

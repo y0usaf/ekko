@@ -7,7 +7,7 @@
 (in-package #:ekko/scrolling)
 
 (defun state (snapshot)
-  (cdr (assoc "scrolling" (value snapshot :component-state) :test #'equal)))
+  (rest (assoc "scrolling" (value snapshot :component-state) :test #'equal)))
 
 (defun insets (width height requested)
   (let* ((top (min (first requested) (max 0 (1- height))))
@@ -48,7 +48,7 @@
             ((< x (+ camera left)) (setf camera (- x left)))
             ((> (+ x column-width) (+ camera left width))
              (setf camera (min (- x left) (- (+ x column-width) left width)))))))
-      (list (action :place-panes :version 1 :placements placements
+      (list (action :place-panes ':version 1 :placements placements
                     :camera (list (max 0 camera) 0))))))
 
 (defun move-focus (snapshot delta)
@@ -57,61 +57,61 @@
          (index (position (value snapshot :focus) panes
                           :key (lambda (pane) (getf pane :id)))))
     (when panes
-      (list (action :focus :pane
+      (list (action :focus ':pane
                     (getf (nth (mod (+ (or index 0) delta) (length panes)) panes) :id))))))
 
 (defun resize-columns (snapshot delta)
   (let ((next (copy-list (state snapshot))))
     (setf (getf next :column-width) (max 12 (min 300 (+ (getf next :column-width 64) delta))))
     (remf next :pan-focus)
-    (list (action :set-state :value next))))
+    (list (action :set-state ':value next))))
 
 (defun pan (snapshot delta)
   (let ((next (copy-list (state snapshot))))
     (setf (getf next :camera-x)
           (max 0 (min 1000000 (+ (first (getf (value snapshot :workspace) :camera '(0 0))) delta)))
           (getf next :pan-focus) (value snapshot :focus))
-    (list (action :set-state :value next))))
+    (list (action :set-state ':value next))))
 
 ;; The desktop chrome draws frames for an on-screen tiled workspace. This
 ;; example replaces that policy and its bindings rather than asking the host
 ;; to recognize a special scrolling mode. The bare build can load it too.
 (unregister-component :defaults)
-(register-component :id :scrolling
+(register-component :id ':scrolling
                     :reads '(:panes :focus :component-state :workspace))
-(register-layout-provider :component :scrolling :name "scrolling"
+(register-layout-provider :component ':scrolling :name "scrolling"
                           :reads '(:panes :focus :viewport :geometry :component-state :workspace)
                           :handler #'columns)
-(set-option :component :scrolling :name :layout-provider :value "scrolling")
-(set-option :component :scrolling :name :workspace-scope :value :all-panes)
-(set-option :component :scrolling :name :pane-budget :value 128)
-(set-option :component :scrolling :name :pane-insets :value '(0 0 0 0))
-(set-option :component :scrolling :name :viewport-insets :value '(0 0 0 0))
-(set-option :component :scrolling :name :prefix :value "C-a")
+(set-option :component ':scrolling :name ':layout-provider :value "scrolling")
+
+(set-option :component ':scrolling :name ':pane-budget :value 128)
+(set-option :component ':scrolling :name ':pane-insets :value '(0 0 0 0))
+(set-option :component ':scrolling :name ':viewport-insets :value '(0 0 0 0))
+(set-option :component ':scrolling :name ':prefix :value "C-a")
 
 (dolist (spec '(("next-column" 1 "n") ("previous-column" -1 "p")))
   (destructuring-bind (name delta key) spec
-    (register-command :component :scrolling :name name
+    (register-command :component ':scrolling :name name
                       :handler (lambda (snapshot event) (declare (ignore event))
                                  (move-focus snapshot delta)))
-    (bind-key :component :scrolling :key key :command name)))
+    (bind-key :component ':scrolling :key key :command name)))
 (dolist (spec '(("wider-column" 4 "+") ("narrower-column" -4 "-")))
   (destructuring-bind (name delta key) spec
-    (register-command :component :scrolling :name name
+    (register-command :component ':scrolling :name name
                       :handler (lambda (snapshot event) (declare (ignore event))
                                  (resize-columns snapshot delta)))
-    (bind-key :component :scrolling :key key :command name)))
+    (bind-key :component ':scrolling :key key :command name)))
 (dolist (spec '(("pan-left" -16 "h") ("pan-right" 16 "l")))
   (destructuring-bind (name delta key) spec
-    (register-command :component :scrolling :name name
+    (register-command :component ':scrolling :name name
                       :handler (lambda (snapshot event) (declare (ignore event))
                                  (pan snapshot delta)))
-    (bind-key :component :scrolling :key key :command name)))
+    (bind-key :component ':scrolling :key key :command name)))
 (dolist (spec '(("new-column" (:split :axis :columns) "c")
                 ("close-column" (:close) "x") ("detach" (:detach) "d")
                 ("reload" (:reload) "r")))
   (destructuring-bind (name operation key) spec
-    (register-command :component :scrolling :name name
+    (register-command :component ':scrolling :name name
                       :handler (lambda (snapshot event) (declare (ignore snapshot event))
                                  (list (copy-tree operation))))
-    (bind-key :component :scrolling :key key :command name)))
+    (bind-key :component ':scrolling :key key :command name)))

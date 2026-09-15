@@ -6,15 +6,15 @@
 
 (defun install ()
   (install-layouts)
-  (register-component :id :defaults
-                      :reads '(:session :sessions :focus :panes :viewport :mode :zoom :layout :component-state :time)
+  (register-component :id ':defaults
+                      :reads '(:session :focus :panes :viewport :mode :zoom :layout :component-state :time)
                       :handler #'ekko/desktop:hook)
-  (set-option :component :defaults :name :pane-insets :value '(1 1 1 1))
-  (set-option :component :defaults :name :viewport-insets :value '(0 0 1 0))
-  (set-option :component :defaults :name :split-gaps :value '(0 0))
-  (set-option :component :defaults :name :erase-display-history :value t)
-  (set-option :component :defaults :name :pty-pixel-source :value :reported)
-  (set-option :component :defaults :name :shell :value (list (or (uiop:getenv "SHELL") "/bin/sh") "-i"))
+  (set-option :component ':defaults :name ':pane-insets :value '(1 1 1 1))
+  (set-option :component ':defaults :name ':viewport-insets :value '(0 0 1 0))
+  (set-option :component ':defaults :name ':split-gaps :value '(0 0))
+  (set-option :component ':defaults :name ':erase-display-history :value t)
+  (set-option :component ':defaults :name ':pty-pixel-source :value ':reported)
+  (set-option :component ':defaults :name ':shell :value (list (or (uiop:getenv "SHELL") "/bin/sh") "-i"))
   (dolist (spec '(("minimize" (:minimize)) ("focus-next" (:focus-next)) ("zoom" (:zoom)) ("swap" (:swap))
                   ("resize-left" (:resize :delta -5)) ("resize-right" (:resize :delta 5))
                   ("detach" (:detach)) ("stop" (:stop)) ("close" (:close))
@@ -27,38 +27,28 @@
                   ("copy-search" (:copy-search)) ("copy-search-next" (:copy-search-next))
                   ("paste-buffer" (:paste-buffer)) ("reload" (:reload)) ("help" (:help))))
     (let ((actions (list (second spec))))
-      (register-command :component :defaults :name (first spec)
+      (register-command :component ':defaults :name (first spec)
                          :handler (lambda (snapshot event) (declare (ignore snapshot))
                                    (if (and (eq (caar actions) :split) (getf event :arguments))
                                        (list (append (first actions) (list :argv (getf event :arguments))))
                                        (copy-tree actions))))))
-  (register-command :component :defaults :name "rename"
+  (register-command :component ':defaults :name "rename"
     :handler (lambda (snapshot event) (declare (ignore snapshot))
                (unless (= (length (getf event :arguments)) 1) (error "rename requires one label"))
-               (list (action :rename :text (first (getf event :arguments))))))
+               (list (action :rename ':text (first (getf event :arguments))))))
   (loop for i from 1 to 9 do
     (let ((index (1- i)))
-      (register-command :component :defaults :name (format nil "focus-~D" i)
+      (register-command :component ':defaults :name (format nil "focus-~D" i)
         :handler (lambda (snapshot event) (declare (ignore event))
                    (let ((pane (nth index (value snapshot :panes))))
-                     (when pane (list (action :focus :pane (getf pane :id)))))))))
-  (register-command :component :defaults :name "session-next"
-    :handler (lambda (snapshot event)
-               (declare (ignore event))
-               (let* ((sessions (value snapshot :sessions))
-                      (current (position (value snapshot :session) sessions
-                                         :key (lambda (entry) (getf entry :name)) :test #'equal)))
-                 (when sessions
-                   (list (action :show-session :name
-                                 (getf (nth (mod (1+ (or current -1)) (length sessions)) sessions) :name)))))))
-  (bind-key :component :defaults :key ")" :command "session-next")
-  (register-keymap :component :defaults :name :scroll :unbound :copy)
+                     (when pane (list (action :focus ':pane (getf pane :id)))))))))
+  (register-keymap :component ':defaults :name ':scroll :unbound ':copy)
   (dolist (spec '(("copy-mode" :copy-mode :scroll) ("copy-exit" :copy-exit :normal)
                   ("copy-selection" :copy-selection :normal)))
     (destructuring-bind (name op mode) spec
-      (register-command :component :defaults :name name
+      (register-command :component ':defaults :name name
         :handler (lambda (snapshot event) (declare (ignore snapshot event))
-                   (list (action op) (action :set-keymap :name mode))))))
+                   (list (action op) (action :set-keymap ':name mode))))))
   (cl-user::install-pane-bindings :defaults)
   (ekko/desktop:install-controls :defaults)
   (dolist (pair '(("k" "copy-up") ("Up" "copy-up") ("j" "copy-down") ("Down" "copy-down")
@@ -66,4 +56,4 @@
                   ("g" "copy-home") ("Home" "copy-home") ("G" "copy-end") ("End" "copy-end")
                   (" " "copy-mark") ("Enter" "copy-selection") ("y" "copy-selection")
                   ("q" "copy-exit") ("Escape" "copy-exit") ("/" "copy-search") ("n" "copy-search-next")))
-    (bind-key :component :defaults :map :copy :key (first pair) :command (second pair))))
+    (bind-key :component ':defaults :map ':copy :key (first pair) :command (second pair))))

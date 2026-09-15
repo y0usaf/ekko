@@ -33,8 +33,7 @@
          (options (getf registry :options))
          (budget (getf options :pane-budget 16)))
     (unless (and (listp providers) (<= (length providers) 64)
-                 (typep budget '(integer 1 128))
-                 (member (getf options :workspace-scope :session) '(:session :all-panes)))
+                 (typep budget '(integer 1 128)))
       (error "Invalid layout registry or workspace budget"))
     (dolist (provider providers)
       (policy-plist provider '(:name :owner :api-version :reads)
@@ -46,11 +45,11 @@
                            :key (lambda (entry) (getf entry :id)) :test #'equal)
                      (listp reads)
                      (= (length reads) (length (remove-duplicates reads)))
-                     (every (lambda (key) (member key ekko/extensions::*context-keys*)) reads)
+                     (every (lambda (key) (member key ekko/extensions:*context-keys*)) reads)
                      (every (lambda (key) (member key reads)) '(:panes :focus :viewport :geometry)))
           (error "Invalid layout provider owner, version or dependencies"))))
     (let ((initial (getf options :initial-layout)))
-      (when (and initial (> (length (ekko/extensions::initial-layout-leaves initial)) budget))
+      (when (and initial (> (length (ekko/extensions:initial-layout-leaves initial)) budget))
         (error "Initial layout exceeds the configured pane budget")))
     (layout-provider registry))
   t)
@@ -72,7 +71,7 @@
   ;; history length back into the provider's own structural dependency.
   (loop for key in '(:id :session :name :label :argv :launch-kind :creation-position
                     :minimized :floating :activation-order :terminal-title :activity :pid :exit)
-        when (member key pane) append (list key (ekko/extensions::copy-data (getf pane key)))))
+        when (member key pane) append (list key (ekko/extensions:copy-data (getf pane key)))))
 
 (defun layout-policy-context (provider context)
   (loop for key in (getf provider :reads)
@@ -80,7 +79,7 @@
         append (list key
                      (if (member key '(:panes :all-panes))
                          (mapcar #'layout-pane-metadata value)
-                         (ekko/extensions::copy-data value)))))
+                         (ekko/extensions:copy-data value)))))
 
 (defun schedule-layout (worker state registry context token)
   "Queue one detached provider dispatch. TOKEN binds it to a live view epoch."
@@ -146,7 +145,7 @@
                        (<= (+ x cols) (+ ox width)) (<= (+ y rows) (+ oy height)))
             (error "Pane content must fit its full logical outer rectangle")))
         (push id seen)))
-    (values (ekko/extensions::copy-data placements) (copy-list camera))))
+    (values (ekko/extensions:copy-data placements) (copy-list camera))))
 
 (defun layout-request-current-p (request registry context token)
   (let ((provider (layout-provider registry)))

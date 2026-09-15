@@ -53,13 +53,13 @@
        (zellij-bar-row cols (1- rows)
          (cons (list (format nil " ~A " (string-upcase (symbol-name mode)))
                      (if (eq mode :normal) active '(0 1 38 5 16 48 5 166)))
-               (loop for (binding label) in (cdr (assoc mode *zellij-bar-hints*))
+               (loop for (binding label) in (rest (assoc mode *zellij-bar-hints*))
                      append (list (list (format nil " ~A " binding) key)
                                   (list (concatenate 'string label " ") base)))))))))
 
 (defun zellij-bars-hook (snapshot event)
   (declare (ignore event))
-  (list (ekko/extensions:action :decorate :spans
+  (list (ekko/extensions:action :decorate ':spans
            (zellij-bars-spans
             (loop for key in '(:session :viewport :focus :panes :mode)
                   append (list key (ekko/extensions:value snapshot key)))))))

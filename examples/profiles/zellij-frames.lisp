@@ -27,7 +27,7 @@
 (defparameter *zellij-frame-highlight-color* 166)
 
 (defun zellij-frame-hidden-p (snapshot)
-  (let ((state (cdr (assoc "zellij-frames" (getf snapshot :component-state)
+  (let ((state (rest (assoc "zellij-frames" (getf snapshot :component-state)
                            :test #'equal))))
     (and (listp state) (getf state :hidden))))
 

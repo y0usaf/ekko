@@ -20,7 +20,7 @@
     (when (> (length bytes) (* 1024 1024)) (error "Copy exceeds 1 MiB"))
     ;; Only this viewer writes terminal controls. The shared buffer survives it.
     (when writer (send-packet writer 23 bytes))
-    (setf (session-clipboard (view-session view)) text
+    (setf (daemon-clipboard (view-daemon view)) text
           (view-notice view) (if writer
                                  "Copied to Ekko buffer; terminal clipboard requested"
                                  "Copied to Ekko buffer"))))
@@ -32,7 +32,7 @@
     (let ((point (cons (min (1- (length (pane-view-copy-lines state)))
                            (+ (pane-view-copy-top state) y)) x)))
       (setf (pane-view-copy-pointer state) t (pane-view-copy-end state) point
-            (pane-view-copy-cursor state) (car point))
+            (pane-view-copy-cursor state) (first point))
       (when (or start (null (pane-view-copy-anchor state)))
         (setf (pane-view-copy-anchor state) point)))))
 
@@ -49,7 +49,7 @@
         (leave-copy view pane)))))
 
 (defun copy-point-before-p (a b)
-  (or (< (car a) (car b)) (and (= (car a) (car b)) (<= (cdr a) (cdr b)))))
+  (or (< (first a) (first b)) (and (= (first a) (first b)) (<= (rest a) (rest b)))))
 
 (defun copy-row-range (view pane row text)
   "Return string indices, including whole wide glyphs and combining marks."
@@ -57,11 +57,11 @@
          (a (pane-view-copy-anchor state)) (b (pane-view-copy-end state))
          (forward (and a b (copy-point-before-p a b)))
          (lo (if forward a b)) (hi (if forward b a)))
-    (when (and lo hi (<= (car lo) row (car hi)))
-      (let ((left (if (= row (car lo)) (cdr lo) 0))
-            (right (if (= row (car hi)) (1+ (cdr hi)) most-positive-fixnum))
+    (when (and lo hi (<= (first lo) row (first hi)))
+      (let ((left (if (= row (first lo)) (rest lo) 0))
+            (right (if (= row (first hi)) (1+ (rest hi)) most-positive-fixnum))
             (column 0) (start nil) (end nil))
-        (loop for c across text for i from 0 for width = (ekko/vt::character-width c) do
+        (loop for c across text for i from 0 for width = (ekko/vt:character-width c) do
           (when (if (zerop width) (and end (= end i))
                     (and (< column right) (> (+ column width) left)))
             (unless start (setf start i))
@@ -73,7 +73,7 @@
   (let ((state (pane-state view (pane-id pane))))
     (if (pane-view-copy-anchor state)
         (let* ((a (pane-view-copy-anchor state)) (b (pane-view-copy-end state))
-               (start (min (car a) (car b))) (end (max (car a) (car b))))
+               (start (min (first a) (first b))) (end (max (first a) (first b))))
           (format nil "~{~A~^~%~}"
                   (loop for row from start to end for text = (aref (pane-view-copy-lines state) row)
                         collect (multiple-value-bind (left right) (copy-row-range view pane row text)

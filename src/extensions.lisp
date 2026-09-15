@@ -2,7 +2,7 @@
   (:use #:cl)
   (:export #:register-component #:unregister-component #:register-command #:bind-key
            #:register-keymap #:register-layout-provider #:set-option #:value #:action
-           #:api-version #:layout-api-version #:display-width #:clip-decorations))
+           #:api-version #:layout-api-version #:display-width #:clip-decorations #:*context-keys* #:initial-layout-leaves #:copy-data #:*components* #:registry #:dispatch))
 (in-package #:ekko/extensions)
 
 (defun display-width (value)
@@ -14,7 +14,7 @@
 (defconstant +maximum-pane-budget+ 128)
 (defparameter *context-keys*
   '(:session :view :focus :panes :layout :mode :zoom :viewport :chrome-status :pane-notes
-    :component-state :store :geometry :time :sessions :all-panes :workspace))
+    :component-state :store :geometry :time :all-panes :workspace))
 (defstruct component id reads handler initialize commands bindings options keymaps layouts)
 (defvar *components* nil)
 (defvar *reads* nil)
@@ -65,7 +65,7 @@
     ("Left" . :left) ("Right" . :right) ("Up" . :up) ("Down" . :down)
     ("PageUp" . :page-up) ("PageDown" . :page-down) ("Home" . :home) ("End" . :end)))
 (defun named-key (token)
-  (cdr (assoc token *named-keys* :test #'equal)))
+  (rest (assoc token *named-keys* :test #'equal)))
 (defun split-key-tokens (string)
   (loop with start = 0
         for index from 0 to (length string)
@@ -99,7 +99,7 @@ bit 1 for Alt and bit 2 for Super."
                        (:ctrl (setf ctrl t))
                        (:alt (setf mods (logior mods 1)))
                        (:super (setf mods (logior mods 2))))))
-                 (let ((base (base-key-code (car (last tokens)))))
+                 (let ((base (base-key-code (first (last tokens)))))
                    (when ctrl
                      (unless (and (integerp base) (<= 64 base 127))
                        (error "Control chords need a printable ASCII base key: ~S" key))
@@ -157,7 +157,7 @@ bit 1 for Alt and bit 2 for Super."
             (:initial-keymap (or (null value) (and (keywordp value) (not (member value '(:prefix :copy))))))
             (:initial-layout (progn (initial-layout-leaves value) t))
             (:layout-provider (and value (name-string value)))
-            (:workspace-scope (member value '(:session :all-panes)))
+
             (:pane-budget (typep value `(integer 1 ,+maximum-pane-budget+)))
             (:prefix (and (integerp (key-code value)) (<= 1 (key-code value) 26)))
             (:shell (and (listp value) (<= 1 (length value) 64) (every (lambda (s) (and (stringp s) (<= (length s) 4096) (not (find #\Null s)))) value)
@@ -204,15 +204,15 @@ bit 1 for Alt and bit 2 for Super."
                       (list :name name :owner (component-id c))))
         :bindings (loop for c in *components* append
                     (loop for (key . value) in (component-bindings c) collect
-                      (list* :map (first key) :key (second key) :command (car value) :owner (component-id c)
-                             (when (cdr value) (list :arguments (cdr value))))))
+                      (list* :map (first key) :key (second key) :command (first value) :owner (component-id c)
+                             (when (rest value) (list :arguments (rest value))))))
         :options (loop with options = nil for c in *components* do
                    (loop for (key val) on (component-options c) by #'cddr do (setf (getf options key) val))
                    finally (return options))))
 (defun copy-data (value)
   "Detach strings as well as cons cells before handing data to extension code."
   (typecase value
-    (cons (cons (copy-data (car value)) (copy-data (cdr value))))
+    (cons (cons (copy-data (first value)) (copy-data (rest value))))
     (string (copy-seq value))
     (t value)))
 (defun clipped-decoration-text (text left width)
@@ -256,10 +256,10 @@ bit 1 for Alt and bit 2 for Super."
                                                (component-commands c)) :test #'equal))
                              (reverse *components*))
                     (error "Unknown callback: ~A" name))))
-         (provider (and (eq kind :layout) (cdr (assoc name (component-layouts c) :test #'equal))))
+         (provider (and (eq kind :layout) (rest (assoc name (component-layouts c) :test #'equal))))
          (fn (case kind (:hook (component-handler c)) (:initialize (component-initialize c))
                (:layout (getf provider :handler))
-               (otherwise (cdr (assoc name (component-commands c) :test #'equal)))))
+               (otherwise (rest (assoc name (component-commands c) :test #'equal)))))
          (*reads* (if provider (getf provider :reads) (component-reads c)))
          (*dispatching* t)
          (visible (loop for key in *reads* append (list key (copy-data (getf snapshot key))))))

@@ -32,9 +32,9 @@ is independent Lisp policy; the reference files are upstream test fixtures.
 
 ```sh
 nix build .#zellij-reference
-EKKO_CONFIG="$PWD/examples/profiles/zellij.lisp" nix run . -- run --session compatibility /bin/sh
+EKKO_CONFIG="$PWD/examples/profiles/zellij.lisp" nix run . -- --instance compatibility run /bin/sh
 # Edit the loaded init file to load another profile, then:
-nix run . -- config reload compatibility
+nix run . -- --instance compatibility config reload
 nix run .#zellij-differential -- --output /tmp/ekko-zellij
 nix run .#zellij-differential -- --output /tmp/ekko-zellij-strict --require-parity
 ```

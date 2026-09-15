@@ -57,7 +57,7 @@
 (defun zellij-pane-focus-action (snapshot direction)
   (let ((target (zellij-pane-directional-target snapshot direction)))
     (when target
-      (list (ekko/extensions:action :focus :pane (getf target :id))))))
+      (list (ekko/extensions:action :focus ':pane (getf target :id))))))
 
 (defun zellij-pane-row-major (panes)
   (sort (copy-list panes)
@@ -79,7 +79,7 @@
          (index (position focus panes :key (lambda (pane) (getf pane :id)))))
     (when (and panes index)
       (list (ekko/extensions:action
-             :focus :pane (getf (nth (mod (1+ index) (length panes)) panes) :id))))))
+             :focus ':pane (getf (nth (mod (1+ index) (length panes)) panes) :id))))))
 
 (defun zellij-pane-move-action (snapshot target-id)
   "Swap the focused pane with TARGET-ID through the public layout action.
@@ -90,7 +90,7 @@ the public tree action path has not been paired for that case yet."
     ;; Pinned Tab move entry points reject tiled movement during fullscreen.
     (when (and (not (getf snapshot :zoom)) target-id (not (= focus target-id)))
       (list (ekko/extensions:action
-             :set-layout :tree
+             :set-layout ':tree
              (ekko/layout:swap-panes (getf snapshot :layout) focus target-id))))))
 
 (defun zellij-pane-move-cyclic-action (snapshot backwards)
@@ -113,9 +113,9 @@ the public tree action path has not been paired for that case yet."
 (defun zellij-pane-failed-split-actions (snapshot pane-id)
   (append (when (getf snapshot :zoom)
             (list (ekko/extensions:action :zoom)))
-          (list (ekko/extensions:action :set-keymap :name :normal)
+          (list (ekko/extensions:action :set-keymap ':name :normal)
                 (ekko/extensions:action
-                 :pane-note :pane pane-id :text "CAN'T SPLIT!"
+                 :pane-note ':pane pane-id :text "CAN'T SPLIT!"
                  :sgr '(0 1 38 5 124 49) :duration 1000))))
 
 (defun zellij-pane-split-actions (axis &optional pane-id snapshot)
@@ -127,9 +127,9 @@ the public tree action path has not been paired for that case yet."
     (if (and snapshot pane-id (not room))
         (zellij-pane-failed-split-actions snapshot pane-id)
         (list (if pane-id
-                  (ekko/extensions:action :split :pane pane-id :axis axis)
-                  (ekko/extensions:action :split :axis axis))
-              (ekko/extensions:action :set-keymap :name :normal)))))
+                  (ekko/extensions:action :split ':pane pane-id :axis axis)
+                  (ekko/extensions:action :split ':axis axis))
+              (ekko/extensions:action :set-keymap ':name :normal)))))
 
 (defun zellij-pane-room-p (pane axis)
   "Whether AXIS meets the pinned Pane split minimum.
@@ -198,7 +198,7 @@ are the fallback when width is over ten.  There is no alternate-pane search."
         ;; that no pane can be added, so preserve only that observable effect.
         (append (when (getf snapshot :zoom)
                   (list (ekko/extensions:action :zoom)))
-                (list (ekko/extensions:action :set-keymap :name :normal))))))
+                (list (ekko/extensions:action :set-keymap ':name :normal))))))
 
 (defun zellij-pane-close-actions (snapshot)
   ;; Zellij focuses the most recently active pane that remains after closing
@@ -218,16 +218,16 @@ are the fallback when width is over ten.  There is no alternate-pane search."
                    do (setf best pane)
                  finally (return best))))
     (list (if replacement
-              (ekko/extensions:action :close :focus (getf replacement :id))
+              (ekko/extensions:action :close ':focus (getf replacement :id))
               (ekko/extensions:action :close))
-          (ekko/extensions:action :set-keymap :name :normal))))
+          (ekko/extensions:action :set-keymap ':name :normal))))
 
 ;; RenamePane keeps the previous name separately because entering the mode
 ;; does not clear the editable label.  The daemon exposes this as ordinary
 ;; component state, so the policy remains reload-safe and independent of pane
 ;; process identity.
 (defun zellij-pane-state-value (snapshot &optional (owner "zellij-modes"))
-  (cdr (assoc owner (getf snapshot :component-state) :test #'equal)))
+  (rest (assoc owner (getf snapshot :component-state) :test #'equal)))
 
 (defun zellij-pane-state-for-panes (state panes)
   (let ((ids (mapcar (lambda (pane) (getf pane :id)) panes)))
@@ -249,8 +249,8 @@ are the fallback when width is over ten.  There is no alternate-pane search."
          (old (and pane (or (getf pane :name) ""))))
     (when pane
       (list (ekko/extensions:action
-             :set-state :value (zellij-pane-rename-state snapshot id old owner))
-            (ekko/extensions:action :set-keymap :name :rename)))))
+             :set-state ':value (zellij-pane-rename-state snapshot id old owner))
+            (ekko/extensions:action :set-keymap ':name :rename)))))
 
 (defun zellij-pane-rename-pop (text)
   (if (plusp (length text))
@@ -260,10 +260,10 @@ are the fallback when width is over ten.  There is no alternate-pane search."
 (defun zellij-pane-rename-decoded (bytes)
   (handler-case
       (let* ((octets (coerce bytes '(vector (unsigned-byte 8))))
-             (text (sb-ext:octets-to-string octets :external-format :utf-8))
+             (text (sb-ext:octets-to-string octets :external-format ':utf-8))
              ;; SBCL versions differ in whether malformed input signals or
              ;; inserts U+FFFD.  Round-tripping makes rejection deterministic.
-             (encoded (sb-ext:string-to-octets text :external-format :utf-8)))
+             (encoded (sb-ext:string-to-octets text :external-format ':utf-8)))
         (when (equal bytes (coerce encoded 'list)) text))
     (error () nil)))
 
@@ -290,7 +290,7 @@ are the fallback when width is over ten.  There is no alternate-pane search."
                            (and decoded (concatenate 'string old
                                                      (zellij-pane-rename-filter decoded))))))))
         (when new
-          (list (ekko/extensions:action :rename :pane id :text new)))))))
+          (list (ekko/extensions:action :rename ':pane id :text new)))))))
 
 (defun zellij-pane-rename-previous-action (snapshot &optional (owner "zellij-modes"))
   (let* ((pane (zellij-pane-focused snapshot))
@@ -300,6 +300,6 @@ are the fallback when width is over ten.  There is no alternate-pane search."
                  (getf snapshot :panes)))
          (entry (and id (find id state :key #'first :test #'eql))))
     (when pane
-      (list (ekko/extensions:action :rename :pane id
+      (list (ekko/extensions:action :rename ':pane id
                                     :text (or (and entry (second entry)) ""))
-            (ekko/extensions:action :set-keymap :name :pane)))))
+            (ekko/extensions:action :set-keymap ':name :pane)))))

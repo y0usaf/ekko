@@ -6,7 +6,7 @@
            #:terminal-parser #:terminal-buffer #:terminal-visible #:terminal-title
            #:terminal-history #:history-count #:history-text
            #:terminal-materialized-rows #:terminal-erase-display-history
-           #:parameters))
+           #:parameters #:row-text #:character-width #:update-rendition))
 (in-package #:ekko/vt)
 (declaim (inline ensure-materialized-rows))
 
@@ -67,7 +67,7 @@
 (defun erase-rendition (vt)
   ;; Zellij's ED2 replacement character has default attributes and inherits
   ;; only the pending background color, if one is set.
-  (let ((codes (cdr (terminal-rendition vt)))
+  (let ((codes (rest (terminal-rendition vt)))
         (background nil))
     (labels ((consume-color (mode)
                (case mode

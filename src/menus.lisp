@@ -4,7 +4,7 @@
 ;; come from an ordinary decoration owner; the host only places and routes them.
 (defstruct popup owner spans x y width height (scroll 0) selected pressed)
 (defun span-width (span)
-  (loop for c across (getf span :text) sum (ekko/vt::character-width c)))
+  (loop for c across (getf span :text) sum (ekko/vt:character-width c)))
 (defun span-hit-p (span x y)
   (and (<= (getf span :x) x) (< x (+ (getf span :x) (span-width span)))
        (<= (getf span :y) y) (< y (+ (getf span :y) (getf span :rows 1)))))
@@ -53,9 +53,10 @@
                                       (length indices)) indices)))))
 (defun popup-key (view key)
   (when (view-popup view)
+    ;; Up/Down, Tab and the vim keys j/k move the picker selection.
     (cond ((member key '(27 7)) (close-popup view))
-          ((member key '(:down 9)) (popup-cycle view 1))
-          ((eq key :up) (popup-cycle view -1))
+          ((member key '(:down 9 106)) (popup-cycle view 1))
+          ((member key '(:up 107)) (popup-cycle view -1))
           ((eql key 13)
            (let* ((popup (view-popup view))
                   (span (and (popup-selected popup) (nth (popup-selected popup) (popup-spans popup)))))

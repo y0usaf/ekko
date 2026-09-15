@@ -4,7 +4,7 @@
            #:store-frames #:store-errors #:store-bytes #:expire-upload #:clear-screen
            #:scroll-images #:image-id #:image-generation #:image-width #:image-height
            #:image-format #:image-data #:image-x #:image-y #:image-cols #:image-rows
-           #:image-screen #:image-visible #:base64-encode #:base64-decode))
+           #:image-screen #:image-visible #:base64-encode #:base64-decode #:header #:number-key #:upload-at))
 (in-package #:ekko/graphics)
 
 (defparameter *alphabet* "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/")
@@ -186,12 +186,11 @@
                (let ((asset (ekko/platform:snapshot-asset
                               (ekko/platform:bytes-text (base64-decode bytes :start (if semi (1+ semi) (length bytes)))) size)))
                  (unwind-protect
-                      (progn
-                        (commit-image store
+                      (commit-image store
                           (make-upload :keys keys :x (* (ekko/vt:terminal-x vt) (ekko/vt:terminal-cw vt))
                                        :y (* (ekko/vt:terminal-y vt) (ekko/vt:terminal-ch vt))
                                        :screen (ekko/vt:terminal-screen vt))
-                          vt emit asset w h format))
+                          vt emit asset w h format)
                    (unless (loop for image being the hash-values of (store-images store)
                                  thereis (eq asset (image-data image)))
                      (ekko/platform:release-asset asset))))))

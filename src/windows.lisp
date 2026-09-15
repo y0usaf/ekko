@@ -7,10 +7,10 @@
 (defun tiled-border-split (tree rectangles pane edge)
   "Find the actual visible split at PANE's edge, retaining its full-tree node.
 Hidden leaves have no rectangles, so restoring them keeps their own ratios."
-  (let ((rect (cdr (assoc pane rectangles))))
+  (let ((rect (rest (assoc pane rectangles))))
     (labels ((bounds (node)
                (let ((rects (loop for id in (layout-pane-ids node)
-                                  for r = (cdr (assoc id rectangles)) when r collect r)))
+                                  for r = (rest (assoc id rectangles)) when r collect r)))
                  (when rects
                    (list (reduce #'min rects :key #'first) (reduce #'min rects :key #'second)
                          (reduce #'max rects :key (lambda (r) (+ (first r) (third r))))
@@ -33,9 +33,9 @@ Hidden leaves have no rectangles, so restoring them keeps their own ratios."
 
 (defun window-resize-split (view pane kind)
   (unless (or (pane-floating pane) (view-zoom view) (eq kind :move))
-    (tiled-border-split (session-tree (view-session view))
-                       (remove-if (lambda (r) (pane-floating (pane-by-id (view-session view) (first r))))
-                                  (session-rectangles view))
+    (tiled-border-split (daemon-tree (view-daemon view))
+                       (remove-if (lambda (r) (pane-floating (pane-by-id (view-daemon view) (first r))))
+                                  (workspace-rectangles view))
                        (pane-id pane) kind)))
 (defun window-intersects-p (view pane x y &optional (width 1))
   (when pane
@@ -47,7 +47,7 @@ Hidden leaves have no rectangles, so restoring them keeps their own ratios."
 (defun window-at (view x y)
   (find-if (lambda (p) (window-intersects-p view p x y)) (reverse (visible-panes view))))
 (defun begin-window-drag (view owner span x y)
-  (let ((pane (pane-by-id (view-session view) (getf span :pane))))
+  (let ((pane (pane-by-id (view-daemon view) (getf span :pane))))
     (when pane
       (let* ((kind (getf span :drag)) (split (window-resize-split view pane kind)))
         (set-focus view (pane-id pane))
@@ -56,7 +56,7 @@ Hidden leaves have no rectangles, so restoring them keeps their own ratios."
           (return-from begin-window-drag))
         (setf (view-window-drag view)
               (make-window-drag :owner owner :pane pane :kind kind :x x :y y :split split
-                                :tree (session-tree (view-session view))
+                                :tree (daemon-tree (view-daemon view))
                                 :from (pane-outer-rect view pane) :preview (pane-outer-rect view pane)))))))
 
 (defun tiled-drag-tree (drag dx dy)
@@ -68,7 +68,7 @@ Hidden leaves have no rectangles, so restoring them keeps their own ratios."
                  (window-drag-tree drag) :test #'eq)))))
 
 (defun tiled-drag-rectangles (view drag dx dy)
-  (session-rectangles view nil (tiled-tree view (tiled-drag-tree drag dx dy))))
+  (workspace-rectangles view nil (tiled-tree view (tiled-drag-tree drag dx dy))))
 (defun drag-snap-target (view drag x y)
   (let ((target (find-if (lambda (p) (and (not (eq p (window-drag-pane drag)))
                                          (not (pane-floating p)) (window-intersects-p view p x y)))
@@ -90,7 +90,7 @@ Hidden leaves have no rectangles, so restoring them keeps their own ratios."
                 (otherwise (pane-outer-rect view target))))))))))
 (defun viewport-snap-rect (view x y)
   "Content-area snap at the outermost cell: the top edge maximizes, the sides take a half."
-  (multiple-value-bind (viewport pane gaps width height) (session-geometry view)
+  (multiple-value-bind (viewport pane gaps width height) (workspace-geometry view)
     (declare (ignore pane gaps))
     (let* ((left (fourth viewport)) (top (first viewport))
            (right (+ left width)) (half (max 12 (floor width 2))))
@@ -103,7 +103,7 @@ Hidden leaves have no rectangles, so restoring them keeps their own ratios."
     (let ((kind (window-drag-kind drag)))
       (if (eq kind :move)
           (clamp-window-rect view (list (+ ox dx) (+ oy dy) w h))
-          (multiple-value-bind (viewport pane gaps width height) (session-geometry view)
+          (multiple-value-bind (viewport pane gaps width height) (workspace-geometry view)
             (declare (ignore pane gaps))
             (let* ((left (member kind '(:left :top-left :bottom-left)))
                    (right (member kind '(:right :top-right :bottom-right)))
@@ -125,9 +125,9 @@ Hidden leaves have no rectangles, so restoring them keeps their own ratios."
       ;; A removed source or a newer shared split invalidates this gesture.
       ;; Never apply a saved whole-tree resize over another view's edit.
       (unless (and (eq (window-drag-pane drag)
-                       (pane-by-id (view-session view) (pane-id (window-drag-pane drag))))
+                       (pane-by-id (view-daemon view) (pane-id (window-drag-pane drag))))
                    (or (not (window-drag-split drag))
-                       (equal (window-drag-tree drag) (session-tree (view-session view)))))
+                       (equal (window-drag-tree drag) (daemon-tree (view-daemon view)))))
         (setf (view-window-drag view) nil)
         (incf (view-revision view))
         (return-from window-drag-mouse t))
@@ -156,7 +156,7 @@ Hidden leaves have no rectangles, so restoring them keeps their own ratios."
           (when (and (not (window-drag-moved drag)) (= (logand button 3) 0)
                      (eq (window-drag-kind drag) :move))
             (let* ((id (pane-id (window-drag-pane drag))) (last (view-last-click view))
-                   (again (and last (eql (car last) id) (< (- (now) (cdr last)) 0.4))))
+                   (again (and last (eql (first last) id) (< (- (now) (rest last)) 0.4))))
               (if again
                   (progn (setf (view-last-click view) nil)
                          (handler-case
@@ -171,7 +171,7 @@ Hidden leaves have no rectangles, so restoring them keeps their own ratios."
                                (list :set-layout :tree (tiled-drag-tree drag dx dy)))
                               ((window-drag-target drag)
                                (let* ((target (window-drag-target drag)) (id (pane-id target)))
-                                 (unless (eq target (pane-by-id (view-session view) id))
+                                 (unless (eq target (pane-by-id (view-daemon view) id))
                                    (error "Window drag target no longer exists"))
                                  (list :place-window :pane (pane-id (window-drag-pane drag))
                                        :target id :edge (window-drag-edge drag))))
@@ -198,7 +198,7 @@ Hidden leaves have no rectangles, so restoring them keeps their own ratios."
       (graphics-safe-outlines view
         (if (window-drag-split drag)
             (loop for (id . rect) in (window-drag-preview drag)
-                  for pane = (pane-by-id (view-session view) id)
+                  for pane = (pane-by-id (view-daemon view) id)
                   when (and pane (not (equal rect (pane-outer-rect view pane))))
                     append (outline-spans rect '(0 1 38 5 117 48 5 235)))
             (let ((rect (window-drag-preview drag))
@@ -214,7 +214,7 @@ Hidden leaves have no rectangles, so restoring them keeps their own ratios."
             (multiple-value-bind (span owner) (decoration-at view x y)
               (when (and span owner
                          (or (getf span :hover-sgr)
-                             (let ((pane (pane-by-id (view-session view) (getf span :pane))))
+                             (let ((pane (pane-by-id (view-daemon view) (getf span :pane))))
                                (and pane (getf span :drag) (not (eq (getf span :drag) :move))
                                     (or (pane-floating pane)
                                         (window-resize-split view pane (getf span :drag)))))))
@@ -228,8 +228,8 @@ Hidden leaves have no rectangles, so restoring them keeps their own ratios."
         collect (list (getf span :x) row (getf span :text) (getf span :sgr))))
 (defun window-hover-overlays (view)
   (destructuring-bind (&optional owner span) (view-window-hover view)
-    (let* ((spans (cdr (assoc owner (view-decorations view) :test #'equal)))
-           (pane (pane-by-id (view-session view) (getf span :pane)))
+    (let* ((spans (rest (assoc owner (view-decorations view) :test #'equal)))
+           (pane (pane-by-id (view-daemon view) (getf span :pane)))
            (occluders (and pane (rest (member pane (visible-panes view)))))
            (hover (getf span :hover-sgr)))
       (when (and span (member span spans :test #'equal) (not (view-popup view)))
