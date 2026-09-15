@@ -14,8 +14,8 @@
   candidate-layouts candidate-stage candidate-members pending-splits
   (clipboard "") (revision 0) (started (now))
   creation stopping torn-down (retire-until 0) quit)
-(defstruct creation commands viewport peers (phase :load) initialization extra-requests)
-(defstruct launch-request commands viewport directory environment config-path spawn-p)
+(defstruct creation commands viewport peers (phase :load) initialization)
+(defstruct launch-request commands viewport directory environment config-path)
 (defvar *daemon* nil)
 (defconstant +daemon-peer-limit+ 256)
 (defconstant +retained-view-limit+ 8)
@@ -55,31 +55,6 @@
             (setf (wire-fd io) fd (pane-io pane) io (pane-pid pane) pid (pane-pty-size pane) size))))))
   pane)
 
-(defun open-panes (daemon commands directory environment)
-  "Append each argv in COMMANDS to the workspace and spawn it immediately."
-  (when (> (+ (length (daemon-panes daemon)) (length commands))
-           (option daemon :pane-budget 16))
-    (error "Workspace pane budget is exhausted"))
-  (dolist (argv commands)
-    (let* ((home (daemon-home-view daemon))
-           (pane (make-pane :id (allocate-pane-id daemon) :daemon daemon
-                            :vt (make-terminal :cols 1 :rows 1 :cw (view-cw home) :ch (view-ch home))
-                            :argv (copy-list argv) :label (file-namestring (first argv))
-                            :launch-kind :command
-                            :creation-position (1+ (reduce #'max (daemon-panes daemon)
-                                                           :key #'pane-creation-position :initial-value 0)))))
-      (setf (daemon-tree daemon)
-            (if (daemon-panes daemon)
-                (ekko/layout:split-pane (daemon-tree daemon)
-                                        (pane-id (first (last (daemon-panes daemon))))
-                                        (pane-id pane) :columns)
-                (pane-id pane))
-            (daemon-panes daemon) (append (daemon-panes daemon) (list pane)))
-      (spawn-pane pane :directory directory
-                       :environment (and environment (pane-environment environment)))))
-  (dolist (view (daemon-views daemon)) (layout view))
-  (incf (daemon-revision daemon)))
-
 (defun request-data (bytes)
   "Read bounded plain data once at the local control boundary."
   (when (> (length bytes) (* 1024 1024)) (error "Control request exceeds 1 MiB"))
@@ -107,7 +82,10 @@
 (defun parse-launch-request (bytes)
   (let ((data (request-data bytes)))
     (unless (and (listp data) (<= 5 (length data) 6)) (error "Malformed workspace request"))
-    (destructuring-bind (commands viewport directory environment config &optional spawn-p) data
+    ;; A sixth element was the retired spawn flag; commands only ever apply at
+    ;; workspace creation now, so it is accepted and ignored.
+    (destructuring-bind (commands viewport directory environment config &optional ignored) data
+      (declare (ignore ignored))
       (unless (and (listp commands) (<= (length commands) 128)
                    (every (lambda (argv) (and (listp argv) (<= 1 (length argv) 256)
                                              (every #'stringp argv) (plusp (length (first argv))))) commands))
@@ -122,8 +100,7 @@
         (error "Malformed workspace environment"))
       (unless (or (null config) (absolute-path-p config)) (error "Configuration path must be absolute"))
       (make-launch-request :commands commands :viewport (or viewport '(120 36 8 16))
-                           :directory directory :environment environment :config-path config
-                           :spawn-p spawn-p))))
+                           :directory directory :environment environment :config-path config))))
 (defun pane-environment (environment)
   (append (list "TERM=xterm-256color" (concatenate 'string "EKKO_INSTANCE=" *instance*))
           (remove-if (lambda (entry)
@@ -202,7 +179,7 @@
       (setf data (subseq data 4)
             packet (concatenate '(vector (unsigned-byte 8)) (vector kind) data)))
     (when (= kind 8)
-      (when (wire-attached wire) (error "An attached viewer cannot open panes"))
+      (when (wire-attached wire) (error "An attached viewer cannot request the workspace"))
       (ensure-workspace daemon wire (parse-launch-request data))
       (return-from daemon-packet))
     (when (and (= kind 3) (member (bytes-text data) '("stop" "stop-force") :test #'equal))
@@ -245,20 +222,13 @@
            (t (server-packet view wire packet))))))))
 
 (defun ensure-workspace (daemon wire request)
-  "Packet 8: create the workspace when absent, then open requested panes."
+  "Packet 8: create the workspace when absent. Commands only apply at
+creation; on an existing workspace this is attach-only and never spawns."
   (cond
     ((daemon-creation daemon)
-     (let ((creation (daemon-creation daemon)))
-       (pushnew wire (creation-peers creation))
-       (when (and (launch-request-spawn-p request) (launch-request-commands request))
-         (push request (creation-extra-requests creation)))))
+     (pushnew wire (creation-peers (daemon-creation daemon))))
     ((daemon-home-view daemon)
      (when (daemon-stopping daemon) (error "Workspace is stopping"))
-     (when (launch-request-spawn-p request)
-       (open-panes daemon (or (launch-request-commands request)
-                              (list (default-shell-argv daemon)))
-                   (launch-request-directory request)
-                   (launch-request-environment request)))
      (send-packet wire 20 (text-bytes "{}")))
     (t
      (setf (daemon-launch-directory daemon) (launch-request-directory request)
@@ -352,15 +322,9 @@
     (dolist (result (creation-initialization creation))
       (let ((actions (remove-if-not (lambda (action) (eq (first action) :store-set)) (getf result :actions))))
         (when actions (apply-actions home (getf result :owner) actions nil nil))))
-    (let ((extras (nreverse (creation-extra-requests creation))))
-      (setf (daemon-creation daemon) nil)
-      (dolist (view (daemon-views daemon)) (layout view))
-      (dolist (peer (creation-peers creation)) (command-reply peer "{}"))
-      (dolist (request extras)
-        (handler-case
-            (open-panes daemon (launch-request-commands request)
-                        (launch-request-directory request) (launch-request-environment request))
-          (error (condition) (note-error home condition)))))))
+    (setf (daemon-creation daemon) nil)
+    (dolist (view (daemon-views daemon)) (layout view))
+    (dolist (peer (creation-peers creation)) (command-reply peer "{}"))))
 (defun service-creation-phase (daemon creation buffer)
   (let ((worker (daemon-worker daemon)) (home (daemon-home-view daemon)))
     (handler-case

@@ -1,8 +1,11 @@
 # Plan: one daemon, one workspace, N clients
 
-Status: implemented. The design landed simpler than drafted: instead of one
-server hosting many named sessions, each daemon owns exactly one workspace and
-`--instance NAME` provides isolation. Per-client views and thin clients are as
+Status: implemented, then simplified. The design landed simpler than drafted:
+instead of one server hosting many named sessions, each daemon owns exactly one
+workspace and `--instance NAME` provides isolation. Attaching later changed to
+takeover semantics: a new attach detaches the previous client and reuses the
+session view, so only one client is attached at a time and `run` commands only
+apply at workspace creation. Per-client views and thin clients are otherwise as
 planned. This is not a rewrite of the pane runtime or the VT.
 
 ## Terminology (pinned)

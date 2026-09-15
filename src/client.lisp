@@ -817,11 +817,12 @@ started before the pidfile existed are still identifiable by socket inode."
     0))
 
 (defun run (commands &key detached)
-  "Open COMMANDS as workspace panes (a default shell when empty), then attach."
+  "Create the workspace with COMMANDS (a default shell when empty) if absent,
+then attach. On an existing workspace this attaches without spawning."
   (initialize)
   (let ((wire (connect-workspace (make-wire :fd (ensure-daemon))
                               (list commands (terminal-viewport)
                                     (namestring (truename (uiop:getcwd)))
-                                    (sb-ext:posix-environ) (creation-config-path) t))))
+                                    (sb-ext:posix-environ) (creation-config-path)))))
     (close-wire wire))
   (if detached 0 (attach)))

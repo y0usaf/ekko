@@ -82,10 +82,19 @@
   (unless preserve-queue (setf (view-input-queue view) nil (view-input-bytes view) 0)))
 (defun attach-view (daemon wire id cols rows cw ch &optional existing-view)
   (let* ((home (daemon-home-view daemon))
-         (view (or existing-view (and home (null (view-wire home)) home)
+         (view (or existing-view home
                    (make-view :daemon daemon :id id :cols cols :rows rows :cw cw :ch ch))))
-    (when (view-wire view) (error "View ~D already has an attached client" (view-id view)))
     (unless (eq daemon (view-daemon view)) (error "View belongs to another daemon"))
+    ;; One attached client at a time: an attach takes over the session view.
+    ;; A wired view's client drains to a clean disconnect rather than an
+    ;; error, which its attach loop would retry into a steal-back.
+    (dolist (other (daemon-views daemon))
+      (when (and (not (eq other view)) (view-wire other))
+        (setf (wire-closing (view-wire other)) t)
+        (detach-view other)))
+    (when (view-wire view)
+      (setf (wire-closing (view-wire view)) t)
+      (detach-view view))
     (setf (view-wire view) wire (wire-view wire) view (view-host-focused view) t)
     (initialize-view view)
     (resize-view view cols rows cw ch)

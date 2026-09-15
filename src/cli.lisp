@@ -4,7 +4,7 @@
 (defun version () *version*)
 
 (defun usage (&optional (stream *standard-output*))
-  (format stream "Ekko ~A~%~%Usage: ekko [--instance NAME] run [--detached] [COMMAND [ARGS...] [::: COMMAND ...]]~%       ekko attach|status|inspect|buffer [--view ID]~%       ekko list~%       ekko stop [--force]~%       ekko config check|reload~%       ekko command [--view ID] COMMAND [ARGS...]~%       ekko split [--view ID] columns|rows [COMMAND ARGS...]~%       ekko rename [--view ID] LABEL~%       ekko doctor --restore-terminal~%~%One daemon owns one workspace; clients attach concurrently.~%EKKO_INSTANCE selects explicit isolation.~%Config: $EKKO_CONFIG or $XDG_CONFIG_HOME/ekko/init.lisp.~%Options: -h, --help; --version.~%" *version*))
+  (format stream "Ekko ~A~%~%Usage: ekko [--instance NAME]   (attach to the session)~%       ekko [--instance NAME] run [--detached] [COMMAND [ARGS...] [::: COMMAND ...]]~%       ekko attach|status|inspect|buffer [--view ID]~%       ekko list~%       ekko stop [--force]~%       ekko config check|reload~%       ekko command [--view ID] COMMAND [ARGS...]~%       ekko split [--view ID] columns|rows [COMMAND ARGS...]~%       ekko rename [--view ID] LABEL~%       ekko doctor --restore-terminal~%~%One daemon owns one workspace; attaching takes over its session view.~%EKKO_INSTANCE selects explicit isolation.~%Config: $EKKO_CONFIG or $XDG_CONFIG_HOME/ekko/init.lisp.~%Options: -h, --help; --version.~%" *version*))
 
 (defun pane-commands (args)
   (when (null args) (return-from pane-commands nil))
@@ -101,7 +101,7 @@
           (pop arguments)
           (setf ekko/runtime:*instance* (ekko/runtime:checked-name (or (pop arguments) (error "Missing instance name")) "Instance")))
         (cond
-          ((null arguments) (usage))
+          ((null arguments) (ekko/runtime:attach nil))
           ((member (first arguments) '("-h" "--help") :test #'equal)
            (when (rest arguments) (error "Unexpected argument ~A" (second arguments))) (usage))
           ((equal (first arguments) "--version")

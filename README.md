@@ -37,25 +37,23 @@ nix run . -- run "$SHELL" -i
 cudaterm-finix -e nix run . -- run "$SHELL" -i
 ```
 
-## One daemon, independent views
+## One daemon, one session view
 
-One daemon owns one workspace. `run` opens panes in it; `attach` shows it from
-any number of terminals:
+One daemon owns one workspace. `run` creates it if absent — COMMAND lists only
+apply at creation — and attaches; `attach` shows the existing workspace:
 
 ```sh
 nix run . -- run --detached "$SHELL" -i
-nix run . -- run --detached htop        # open more panes in the same workspace
-nix run . -- list                       # JSON: the workspace and its views
+nix run . -- split columns htop         # open more panes in the same workspace
+nix run . -- list                       # JSON: the workspace and its view
 nix run . -- attach
 ```
 
-Focus, input modes, copy/selection and camera state belong to each view. Typing
-is not broadcast. A default reconnect reuses the detached home view. With more
-than one attached view, per-view controls require `--view VIEW_ID`. `stop` stops
-the workspace; it refuses while other clients are attached unless `--force` is
-given. The workspace outlives every client; it ends on `stop`, a signal, or the
-last pane exiting. `--instance NAME` creates an explicitly isolated daemon and
-workspace.
+One client is attached at a time: a new attach takes over the session view and
+detaches the previous client, keeping focus, mode and pane state. `stop` stops
+the workspace. The workspace outlives every client; it ends on `stop`, a
+signal, or the last pane exiting. `--instance NAME` creates an explicitly
+isolated daemon and workspace.
 
 Workspace layout is replaceable Lisp policy. The default tiled/floating providers
 and the [scrolling example](examples/profiles/scrolling.lisp) use the same public

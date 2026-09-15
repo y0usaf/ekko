@@ -1,8 +1,9 @@
 # Current module contracts
 
 One daemon owns one workspace: all application PTYs, terminal state, images,
-views, and the durable component store live directly on the daemon. Many clients
-attach concurrently; each client renders an independent daemon-owned view.
+views, and the durable component store live directly on the daemon. One client
+is attached at a time: a new attach takes over the session view and detaches
+the previous client.
 Applications never write to the outer terminal. The default socket is
 `$XDG_RUNTIME_DIR/ekko/ekko.sock`; `--instance NAME` runs a separate daemon and
 workspace for explicit isolation. Pane IDs are daemon-global and are not reused
@@ -59,9 +60,7 @@ descriptors wake either loop immediately. Status includes cumulative daemon
 allocation and GC time counters for performance measurement.
 
 Detach drops client caches and cancels transient input, not applications. The
-workspace's home view retains focus and copy state for default reconnect; other
-views have separate identities, and the eight newest detached extra views stay
-reattachable by ID. The workspace outlives every client: only `stop`, a signal,
+workspace's home view retains focus and copy state for default reconnect. The workspace outlives every client: only `stop`, a signal,
 or the last pane exiting tears it down, and daemon lifetime is workspace
 lifetime. Shutdown closes sockets/PTYs and signals owned process
 groups with a bounded escalation period. Socket startup uses an exclusive lock;
