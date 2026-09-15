@@ -89,7 +89,10 @@
           (t (error "Unknown command ~A" command))))
     (error (condition)
       (ekko/runtime:note-client-error condition)
-      (format *error-output* "ekko: ~A~%" condition) 2)))
+      (format *error-output* "ekko: ~A~%" condition)
+      (when (ekko/runtime:version-mismatch-p condition)
+        (format *error-output* "ekko: the running daemon is an older build; 'ekko stop' ends it (its panes will exit)~%"))
+      2)))
 
 (defun main (&optional (arguments (rest sb-ext:*posix-argv*)))
   (handler-case
@@ -108,4 +111,15 @@
     (error (condition) (format *error-output* "ekko: ~A~%" condition) 2)))
 
 (defun executable-main ()
+  ;; An uncaught condition must not land in a Lisp debugger: the daemon's
+  ;; stderr is a log file nobody answers, and a client's is a raw terminal.
+  ;; Restore the terminal best-effort, record the failure, and exit.
+  (setf sb-ext:*invoke-debugger-hook*
+        (lambda (condition hook)
+          (declare (ignore hook))
+          (ignore-errors
+            (ekko/runtime:emergency-restore)
+            (ekko/runtime:note-client-error condition)
+            (format *error-output* "ekko: fatal: ~A~%" condition))
+          (sb-ext:exit :code 3 :abort t)))
   (sb-ext:exit :code (or (main) 0)))

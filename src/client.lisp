@@ -19,7 +19,8 @@
   (input-state :ground) (input (make-array 0 :element-type '(unsigned-byte 8) :adjustable t :fill-pointer 0))
   (input-read-bytes (octets 0)) (input-generation 0)
   (binding-generation 0) (binding-state :unbound) discard-paste cancel-paste-marker (host-focused t)
-  (input-at 0) (paste nil) (done nil) size reported-cell-size (cw 8) (ch 16))
+  (input-at 0) (paste nil) (done nil) size reported-cell-size (cw 8) (ch 16)
+  view-id pending-binding binding-drain-deadline)
 (defun terminal-write (viewer text) (queue-bytes (viewer-io viewer) (text-bytes text)))
 (defun terminal-viewport ()
   "Return a validated viewport for a detached server, or NIL without a tty."
@@ -327,16 +328,32 @@
 (defun drain-binding-input (viewer)
   ;; Raw stdin is nonblocking. Discard a bounded old backlog, but parse paste
   ;; terminators so an old paste tail cannot become keys in the new binding.
+  ;; Returns T once the backlog is drained; NIL asks the poll loop to resume
+  ;; the drain when more input arrives, so a flooded terminal cannot kill the
+  ;; viewer while a binding changes.
   (let ((buffer (octets 65536)))
     (loop repeat 16 for count = (read-fd 0 buffer) do
       (cond ((plusp count)
              (setf (viewer-input-read-bytes viewer) (octets 0))
              (input-feed viewer buffer count))
-            ((= count -11) (return-from drain-binding-input))
+            ((= count -11) (return-from drain-binding-input t))
             ((= count -4))
-            ((zerop count) (setf (viewer-done viewer) t) (return-from drain-binding-input))
+            ((zerop count) (setf (viewer-done viewer) t) (return-from drain-binding-input t))
             (t (checked count "discard old terminal input"))))
-    (error "Terminal input did not quiesce at binding change")))
+    nil))
+(defun finish-binding-drain (viewer)
+  (setf (viewer-discard-paste viewer) (paste-input-p viewer)
+        (viewer-paste viewer) nil)
+  (clear-client-input viewer)
+  (setf (viewer-binding-generation viewer) (viewer-pending-binding viewer)
+        (viewer-input-generation viewer) (viewer-pending-binding viewer)
+        (viewer-pending-binding viewer) nil
+        (viewer-binding-drain-deadline viewer) nil
+        (viewer-binding-state viewer) :accepting)
+  ;; A paste can continue after the old OS backlog drains. Delay acceptance
+  ;; until its terminator, so no new graphics replies interleave a discarded
+  ;; old paste and no old tail becomes an application key.
+  (finish-input-binding viewer))
 (defun finish-input-binding (viewer)
   (when (and (eq (viewer-binding-state viewer) :accepting)
              (not (viewer-discard-paste viewer)) (not (viewer-cancel-paste-marker viewer)))
@@ -354,22 +371,20 @@
 (defun accept-input-binding (viewer data)
   (unless (= (length data) 4) (error "Malformed input binding notice"))
   (let ((generation (u32 data 0)))
-    (unless (and (plusp generation) (= generation (1+ (viewer-binding-generation viewer))))
+    (unless (and (plusp generation)
+                 (= generation (1+ (or (viewer-pending-binding viewer)
+                                       (viewer-binding-generation viewer)))))
       (error "Unexpected input binding generation"))
     (setf (viewer-binding-state viewer) :draining
           (viewer-discard-paste viewer) (paste-input-p viewer)
-          (viewer-paste viewer) nil)
+          (viewer-paste viewer) nil
+          (viewer-pending-binding viewer) generation)
     (clear-client-input viewer)
-    (drain-binding-input viewer)
-    (setf (viewer-discard-paste viewer) (paste-input-p viewer)
-          (viewer-paste viewer) nil)
-    (clear-client-input viewer)
-    (setf (viewer-binding-generation viewer) generation (viewer-input-generation viewer) generation
-          (viewer-binding-state viewer) :accepting)
-    ;; A paste can continue after the old OS backlog drains. Delay acceptance
-    ;; until its terminator, so no new graphics replies interleave a discarded
-    ;; old paste and no old tail becomes an application key.
-    (finish-input-binding viewer)))
+    (if (drain-binding-input viewer)
+        (finish-binding-drain viewer)
+        ;; The backlog outlived one bounded pass: the poll loop resumes the
+        ;; drain as more bytes land, bounded by a hard deadline.
+        (setf (viewer-binding-drain-deadline viewer) (+ (now) 2)))))
 (defun receive-view (viewer packet)
   (case (aref packet 0)
     (24 (accept-input-binding viewer (subseq packet 1)))
@@ -391,7 +406,8 @@
             (error "Invalid viewer exit text"))
           (setf (viewer-awaiting-scene viewer) t
                 (viewer-scene viewer) scene
-                (viewer-exit-text viewer) exit-text))
+                (viewer-exit-text viewer) exit-text
+                (viewer-view-id viewer) (getf (nth 7 scene) :view-id)))
         (maphash (lambda (key asset) (setf (gethash key (viewer-assets viewer)) asset)) (viewer-pending-assets viewer))
         (clrhash (viewer-pending-assets viewer)))
     (23 (when (> (1- (length packet)) (* 1024 1024)) (error "Clipboard exceeds 1 MiB"))
@@ -560,10 +576,20 @@ while a previous daemon finishes draining, which a socket backlog hides."
           (unless (and (disconnected-p condition) (< (now) deadline)) (error condition))
           (setf wire (make-wire :fd (ensure-daemon))))))))
 
-(defun attach (&optional view-id)
-  (initialize)
-  (let* ((viewport (or (terminal-viewport) (error "attach requires a terminal")))
-         (fd (ensure-daemon))
+(defvar *raw-terminal* nil
+  "T while this process holds the terminal in raw mode; the debugger hook
+restores it on otherwise fatal exits.")
+(defun emergency-restore ()
+  "Best-effort terminal restoration for fatal exits; never signals."
+  (ignore-errors
+    (when *raw-terminal*
+      (write-fd 1 (text-bytes *terminal-leave*))
+      (restore))))
+(defun attach-session (viewport state)
+  "Run one attached session. STATE is (selected-view-id exit-text) and is
+updated in place so a retry after a fatal session error reattaches to the
+same view and only the final exit prints the exit text."
+  (let* ((fd (ensure-daemon))
          (viewer (make-viewer :connection (make-wire :fd fd) :io (make-wire :fd 1)))
          (buffer (octets 65536)) (last-size 0))
     (dolist (sig (list sb-posix:sigterm sb-posix:sighup))
@@ -576,15 +602,24 @@ while a previous daemon finishes draining, which a socket backlog hides."
                  (connect-workspace (viewer-connection viewer)
                                    (list nil viewport (namestring (truename (uiop:getcwd)))
                                          (sb-ext:posix-environ) (creation-config-path))
-                                   view-id))
+                                   (first state)))
            (send-packet (viewer-connection viewer) 1 (integers (cons +wire-version+ viewport)))
            (checked (raw 0) "enter terminal raw mode")
+           (setf *raw-terminal* t)
            (terminal-write viewer *terminal-enter*) (send-size viewer)
            (loop until (viewer-done viewer) do
              (let ((current (now)))
                (when (>= (- current last-size) 1/5) (send-size viewer) (setf last-size (now)))
                (when (and (eq (viewer-input-state viewer) :escape) (>= (- current (viewer-input-at viewer)) 1/25))
                  (input-complete viewer)))
+             ;; A binding change whose old backlog outlived the first bounded
+             ;; pass resumes draining here until the deadline gives up.
+             (when (eq (viewer-binding-state viewer) :draining)
+               (if (drain-binding-input viewer)
+                   (finish-binding-drain viewer)
+                   (when (and (viewer-binding-drain-deadline viewer)
+                              (>= (now) (viewer-binding-drain-deadline viewer)))
+                     (error "Terminal input did not quiesce at binding change"))))
              (when (and (viewer-probe-deadline viewer) (>= (now) (viewer-probe-deadline viewer)))
                (setf (viewer-transport viewer) :inline (viewer-probe-deadline viewer) nil))
              (when (and (viewer-awaiting-scene viewer) (null (viewer-scene viewer))
@@ -606,7 +641,12 @@ while a previous daemon finishes draining, which a socket backlog hides."
                (let ((flags (rest event)))
                  (cond ((= (first event) 0)
                         (let ((n (read-fd 0 buffer)))
-                          (cond ((plusp n) (input-feed viewer buffer n)) ((not (member n '(-11 -4))) (setf (viewer-done viewer) t)))))
+                          (cond ((plusp n)
+                                 (input-feed viewer buffer n)
+                                 (when (and (eq (viewer-binding-state viewer) :draining)
+                                            (drain-binding-input viewer))
+                                   (finish-binding-drain viewer)))
+                                ((not (member n '(-11 -4))) (setf (viewer-done viewer) t)))))
                        ((= (first event) 1) (flush-wire (viewer-io viewer)))
                        ((= (first event) fd)
                         (when (logtest flags 4) (flush-wire (viewer-connection viewer)))
@@ -619,12 +659,34 @@ while a previous daemon finishes draining, which a socket backlog hides."
             (flush-wire (viewer-io viewer)) (when (wire-queue (viewer-io viewer)) (poll-fds '((1 . 4)) 10))))
         (maphash (lambda (key value) (declare (ignore key)) (delete-outer viewer (first value))) (viewer-drawn viewer))
         (terminal-write viewer *terminal-leave*)
-        (when (viewer-exit-text viewer)
-          (terminal-write viewer (format nil "~A~C~C" (viewer-exit-text viewer)
-                                         #\Return #\Newline)))
         (loop repeat 20 while (wire-queue (viewer-io viewer)) do (flush-wire (viewer-io viewer)) (poll-fds '((1 . 4)) 10)))
-      (restore) (close-wire (viewer-connection viewer)) (ekko/client:attachment-teardown (viewer-ids viewer))))
-  0)
+      ;; Reattach identity and the exit message survive the session teardown.
+      (when (viewer-view-id viewer) (setf (first state) (viewer-view-id viewer)))
+      (when (viewer-exit-text viewer) (setf (second state) (viewer-exit-text viewer)))
+      (restore) (setf *raw-terminal* nil)
+      (close-wire (viewer-connection viewer)) (ekko/client:attachment-teardown (viewer-ids viewer)))))
+(defun attach (&optional view-id)
+  (initialize)
+  (let ((viewport (or (terminal-viewport) (error "attach requires a terminal")))
+        (state (list view-id nil)) (attempts 0) (failed-at 0))
+    (loop
+      (handler-case
+          (progn
+            (attach-session viewport state)
+            (when (second state)
+              (format t "~A~%" (second state)))
+            (return 0))
+        (error (condition)
+          ;; The daemon keeps detached views; a fatal session error becomes a
+          ;; bounded reattach instead of dumping the user at a restored shell.
+          (note-client-error condition)
+          (when (version-mismatch-p condition) (error condition))
+          (when (search "Unknown view" (princ-to-string condition))
+            (setf (first state) nil))
+          (setf attempts (if (< (- (now) failed-at) 10) (1+ attempts) 1)
+                failed-at (now))
+          (when (> attempts 5) (error condition))
+          (poll-fds nil (min 1000 (* 150 attempts))))))))
 (defun wait-control-result (wire &optional (timeout 10))
   (let ((buffer (octets 65536)) (deadline (+ (now) timeout)))
     (loop while (< (now) deadline) do
@@ -640,21 +702,29 @@ while a previous daemon finishes draining, which a socket backlog hides."
 
 (defun control (command &key arguments view-id)
   (initialize)
-  (let ((wire (make-wire :fd (checked (connect-local (socket-path)) "connect"))))
-    (unwind-protect
-         (progn
-           (send-route wire view-id)
-           (cond (arguments
-                  (send-packet wire 7
-                    (text-bytes (with-output-to-string (out)
-                                  (loop for value in arguments for first = t then nil do
-                                    (unless first (write-char #\Null out)) (write-string value out))))))
-                 (t (send-packet wire 3 (text-bytes command))))
-           (let ((result (wait-control-result wire)))
-             (when (member command '("list" "status" "inspect" "buffer") :test #'equal)
-               (write-string result)))
-           0)
-      (close-wire wire))))
+  (handler-case
+      (let ((wire (make-wire :fd (checked (connect-local (socket-path)) "connect"))))
+        (unwind-protect
+             (progn
+               (send-route wire view-id)
+               (cond (arguments
+                      (send-packet wire 7
+                        (text-bytes (with-output-to-string (out)
+                                      (loop for value in arguments for first = t then nil do
+                                        (unless first (write-char #\Null out)) (write-string value out))))))
+                     (t (send-packet wire 3 (text-bytes command))))
+               (let ((result (wait-control-result wire)))
+                 (when (member command '("list" "status" "inspect" "buffer") :test #'equal)
+                   (write-string result)))
+               0)
+          (close-wire wire)))
+    ;; An older daemon rejects the route before any command reaches it. `stop`
+    ;; must still work: identify the daemon by its socket and signal it.
+    (error (condition)
+      (if (and (member command '("stop" "stop-force") :test #'equal)
+               (version-mismatch-p condition))
+          (stop-legacy-daemon)
+          (error condition)))))
 
 (defun ensure-daemon ()
   (let* ((path (socket-path)) (fd (connect-local path)))
@@ -686,6 +756,65 @@ while a previous daemon finishes draining, which a socket backlog hides."
       (format out "[~D] pid ~D ~{~A~^ ~}: ~A~%"
               (- (get-universal-time) 2208988800) (sb-posix:getpid)
               (rest sb-ext:*posix-argv*) condition))))
+
+(defun version-mismatch-p (condition)
+  "True when CONDITION is the daemon rejecting our wire version."
+  (not (null (search "Incompatible Ekko wire version" (princ-to-string condition)))))
+(defun daemon-pidfile-path ()
+  (format nil "~A.pid" (socket-path)))
+(defun cmdline-daemon-p (pid)
+  "True when /proc/PID/cmdline names an ekko --serve process. Guards against
+a stale pidfile naming a recycled PID."
+  (ignore-errors
+    (with-open-file (in (format nil "/proc/~D/cmdline" pid)
+                        :element-type '(unsigned-byte 8))
+      (let ((bytes (make-array 4096 :element-type '(unsigned-byte 8))))
+        (search (text-bytes "--serve") (subseq bytes 0 (read-sequence bytes in)))))))
+(defun pidfile-daemon-pid ()
+  (ignore-errors
+    (let ((pid (parse-integer (with-open-file (in (daemon-pidfile-path))
+                                (read-line in))
+                              :junk-allowed t)))
+      (when (and pid (plusp pid) (cmdline-daemon-p pid)) pid))))
+(defun socket-owner-pids ()
+  "PIDs holding the daemon's listening socket, found through /proc. Daemons
+started before the pidfile existed are still identifiable by socket inode."
+  (let ((inodes nil))
+    (with-open-file (in "/proc/net/unix")
+      (loop for line = (read-line in nil) while line
+            for fields = (remove "" (uiop:split-string line :separator " ") :test #'equal)
+            ;; Num RefCount Protocol Flags Type St Inode Path; St 01 listens.
+            do (when (and (>= (length fields) 8)
+                          (equal (car (last fields)) (socket-path))
+                          (equal (nth 5 fields) "01"))
+                 (pushnew (nth 6 fields) inodes :test #'equal))))
+    (when inodes
+      (let ((pids nil))
+        (dolist (fd (directory "/proc/*/fd/*"))
+          (let ((target (ignore-errors (sb-posix:readlink fd))))
+            (when (and target (> (length target) 8)
+                       (string= "socket:[" (subseq target 0 8))
+                       (member (subseq target 8 (1- (length target))) inodes :test #'equal))
+              ;; /proc/PID/fd/N → (:absolute "proc" "PID" "fd")
+              (let ((pid (ignore-errors
+                           (parse-integer (third (pathname-directory fd)) :junk-allowed t))))
+                (when pid (pushnew pid pids))))))
+        pids))))
+(defun legacy-daemon-pid ()
+  "The PID of the process serving our socket, or NIL when unidentifiable."
+  (or (pidfile-daemon-pid)
+      (let ((pids (remove-if-not #'cmdline-daemon-p (socket-owner-pids))))
+        (when (= 1 (length pids)) (first pids)))))
+(defun stop-legacy-daemon ()
+  "SIGTERM the daemon holding our socket when its wire version rejects us."
+  (let ((pid (legacy-daemon-pid)))
+    (unless pid
+      (error "The running daemon is an older Ekko build; send SIGTERM to its daemon PID"))
+    (sb-posix:kill pid sb-posix:sigterm)
+    (let ((deadline (+ (now) 3)))
+      (loop while (and (probe-file (socket-path)) (< (now) deadline)) do (poll-fds nil 50)))
+    (format *error-output* "ekko: stopped daemon pid ~D (incompatible wire version)~%" pid)
+    0))
 
 (defun run (commands &key detached)
   "Open COMMANDS as workspace panes (a default shell when empty), then attach."

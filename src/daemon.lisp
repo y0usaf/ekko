@@ -9,7 +9,7 @@
   panes tree views home-view launch-directory launch-environment config-path
   retired worker candidate registry
   (config-generation 0) config-error command-queue disabled-hooks hook-failures
-  (work-turn 0) dispatch-cursors (recovery-budget 0)
+  (work-turn 0) dispatch-cursors (recovery-budget 0) (service-failures 0)
   reload-peer initialization-queue candidate-views candidate-results candidate-contexts
   candidate-layouts candidate-stage candidate-members pending-splits
   (clipboard "") (revision 0) (started (now))
@@ -482,14 +482,22 @@
           (loop for pane in (daemon-panes daemon) when (pane-io pane)
                 collect (cons (wire-fd (pane-io pane)) (wire-events (pane-io pane))))))
 (defun service-workspace (daemon buffer)
+  ;; Per-view and per-pane guards keep one fault from skipping every other
+  ;; owner in the same pass; the caller still bounds whole-service failures.
   (dolist (view (daemon-views daemon))
-    (tick-transition view) (expire-copy-flashes view) (expire-pane-notes view))
+    (handler-case
+        (progn (tick-transition view) (expire-copy-flashes view) (expire-pane-notes view))
+      (error (condition) (note-error view condition))))
   (service-extensions daemon buffer)
   (dolist (pane (daemon-panes daemon))
-    (expire-upload (pane-graphics pane))
-    (when (and (pane-pid pane) (null (pane-status pane)))
-      (let ((exit (reap (pane-pid pane))))
-        (when (>= exit 0) (setf (pane-status pane) exit) (incf (daemon-revision daemon))))))
+    (handler-case
+        (progn
+          (expire-upload (pane-graphics pane))
+          (when (and (pane-pid pane) (null (pane-status pane)))
+            (let ((exit (reap (pane-pid pane))))
+              (when (>= exit 0) (setf (pane-status pane) exit) (incf (daemon-revision daemon))))))
+      (error (condition)
+        (format *error-output* "pane ~D: ~A~%" (pane-id pane) condition))))
   ;; The workspace ends when its last pane does.
   (when (and (daemon-panes daemon) (every #'pane-status (daemon-panes daemon)))
     (setf (daemon-stopping daemon) t)))
@@ -565,10 +573,16 @@ unchanged phase, or a creation that was finished or rejected."
 (defun daemon-step (daemon buffer)
   (service-creation daemon buffer)
   (when (daemon-home-view daemon)
-    (handler-case (unless (daemon-stopping daemon) (service-workspace daemon buffer))
+    ;; One bad pass reports into the workspace status instead of tearing it
+    ;; down; only a persistently failing service still stops the workspace.
+    (handler-case
+        (progn
+          (unless (daemon-stopping daemon) (service-workspace daemon buffer))
+          (setf (daemon-service-failures daemon) 0))
       (error (condition)
-        (format *error-output* "workspace: ~A~%" condition)
-        (setf (daemon-stopping daemon) t))))
+        (note-workspace-error daemon condition)
+        (when (>= (incf (daemon-service-failures daemon)) 25)
+          (setf (daemon-stopping daemon) t)))))
   (when (and (daemon-stopping daemon) (not (daemon-torn-down daemon)))
     (teardown-workspace daemon))
   (reap-retired daemon)
@@ -598,13 +612,18 @@ unchanged phase, or a creation that was finished or rejected."
         (cond
           ((= fd (daemon-listener daemon))
            (loop repeat 32 for accepted = (accept-local fd) while (>= accepted 0) do
-             (let ((peer (make-wire :fd accepted)))
-               (if (< (length (daemon-peers daemon)) +daemon-peer-limit+)
-                   (push peer (daemon-peers daemon))
-                   (unwind-protect
-                        (progn (send-packet peer 21 (text-bytes "Daemon peer limit reached; retry later"))
-                               (flush-wire peer))
-                     (close-wire peer))))))
+             (handler-case
+                 (let ((peer (make-wire :fd accepted)))
+                   (if (< (length (daemon-peers daemon)) +daemon-peer-limit+)
+                       (push peer (daemon-peers daemon))
+                       (unwind-protect
+                            (progn (send-packet peer 21 (text-bytes "Daemon peer limit reached; retry later"))
+                                   (flush-wire peer))
+                         (close-wire peer))))
+               ;; A vanished newcomer must not take the reactor down with it.
+               (error (condition)
+                 (format *error-output* "accept: ~A~%" condition)
+                 (ignore-errors (close-fd accepted))))))
           (pane (service-pane-event pane flags buffer))
           (t (let ((peer (find fd (daemon-peers daemon) :key #'wire-fd)))
                (when peer (service-peer-event daemon peer flags buffer)))))))))
@@ -623,7 +642,26 @@ unchanged phase, or a creation that was finished or rejected."
            (initialize-assets (concatenate 'string path ".frames/"))
            (when (probe-file path) (delete-file path))
            (setf (daemon-listener *daemon*) (checked (listen-local path) "listen"))
-           (loop while (and running (not (daemon-quit *daemon*))) do (daemon-step *daemon* buffer)))
+           ;; A mismatched-version client identifies this daemon by pidfile.
+           (ignore-errors
+             (with-open-file (out (concatenate 'string path ".pid") :direction :output
+                                  :if-exists :supersede :if-does-not-exist :create)
+               (format out "~D~%" (sb-posix:getpid))))
+           (let ((step-failures 0))
+             (loop while (and running (not (daemon-quit *daemon*))) do
+               (handler-case
+                   (progn (daemon-step *daemon* buffer) (setf step-failures 0))
+                 (error (condition)
+                   ;; A step fault must not silently strand every attached
+                   ;; viewer: log, then retry with a pause. Persistent failure
+                   ;; stops the workspace through the normal teardown path; a
+                   ;; wedged reactor still exits instead of spinning forever.
+                   (format *error-output* "reactor: ~A~%" condition)
+                   (if (>= (incf step-failures) 3)
+                       (progn
+                         (setf (daemon-stopping *daemon*) t)
+                         (when (>= step-failures 8) (error condition)))
+                       (poll-fds nil 20)))))))
       (let ((daemon *daemon*))
         (when (or (daemon-home-view daemon) (daemon-creation daemon))
           (teardown-workspace daemon))
@@ -636,4 +674,5 @@ unchanged phase, or a creation that was finished or rejected."
             (when (and (pane-pid pane) (null (pane-status pane))) (signal-group (pane-pid pane) 9))))))
     (when (daemon-listener *daemon*) (close-fd (daemon-listener *daemon*)))
     (when (probe-file path) (delete-file path))
+    (ignore-errors (delete-file (concatenate 'string path ".pid")))
     (close-fd lock)))

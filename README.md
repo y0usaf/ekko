@@ -169,7 +169,10 @@ nix run . -- doctor --restore-terminal
 ```
 
 Closing the window leaves the workspace running. `stop` terminates its owned
-process groups. Recovery restores terminal modes after an unclean client exit.
+process groups. A fatal viewer error reattaches to the surviving detached view
+instead of exiting, and daemon reactor faults are logged and retried rather than
+tearing the workspace down. Recovery restores terminal modes after an unclean
+client exit.
 
 Lisp init files now customize commands, keymaps, options, and status hooks, with
 live reload in an isolated worker. Dynamic split trees, bounded scrollback, and
@@ -188,8 +191,9 @@ Set `TERMINAL_BROWSER_FRAMES=inline` to compare the older transport.
 
 IPC is now **version 16** for viewers and controls. Older versions are rejected
 explicitly. Existing daemons keep their executable: a new instance name does not
-upgrade a shared daemon. To upgrade, stop the workspace and send SIGTERM to its
-recorded daemon PID before starting the new executable. The old session-named
+upgrade a shared daemon. To upgrade, run `stop` — it identifies the running
+daemon by its socket pidfile or `/proc` and ends it with SIGTERM even when the
+wire versions disagree — then start the new executable. The old session-named
 socket layout is not migrated in place.
 
 Build and verify the packaged executable:

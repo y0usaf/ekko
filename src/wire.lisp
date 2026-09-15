@@ -1,6 +1,6 @@
 (defpackage #:ekko/runtime
   (:use #:cl #:ekko/platform #:ekko/vt #:ekko/graphics)
-  (:export #:run #:serve #:attach #:control #:restore-terminal #:extension-worker-main #:initialize #:config-path #:load-worker #:config-source #:install-registry #:make-daemon #:extension-worker-registry #:stop-worker #:*instance* #:checked-name #:note-client-error))
+  (:export #:run #:serve #:attach #:control #:restore-terminal #:extension-worker-main #:initialize #:config-path #:load-worker #:config-source #:install-registry #:make-daemon #:extension-worker-registry #:stop-worker #:*instance* #:checked-name #:note-client-error #:version-mismatch-p #:emergency-restore))
 (in-package #:ekko/runtime)
 
 ;; Version 16 removes session routing: one daemon hosts one workspace and every
