@@ -1,6 +1,6 @@
 (defpackage #:ekko/runtime
   (:use #:cl #:ekko/platform #:ekko/vt #:ekko/graphics)
-  (:export #:run-session #:serve #:attach-session #:control-session #:restore-terminal))
+  (:export #:run-session #:serve #:attach-session #:control-session #:restore-terminal #:note-client-error))
 (in-package #:ekko/runtime)
 
 ;; Version 15 binds every viewer input transaction to a connection generation.

@@ -96,7 +96,9 @@
              (ekko/runtime:control-session nil "switch" :arguments (list name) :view-id view)))
           ((and (string= command "doctor") (equal args '("--restore-terminal"))) (ekko/runtime:restore-terminal))
           (t (error "Unknown command ~A" command))))
-    (error (condition) (format *error-output* "ekko: ~A~%" condition) 2)))
+    (error (condition)
+      (ekko/runtime:note-client-error condition)
+      (format *error-output* "ekko: ~A~%" condition) 2)))
 
 (defun main (&optional (arguments (cdr sb-ext:*posix-argv*)))
   (handler-case

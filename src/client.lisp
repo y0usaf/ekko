@@ -652,6 +652,17 @@
           ((uiop:getenv "EKKO_CONFIG") (error "Configuration does not exist: ~A" path))
           (t nil))))
 
+(defun client-log-path ()
+  (format nil "~A.client.log" (socket-path)))
+(defun note-client-error (condition)
+  "Record a fatal client error beside the daemon log; logging never fails."
+  (ignore-errors
+    (with-open-file (out (client-log-path) :direction :output
+                         :if-exists :append :if-does-not-exist :create)
+      (format out "[~D] pid ~D ~{~A~^ ~}: ~A~%"
+              (- (get-universal-time) 2208988800) (sb-posix:getpid)
+              (rest sb-ext:*posix-argv*) condition))))
+
 (defun run-session (name commands &key detached)
   (initialize)
   (checked-name name)
