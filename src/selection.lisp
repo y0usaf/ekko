@@ -17,6 +17,9 @@
 
 (defun publish-copy (view text)
   (let ((bytes (text-bytes text)) (writer (view-wire view)))
+    ;; An empty selection must never clobber the clipboard: publish no packet,
+    ;; leave the shared buffer and the notice untouched.
+    (when (zerop (length bytes)) (return-from publish-copy))
     (when (> (length bytes) (* 1024 1024)) (error "Copy exceeds 1 MiB"))
     ;; Only this viewer writes terminal controls. The shared buffer survives it.
     (when writer (send-packet writer 23 bytes))
@@ -129,6 +132,7 @@
        (when (or (not up) (pane-view-copy-anchor state))
          (apply-actions view :pointer (list (list :copy-point :pane (pane-id pane)
                                                 :x cx :y cy :start (and (not up) (not motion)))) nil nil)
-         (when up (apply-actions view :pointer (list (list :copy-selection :pane (pane-id pane))) nil nil))))
+         (when (and up (not (equal (pane-view-copy-anchor state) (pane-view-copy-end state))))
+           (apply-actions view :pointer (list (list :copy-selection :pane (pane-id pane))) nil nil))))
       (t nil))
     t))
