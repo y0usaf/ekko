@@ -364,6 +364,14 @@
                    (if (view-mode view) (and (not raw-input) (utf8-codepoint bytes))
                        (and (= (length bytes) 1) (aref bytes 0)))))
          (modifiers (if kitty (1- (max 1 (or (second params) 1))) 0))
+         ;; Some hosts report the shifted codepoint as the primary field. When a
+         ;; modifier rides along, fold an uppercase ASCII letter down to lowercase
+         ;; and mark Shift so it matches the uppercase chord spec. Unmodified keys
+         ;; stay untouched: bare capitals, Shift+Enter and Shift+Tab keep their codes.
+         (shifted (and code (or (logbitp 2 modifiers) (logbitp 1 modifiers) (logbitp 3 modifiers))
+                       (<= 65 code 90)))
+         (code (if shifted (+ code 32) code))
+         (modifiers (if shifted (logior modifiers 1) modifiers))
          (key (if (and code (logbitp 2 modifiers) (<= 64 code 127)) (logand code 31) code))
          (chorded (binding-key bytes key modifiers))
          (pane (focused-pane view)))

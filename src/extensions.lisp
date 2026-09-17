@@ -81,10 +81,18 @@
   (or (named-key token)
       (when (= (length token) 1) (char-code (char token 0)))
       (error "Unknown key: ~S" token)))
+(defun shift-base (token)
+  "A single uppercase ASCII letter base in a modified chord means Shift on its
+lowercase key; return the lowercase code point, or NIL otherwise."
+  (and (stringp token) (= (length token) 1)
+       (let ((char (char token 0)))
+         (and (char<= #\A char) (char<= char #\Z)
+              (char-code (char-downcase char))))))
 (defun key-code (key)
   "Parse a key spec: integer code point, one character, named key, or a dash chord.
-Control folds into the legacy control code; Alt and Super return (MODS . KEY) with
-bit 1 for Alt and bit 2 for Super."
+Control folds into the legacy control code; Alt, Super and Shift return (MODS . KEY)
+with bit 1 for Alt, bit 2 for Super and bit 4 for Shift. An uppercase ASCII letter
+base inside a modified chord sets the Shift bit on the letter's lowercase key."
   (cond ((and (integerp key) (<= 0 key #x10ffff)) key)
         ((and (stringp key) (= (length key) 1)) (char-code (char key 0)))
         ((stringp key)
@@ -99,7 +107,10 @@ bit 1 for Alt and bit 2 for Super."
                        (:ctrl (setf ctrl t))
                        (:alt (setf mods (logior mods 1)))
                        (:super (setf mods (logior mods 2))))))
-                 (let ((base (base-key-code (first (last tokens)))))
+                 (let* ((token (first (last tokens)))
+                        (shift (shift-base token))
+                        (base (if shift shift (base-key-code token))))
+                   (when shift (setf mods (logior mods 4)))
                    (when ctrl
                      (unless (and (integerp base) (<= 64 base 127))
                        (error "Control chords need a printable ASCII base key: ~S" key))

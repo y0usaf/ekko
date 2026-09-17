@@ -430,9 +430,15 @@ Bindings use maps `:prefix`, `:copy`, or a custom map registered with
 code points, control names, dash chords built from `C-`, `M-`/`Alt-` and
 `W-`/`Super-`, or `Tab`, `Enter`, `Escape`, `Left`, `Right`, `Up`, `Down`, `PageUp`,
 `PageDown`, `Home`, `End`. A control-only chord like `C-g` folds into its legacy
-control code; `M-Tab` and `Super-1` stay distinct. `bind-key` accepts an optional
-`:arguments` list of up to eight strings, delivered to the bound command as its
-event arguments. A `nil` command unbinds a key in that component. Prefix
+control code; `M-Tab` and `Super-1` stay distinct. This folding is unchanged, so a
+raw `0x08` byte and the Kitty `CSI 104;5u` event both still match `C-h`. In a chord
+that carries another modifier, an uppercase ASCII letter base means Shift on that
+letter's lowercase key: `C-H` is a distinct chord from `C-h`, `M-H` combines Alt and
+Shift, and `W-H` combines Super and Shift. Shift-carrying chords need the Kitty
+keyboard protocol, because a legacy control byte cannot carry shift: on a legacy
+terminal `Ctrl+Shift+letter` still collapses onto `Ctrl+letter`. `bind-key` accepts
+an optional `:arguments` list of up to eight strings, delivered to the bound command
+as its event arguments. A `nil` command unbinds a key in that component. Prefix
 followed by itself sends the literal control byte to the application.
 
 When a custom map is active, its bindings and unbound policy receive keys before
