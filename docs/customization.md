@@ -429,14 +429,21 @@ Bindings use maps `:prefix`, `:copy`, or a custom map registered with
 `register-keymap`. Keys are single-character strings, integer
 code points, control names, dash chords built from `C-`, `M-`/`Alt-` and
 `W-`/`Super-`, or `Tab`, `Enter`, `Escape`, `Left`, `Right`, `Up`, `Down`, `PageUp`,
-`PageDown`, `Home`, `End`. A control-only chord like `C-g` folds into its legacy
-control code; `M-Tab` and `Super-1` stay distinct. This folding is unchanged, so a
-raw `0x08` byte and the Kitty `CSI 104;5u` event both still match `C-h`. In a chord
-that carries another modifier, an uppercase ASCII letter base means Shift on that
-letter's lowercase key: `C-H` is a distinct chord from `C-h`, `M-H` combines Alt and
-Shift, and `W-H` combines Super and Shift. Shift-carrying chords need the Kitty
-keyboard protocol, because a legacy control byte cannot carry shift: on a legacy
-terminal `Ctrl+Shift+letter` still collapses onto `Ctrl+letter`. `bind-key` accepts
+`PageDown`, `Home`, `End`. A `C-`/`Ctrl-` chord folds into its legacy control code
+for an ASCII letter base only, so a raw `0x08` byte and the Kitty `CSI 104;5u` event
+both still match `C-h`. It never folds onto any other base: a non-letter or named-key
+base keeps its own Ctrl bit, so `C-[` is `Ctrl+[`, `C-]` is `Ctrl+]` and `C-Tab` is
+`Ctrl+Tab`. Those control chords need the Kitty keyboard protocol, because a legacy
+terminal cannot send them distinctly: there `Ctrl+[` is literally `0x1B`, which is
+`Escape`, and `Ctrl+Tab` is literally `Tab`. Escape therefore stays the plain
+`Escape` key (`CSI 27u`, or a raw `0x1B` byte) and never matches `C-[`, and a bare
+`Tab` (`0x09`, or `CSI 9u`) is not `Ctrl+Tab` (`CSI 9;5u`). `M-Tab` and `Super-1`
+stay distinct. In a chord that carries another modifier, an uppercase ASCII letter
+base means Shift on that letter's lowercase key: `C-H` is a distinct chord from
+`C-h`, `M-H` combines Alt and Shift, and `W-H` combines Super and Shift.
+Shift-carrying chords need the Kitty keyboard protocol, because a legacy control byte
+cannot carry shift: on a legacy terminal `Ctrl+Shift+letter` still collapses onto
+`Ctrl+letter`. `bind-key` accepts
 an optional `:arguments` list of up to eight strings, delivered to the bound command
 as its event arguments. A `nil` command unbinds a key in that component. Prefix
 followed by itself sends the literal control byte to the application.

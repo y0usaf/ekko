@@ -90,7 +90,8 @@ lowercase key; return the lowercase code point, or NIL otherwise."
               (char-code (char-downcase char))))))
 (defun key-code (key)
   "Parse a key spec: integer code point, one character, named key, or a dash chord.
-Control folds into the legacy control code; Alt, Super and Shift return (MODS . KEY)
+Control folds into the legacy control code for an ASCII letter base only; on any
+other base Ctrl stays distinct as mods bit 8. Alt, Super and Shift return (MODS . KEY)
 with bit 1 for Alt, bit 2 for Super and bit 4 for Shift. An uppercase ASCII letter
 base inside a modified chord sets the Shift bit on the letter's lowercase key."
   (cond ((and (integerp key) (<= 0 key #x10ffff)) key)
@@ -112,9 +113,12 @@ base inside a modified chord sets the Shift bit on the letter's lowercase key."
                         (base (if shift shift (base-key-code token))))
                    (when shift (setf mods (logior mods 4)))
                    (when ctrl
-                     (unless (and (integerp base) (<= 64 base 127))
-                       (error "Control chords need a printable ASCII base key: ~S" key))
-                     (setf base (logand base 31)))
+                     ;; A letter folds to its legacy control code; any other base
+                     ;; (punctuation or a named key) keeps Ctrl as a distinct bit,
+                     ;; which only a Kitty host can deliver.
+                     (if (and (integerp base) (or (<= 65 base 90) (<= 97 base 122)))
+                         (setf base (logand base 31))
+                         (setf mods (logior mods 8))))
                    (if (zerop mods) base (cons mods base)))))))
         (t (error "Unknown key: ~S" key))))
 (defun register-keymap (&key component name (unbound :forward))

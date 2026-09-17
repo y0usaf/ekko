@@ -256,14 +256,16 @@
   (find-if (lambda (b) (and (eq map (getf b :map)) (equal key (getf b :key))))
                           (reverse (getf (daemon-registry (view-daemon view)) :bindings))))
 (defun binding-key (bytes key modifiers)
-  "Lookup key for a keymap binding. Control folds into the code as before; Alt,
-Super and Shift stay distinct as (MODS . KEY), with bit 1 for Alt, bit 2 for Super
-and bit 4 for Shift. Shift only rides along when ctrl, alt or super is present, so
-unmodified chords are unchanged."
+  "Lookup key for a keymap binding. The caller passes only structural input
+modifiers (bit 1 Shift, bit 2 Alt, bit 4 Ctrl, bit 8 Super); any of them yields a
+(MODS . KEY) chord with value bit 1 for Alt, bit 2 for Super, bit 4 for Shift and
+bit 8 for Ctrl. With no structural modifier the plain integer key is returned, so
+legacy control bytes still match a folded C- chord."
   (let ((semantic (semantic-key bytes key))
-        (shift (logbitp 0 modifiers)) (alt (logbitp 1 modifiers)) (super (logbitp 3 modifiers)))
-    (if (or alt super (and shift (logbitp 2 modifiers)))
-        (cons (logior (if alt 1 0) (if super 2 0) (if shift 4 0)) semantic)
+        (shift (logbitp 0 modifiers)) (alt (logbitp 1 modifiers))
+        (ctrl (logbitp 2 modifiers)) (super (logbitp 3 modifiers)))
+    (if (or shift alt ctrl super)
+        (cons (logior (if alt 1 0) (if super 2 0) (if shift 4 0) (if ctrl 8 0)) semantic)
         semantic)))
 (defun dispatch-binding (view map key)
   (let ((binding (key-binding view map key)))
@@ -1392,16 +1394,19 @@ unmodified chords are unchanged."
   "Render a binding key (plain key or (MODS . KEY) chord) as plain text."
   (cond ((consp key)
          (let* ((code (rest key))
+                (named (cdr (assoc code '((9 . "Tab") (13 . "Enter") (27 . "Escape") (127 . "Backspace")))))
                 ;; A chord whose key part folded to a control code prints as Ctrl-<char>,
                 ;; lowercase to match the shifted letter it stands for.
                 (control (and (integerp code) (<= 1 code 26)
                               (not (member code '(9 10 13 27)))))
                 (name (cond ((keywordp code) (string-downcase (symbol-name code)))
                             (control (string (char-downcase (code-char (+ 64 code)))))
+                            (named named)
                             ((and (integerp code) (<= 32 code 126)) (string (code-char code)))
                             (t (princ-to-string code)))))
            (concatenate 'string (if (logtest 1 (first key)) "M-" "")
                         (if (logtest 2 (first key)) "Super-" "")
+                        (if (logtest 8 (first key)) "Ctrl-" "")
                         (if control "Ctrl-" "")
                         (if (logtest 4 (first key)) "Shift-" "") name)))
         ((and (integerp key) (<= 1 key 26) (not (member key '(9 10 13 27))))

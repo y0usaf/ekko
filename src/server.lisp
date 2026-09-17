@@ -372,8 +372,22 @@
                        (<= 65 code 90)))
          (code (if shifted (+ code 32) code))
          (modifiers (if shifted (logior modifiers 1) modifiers))
-         (key (if (and code (logbitp 2 modifiers) (<= 64 code 127)) (logand code 31) code))
-         (chorded (binding-key bytes key modifiers))
+         ;; Control folds into the legacy control code for an ASCII letter base only,
+         ;; so a plain Ctrl+letter keeps matching its legacy byte; on every other base
+         ;; Ctrl stays a distinct bit. Escape's raw 0x1B byte and CSI 27u never fold to
+         ;; Ctrl+[, so they remain the plain 27 key.
+         (ctrl (and code (logbitp 2 modifiers)))
+         (folded (and ctrl (or (<= 65 code 90) (<= 97 code 122))))
+         (key (if folded (logand code 31) code))
+         ;; Structural modifiers for the binding lookup: Ctrl survives only where it
+         ;; did not fold, and the Shift bit rides only when Ctrl, Alt or Super is also
+         ;; present, so Shift+Tab and Shift+Enter keep their plain named keys.
+         (chord-mods (logior (if (and (logbitp 0 modifiers)
+                                      (or (logbitp 1 modifiers) ctrl (logbitp 3 modifiers))) 1 0)
+                             (if (logbitp 1 modifiers) 2 0)
+                             (if (and ctrl (not folded)) 4 0)
+                             (if (logbitp 3 modifiers) 8 0)))
+         (chorded (binding-key bytes key chord-mods))
          (pane (focused-pane view)))
     (when (view-window-drag view)
       (when (eql (semantic-key bytes key) 27)
