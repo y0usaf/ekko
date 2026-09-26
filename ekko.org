@@ -6534,7 +6534,7 @@ Terminal attachment: raw mode, alternate screen, input and paint loops.
     (declare (ignore id rest))
     (destructuring-bind (child generation ix iy scale-cols scale-rows) placement
       (declare (ignore child generation))
-      (when (or (plusp scale-cols) (plusp scale-rows)) (return-from clipped-image nil))
+      (when (or (plusp scale-cols) (plusp scale-rows) (zerop cols) (zerop rows)) (return-from clipped-image nil))
       (destructuring-bind (generation w h format data) asset
         (declare (ignore generation format data))
         (let* ((destination (ekko/scene:make-rect (+ (* x cw) ix) (+ (* y ch) iy) w h))
@@ -6645,6 +6645,9 @@ Terminal attachment: raw mode, alternate screen, input and paint loops.
                 (t (setf accepted nil)))
           (incf cursor width))
         (values start (when start (coerce (nreverse characters) 'string))))))
+(defun visible-rect (viewport x y width height)
+  (and (plusp width) (plusp height)
+       (ekko/scene:rect-intersection (ekko/scene:make-rect x y width height) viewport)))
 (defvar *row-sink* (make-sink))
 (defun scene-text-rows (cols rows focus panes &optional metadata)
   "Each screen row's complete terminal output, as UTF-8 octets."
@@ -6654,8 +6657,7 @@ Terminal attachment: raw mode, alternate screen, input and paint loops.
          (layers (loop for pane in panes collect
                    (destructuring-bind (id x y width height label status cursor-x cursor-y visible lines placements outer) pane
                      (declare (ignore id label status cursor-x cursor-y visible placements))
-                     (list (ekko/scene:rect-intersection (apply #'ekko/scene:make-rect outer) viewport)
-                           (ekko/scene:rect-intersection (ekko/scene:make-rect x y width height) viewport)
+                     (list (apply #'visible-rect viewport outer) (visible-rect viewport x y width height)
                            x y (coerce lines 'vector))))))
     (dolist (decoration (reverse (append (getf metadata :decorations) (getf metadata :overlays))))
       (destructuring-bind (x y text sgr) decoration
@@ -6705,8 +6707,9 @@ Terminal attachment: raw mode, alternate screen, input and paint loops.
                   (setf pieces (mapcan (lambda (piece) (ekko/scene:rect-subtract piece cut)) pieces)))))))
         (dolist (rect occlusions)
           (destructuring-bind (ox oy ow oh) rect
-            (let ((cut (ekko/scene:make-rect (* ox cw) (* oy ch) (* ow cw) (* oh ch))))
-              (setf pieces (mapcan (lambda (piece) (ekko/scene:rect-subtract piece cut)) pieces)))))
+            (when (and (plusp ow) (plusp oh))
+              (let ((cut (ekko/scene:make-rect (* ox cw) (* oy ch) (* ow cw) (* oh ch))))
+                (setf pieces (mapcan (lambda (piece) (ekko/scene:rect-subtract piece cut)) pieces))))))
         (loop for piece in pieces collect
           (let ((px (ekko/scene:rect-x piece)) (py (ekko/scene:rect-y piece)))
             (list px py (+ sx (- px x)) (+ sy (- py y))
