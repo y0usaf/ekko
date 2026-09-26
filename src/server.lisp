@@ -590,35 +590,39 @@
     (and (< x0 (+ x width)) (< x x1) (<= y0 y) (< y y1))))
 (defun decoration-content-p (view pane x y width)
   (when pane (rect-hit-p (pane-content-rect view pane) x y width)))
-(defun decoration-cell-free-p (view rects x y width &optional occluders)
-  "RECTS are the content rectangles clipping must avoid, computed once per span."
-  (and (<= 0 x) (< x (view-cols view)) (<= 0 y) (< y (view-rows view))
-       (<= (+ x width) (view-cols view))
-       (not (some (lambda (rect) (rect-hit-p rect x y (max 1 width))) rects))
-       (not (some (lambda (pane) (window-intersects-p view pane x y (max 1 width))) occluders))))
 (defun clip-decoration (view panes span &optional occluders)
-  (let ((cursor (getf span :x)) (y (getf span :y)) (sgr (copy-list (getf span :sgr))) (alpha (getf span :alpha))
-        (rects (mapcar (lambda (pane) (pane-content-rect view pane)) panes))
-        (run-x nil) (run-width 0) (run nil) (out nil))
-    (labels ((flush ()
-               (when run
-                 (push (list* run-x y (coerce (nreverse run) 'string) (copy-list sgr) (when alpha (list alpha))) out)
-                 (setf run nil run-x nil run-width 0))))
-      (loop for char across (getf span :text)
-            for width = (ekko/vt:character-width char) do
-              ;; Combining marks do not claim a new cell. Keep them with an
-              ;; accepted base glyph, and drop leading marks so a clipped
-              ;; span cannot affect an unrelated cell.
-              (cond
-                ((zerop width) (when run (push char run)))
-                ((decoration-cell-free-p view rects cursor y width occluders)
-                 (unless (and run-x (= cursor (+ run-x run-width))) (flush))
-                 (unless run-x (setf run-x cursor))
-                 (push char run) (incf run-width width))
-                (t (flush)))
-              (incf cursor width))
-      (flush))
-    (nreverse out)))
+  (let* ((x (getf span :x)) (y (getf span :y)) (text (getf span :text))
+         (sgr (copy-list (getf span :sgr))) (alpha (getf span :alpha)) (cols (view-cols view))
+         (rects (append (mapcar (lambda (pane) (pane-content-rect view pane)) panes)
+                        (loop for pane in occluders
+                              collect (destructuring-bind (ox oy w h) (shown-rect view (pane-id pane))
+                                        (list ox oy (+ ox w) (+ oy h)))))))
+    (flet ((free-p (x width)
+             (and (<= 0 x) (<= (+ x width) cols) (<= 0 y) (< y (view-rows view))
+                  (notany (lambda (rect) (rect-hit-p rect x y width)) rects))))
+      (if (and (plusp (length text)) (plusp (ekko/vt:character-width (char text 0)))
+               (free-p x (ekko/text:display-width text)))
+          (list (list* x y (copy-seq text) sgr (when alpha (list alpha))))
+          (let ((cursor x) (run-x nil) (run-width 0) (run nil) (out nil))
+            (flet ((flush ()
+                     (when run
+                       (push (list* run-x y (coerce (nreverse run) 'string) (copy-list sgr) (when alpha (list alpha))) out)
+                       (setf run nil run-x nil run-width 0))))
+              (loop for char across text
+                    for width = (ekko/vt:character-width char) do
+                      ;; Combining marks do not claim a new cell. Keep them with an
+                      ;; accepted base glyph, and drop leading marks so a clipped
+                      ;; span cannot affect an unrelated cell.
+                      (cond
+                        ((zerop width) (when run (push char run)))
+                        ((free-p cursor width)
+                         (unless (and run-x (= cursor (+ run-x run-width))) (flush))
+                         (unless run-x (setf run-x cursor))
+                         (push char run) (incf run-width width))
+                        (t (flush)))
+                      (incf cursor width))
+              (flush))
+            (nreverse out))))))
 (defun span-pieces (view owner span dx alpha)
   "SPAN's text as clip-ready pieces in its shown style, a :gradient spread
 across its cells, carrying ALPHA for the ground to fade against."
