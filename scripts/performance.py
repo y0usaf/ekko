@@ -152,7 +152,7 @@ def stop_private_daemon(binary, env):
 def benchmark(binary, mode, seconds, direct=False, width=512, height=512, fps=5, frame_path=None):
     with tempfile.TemporaryDirectory(prefix="ekko-perf-") as directory:
         log = Path(directory) / "input.log"
-        env = dict(os.environ, XDG_RUNTIME_DIR=directory)
+        env = dict(os.environ, XDG_RUNTIME_DIR=directory, EKKO_INSTANCE="perf")
         master, slave = pty.openpty()
         fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", 40, 120, 960, 640))
         command = [sys.executable, str(Path(__file__).resolve()), "--fixture", mode, str(log),
@@ -160,7 +160,7 @@ def benchmark(binary, mode, seconds, direct=False, width=512, height=512, fps=5,
         if frame_path:
             command.append(str(Path(frame_path).resolve()))
         if not direct:
-            command = [binary, "--instance", "perf", "run", *command]
+            command = [binary, "run", *command]
         process = subprocess.Popen(command, stdin=slave, stdout=slave, stderr=slave,
                                    env=env, start_new_session=True)
         os.close(slave)
@@ -175,7 +175,7 @@ def benchmark(binary, mode, seconds, direct=False, width=512, height=512, fps=5,
                     del receiver.replies[:os.write(master, receiver.replies)]
 
         def status():
-            return json.loads(subprocess.check_output([binary, "status", "perf"], env=env, timeout=10))
+            return json.loads(subprocess.check_output([binary, "status"], env=env, timeout=10))
 
         try:
             deadline = time.monotonic() + 15
