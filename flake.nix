@@ -116,6 +116,41 @@
         default = { type = "app"; meta.description = "Ekko terminal multiplexer CLI"; program = "${self.packages.${pkgs.system}.default}/bin/ekko"; };
       });
       checks = forEachSystem (pkgs: {
+        # Enforced byte identity: ekko.org is the source of every file it
+        # tangles, so a generated file that was hand-edited behind org's back
+        # must fail this check.  It copies the tree twice, re-tangles one copy
+        # from ekko.org, and compares the result against the untouched copy.
+        tangle = pkgs.runCommand "ekko-tangle" {
+          nativeBuildInputs = [ pkgs.emacs-nox ];
+          input = pkgs.lib.fileset.toSource {
+            root = ./.;
+            fileset = pkgs.lib.fileset.unions [
+              ./ekko.org ./ekko.asd ./flake.nix ./src ./examples ./scripts ./nix
+            ];
+          };
+        } ''
+          cp -r $input expected
+          cp -r $input work
+          chmod -R u+w expected work
+          export HOME=$TMPDIR
+          cd work
+          emacs --batch --eval '(progn (require (quote org)) (org-babel-tangle-file "ekko.org"))'
+          cd ..
+          status=0
+          for rel in ekko.asd flake.nix $(cd expected && find src examples scripts nix -type f | sort); do
+            if cmp -s "expected/$rel" "work/$rel"; then
+              echo "same     $rel"
+            else
+              echo "CHANGED  $rel -- the committed file is not what ekko.org tangles to" >&2
+              status=1
+            fi
+          done
+          if [ "$status" -ne 0 ]; then
+            echo "ekko.org is the source; re-tangle it (scripts/tangle.sh) rather than editing generated files" >&2
+            exit 1
+          fi
+          touch $out
+        '';
         text-width = pkgs.runCommand "ekko-text-width" {
           nativeBuildInputs = [ pkgs.python3 pkgs.rustc pkgs.sbcl pkgs.gnutar pkgs.stdenv.cc ];
           unicodeWidthCrate = pkgs.fetchurl {
