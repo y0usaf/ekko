@@ -10736,7 +10736,10 @@ privileged; any profile can do the same.
 The build steps the flake drives, plus the oracles that justify the generated tables.
 
 ** scripts/build.sh
-The build recipe the flake's buildPhase inlines: compile the shim, then save the image.
+The build recipe the flake's buildPhase inlines: compile the shim and the system, then
+load the compiled system into a fresh process and save that image. Compiling enlarges
+SBCL's internal type tables, and save-lisp-and-die leaves them where they grew, far above
+the live data; every page below them is saved and later dirtied by allocation.
 
 #+begin_src sh :tangle scripts/build.sh :mkdirp yes
 #!/bin/sh
@@ -10747,6 +10750,8 @@ if [ -z "${EKKO_PLATFORM_LIBRARY:-}" ]; then
   export EKKO_PLATFORM_LIBRARY="$EKKO_SOURCE_DIR/libekko-platform.so"
   cc -O2 -Wall -Wextra -Werror -fPIC -shared "$EKKO_SOURCE_DIR/src/platform.c" -o "$EKKO_PLATFORM_LIBRARY" -lutil -lz
 fi
+sbcl --no-userinit --no-sysinit --non-interactive --eval '(require "asdf")' \
+  --eval '(let ((asdf:*central-registry* (list (truename (uiop:getenv "EKKO_SOURCE_DIR"))))) (asdf:compile-system (or (uiop:getenv "EKKO_BUILD_SYSTEM") "ekko")))'
 exec sbcl --no-userinit --no-sysinit --non-interactive \
   --load "$EKKO_SOURCE_DIR/scripts/build.lisp"
 #+end_src
