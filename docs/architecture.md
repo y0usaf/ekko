@@ -54,7 +54,8 @@ crop, position, or cell dimensions change; only new generations upload pixels.
 Ordinary input travels in byte runs, with escape sequences kept as individual
 events. The daemon owns prefix interpretation, including commands embedded in
 input batches. Output queues maintain a tail pointer for constant-time insertion.
-The client polls until its next 200 ms size check or 40 ms ESC deadline; the daemon
+The client rereads its size on SIGWINCH, with a one-second fallback check, and
+otherwise polls until its 40 ms ESC deadline; the daemon
 uses upload/peer deadlines and a one-second child-reaping interval. Ready file
 descriptors wake either loop immediately. Status includes cumulative daemon
 allocation and GC time counters for performance measurement.

@@ -7069,6 +7069,7 @@ same view and only the final exit prints the exit text."
          (buffer (octets 65536)) (last-size 0))
     (dolist (sig (list sb-posix:sigterm sb-posix:sighup))
       (sb-sys:enable-interrupt sig (lambda (&rest arguments) (declare (ignore arguments)) (setf (viewer-done viewer) t))))
+    (sb-sys:enable-interrupt sb-posix:sigwinch (lambda (&rest arguments) (declare (ignore arguments)) (setf last-size 0)))
     (unwind-protect
          (progn
            ;; Ensure the workspace exists, then attach. A cold daemon creates it
@@ -7084,7 +7085,7 @@ same view and only the final exit prints the exit text."
            (terminal-write viewer *terminal-enter*) (send-size viewer)
            (loop until (viewer-done viewer) do
              (let ((current (now)))
-               (when (>= (- current last-size) 1/5) (send-size viewer) (setf last-size (now)))
+               (when (>= (- current last-size) 1) (send-size viewer) (setf last-size (now)))
                (when (and (eq (viewer-input-state viewer) :escape) (>= (- current (viewer-input-at viewer)) 1/25))
                  (input-complete viewer)))
              ;; A binding change whose old backlog outlived the first bounded
@@ -7103,11 +7104,8 @@ same view and only the final exit prints the exit text."
                (send-packet (viewer-connection viewer) 14)
                (setf (viewer-awaiting-scene viewer) nil))
              (when (null (wire-queue (viewer-io viewer))) (render-scene viewer))
-             ;; Poll until the next scheduled maintenance task.  Terminal
-             ;; escape disambiguation remains a 40ms deadline, while resize
-             ;; checks remain at 200ms; active descriptors still wake us early.
              (let* ((current (now))
-                    (deadline (+ last-size 1/5)))
+                    (deadline (+ last-size 1)))
                (when (eq (viewer-input-state viewer) :escape)
                  (setf deadline (min deadline (+ (viewer-input-at viewer) 1/25))))
                (dolist (event (poll-fds (append (list (cons 0 1) (cons fd (wire-events (viewer-connection viewer))))
