@@ -4424,61 +4424,66 @@ extension code; otherwise the active worker's binary does, so recovery keeps it.
         (when (origin-current-p origin) (start-transition view transition))))
     (when mode-transition
       (apply-primary-action view (first mode-transition) (rest mode-transition) origin)))
-  (dolist (a actions)
-    (case (first a)
-      (:notifications (change-notifications (view-daemon view) (getf (rest a) :op) (getf (rest a) :id)))
-      (:show-menu (open-popup view owner (getf (rest a) :spans)
-                              (getf (rest a) :x) (getf (rest a) :y)))
-      (:pane-note
-       (let* ((args (rest a))
-              (existing (find-if (lambda (note)
-                                   (and (equal owner (getf note :owner))
-                                        (eql (getf args :pane) (getf note :pane))))
-                                 (view-pane-notes view))))
-         ;; Repeating an identical active note leaves its deadline intact.
-         (unless (and existing (> (getf existing :until) (now))
-                      (equal (getf args :text) (getf existing :text))
-                      (equal (getf args :sgr) (getf existing :sgr)))
-           (setf (view-pane-notes view)
-                 (cons (list :owner owner :pane (getf args :pane)
-                             :text (copy-seq (getf args :text)) :sgr (copy-list (getf args :sgr))
-                             :until (+ (now) (/ (getf args :duration) 1000)))
-                       (remove existing (view-pane-notes view)))))))
-      (:status
-       (setf (view-contributions view)
-             (acons owner (getf (rest a) :text) (remove owner (view-contributions view) :key #'car :test #'equal))))
-      (:decorate
-       (note-decorations view owner (rest (assoc owner (view-decorations view) :test #'equal))
-                         (getf (rest a) :spans))
-       (setf (view-decorations view)
-             (acons owner (copy-tree (getf (rest a) :spans))
-                    (remove owner (view-decorations view) :key #'car :test #'equal))))
-      (:set-state
-       (let ((value (getf (rest a) :value)))
-         (setf (view-component-state view)
-               (remove owner (view-component-state view) :key #'car :test #'equal))
-         (when value
-           (push (cons owner (copy-component-state value))
-                 (view-component-state view)))))
-      (:store-set
-       (multiple-value-bind (namespace entries)
-           (store-set (view-daemon view) owner (getf (rest a) :key) (getf (rest a) :value))
-         (setf (daemon-store-entries (view-daemon view))
-               (acons namespace entries
-                      (remove namespace (daemon-store-entries (view-daemon view)) :key #'car :test #'equal)))
-         (when *store-persist*
-           (handler-case (ekko/store:store-write namespace entries)
-             (error (e) (note-error view (format nil "store write failed: ~A" e)))))))
-      (:set-geometry
-       (let ((value (validate-geometry-value (getf (rest a) :value))))
-         (setf (view-geometry-contributions view)
-               (remove owner (view-geometry-contributions view) :key #'car :test #'equal))
-         (when value
-           (push (cons owner value) (view-geometry-contributions view)))
-         (layout view)))))
-  (when actions
-    (incf (view-revision view))
-    (reconcile-size (view-daemon view)))))
+  (let ((changed (notevery (lambda (a) (member (first a) '(:status :decorate))) actions)))
+    (dolist (a actions)
+      (case (first a)
+        (:notifications (change-notifications (view-daemon view) (getf (rest a) :op) (getf (rest a) :id)))
+        (:show-menu (open-popup view owner (getf (rest a) :spans)
+                                (getf (rest a) :x) (getf (rest a) :y)))
+        (:pane-note
+         (let* ((args (rest a))
+                (existing (find-if (lambda (note)
+                                     (and (equal owner (getf note :owner))
+                                          (eql (getf args :pane) (getf note :pane))))
+                                   (view-pane-notes view))))
+           ;; Repeating an identical active note leaves its deadline intact.
+           (unless (and existing (> (getf existing :until) (now))
+                        (equal (getf args :text) (getf existing :text))
+                        (equal (getf args :sgr) (getf existing :sgr)))
+             (setf (view-pane-notes view)
+                   (cons (list :owner owner :pane (getf args :pane)
+                               :text (copy-seq (getf args :text)) :sgr (copy-list (getf args :sgr))
+                               :until (+ (now) (/ (getf args :duration) 1000)))
+                         (remove existing (view-pane-notes view)))))))
+        (:status
+         (let ((text (getf (rest a) :text)) (entry (assoc owner (view-contributions view) :test #'equal)))
+           (unless (and entry (equal (rest entry) text))
+             (setf changed t
+                   (view-contributions view)
+                   (acons owner text (remove owner (view-contributions view) :key #'car :test #'equal))))))
+        (:decorate
+         (let ((spans (getf (rest a) :spans)) (entry (assoc owner (view-decorations view) :test #'equal)))
+           (unless (and entry (equal (rest entry) spans))
+             (setf changed t)
+             (note-decorations view owner (rest entry) spans)
+             (setf (view-decorations view)
+                   (acons owner (copy-tree spans) (remove owner (view-decorations view) :key #'car :test #'equal))))))
+        (:set-state
+         (let ((value (getf (rest a) :value)))
+           (setf (view-component-state view)
+                 (remove owner (view-component-state view) :key #'car :test #'equal))
+           (when value
+             (push (cons owner (copy-component-state value))
+                   (view-component-state view)))))
+        (:store-set
+         (multiple-value-bind (namespace entries)
+             (store-set (view-daemon view) owner (getf (rest a) :key) (getf (rest a) :value))
+           (setf (daemon-store-entries (view-daemon view))
+                 (acons namespace entries
+                        (remove namespace (daemon-store-entries (view-daemon view)) :key #'car :test #'equal)))
+           (when *store-persist*
+             (handler-case (ekko/store:store-write namespace entries)
+               (error (e) (note-error view (format nil "store write failed: ~A" e)))))))
+        (:set-geometry
+         (let ((value (validate-geometry-value (getf (rest a) :value))))
+           (setf (view-geometry-contributions view)
+                 (remove owner (view-geometry-contributions view) :key #'car :test #'equal))
+           (when value
+             (push (cons owner value) (view-geometry-contributions view)))
+           (layout view)))))
+    (when changed
+      (incf (view-revision view))
+      (reconcile-size (view-daemon view))))))
 (defun ensure-pane-close (view pane force)
   (unless force
     (when (some (lambda (other)
