@@ -152,7 +152,8 @@ def stop_private_daemon(binary, env):
 def benchmark(binary, mode, seconds, direct=False, width=512, height=512, fps=5, frame_path=None):
     with tempfile.TemporaryDirectory(prefix="ekko-perf-") as directory:
         log = Path(directory) / "input.log"
-        env = dict(os.environ, XDG_RUNTIME_DIR=directory, EKKO_INSTANCE="perf")
+        env = dict(os.environ, XDG_RUNTIME_DIR=directory, XDG_CONFIG_HOME=directory, EKKO_INSTANCE="perf")
+        env.pop("EKKO_CONFIG", None)
         master, slave = pty.openpty()
         fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", 40, 120, 960, 640))
         command = [sys.executable, str(Path(__file__).resolve()), "--fixture", mode, str(log),
