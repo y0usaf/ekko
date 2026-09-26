@@ -10558,8 +10558,7 @@ ASDF load plus save-lisp-and-die: the SBCL core build step.
    (or (uiop:getenv "EKKO_OUTPUT") "ekko")
    :toplevel (symbol-function (find-symbol "EXECUTABLE-MAIN" "EKKO"))
    :executable t
-   :save-runtime-options t
-   :compression 9))
+   :save-runtime-options t))
 #+end_src
 
 ** scripts/build-demo.lisp

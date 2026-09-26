@@ -7,5 +7,4 @@
    (or (uiop:getenv "EKKO_OUTPUT") "ekko")
    :toplevel (symbol-function (find-symbol "EXECUTABLE-MAIN" "EKKO"))
    :executable t
-   :save-runtime-options t
-   :compression 9))
+   :save-runtime-options t))
