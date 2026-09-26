@@ -789,8 +789,11 @@ disappears fades out moving back the way it came, and a closed menu fades where
 it was. Entrance hit testing uses the resting position.
 
 Motion is presentation, and all of it runs in the host on the clock, so
-extensions stay pure functions of the snapshot. While anything moves the daemon
-publishes at 60 frames a second and the viewer sends only changed rows.
+extensions stay pure functions of the snapshot. The daemon sends each viewer at
+most `:frame-rate` scenes a second (default 60, at most 480), and the viewer
+sends only changed rows. A change after a quiet period goes out at once; while
+anything moves, frames keep that even pace. Set it to the display's refresh
+rate, or an even divisor of it, so every frame stays on screen equally long.
 Colour changes are continuous where cell positions cannot be: a span that keeps
 its place and text but changes style crossfades to the new one, so focus moving
 between title bars or taskbar entries blends; `:hover-sgr` and menu selection

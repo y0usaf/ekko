@@ -197,6 +197,7 @@ base inside a modified chord sets the Shift bit on the letter's lowercase key."
             (:status-style (and (listp value) (<= (length value) 16)
                                 (every (lambda (n) (and (integerp n) (<= 0 n 255))) value)))
             (:window-animation-ms (typep value '(integer 0 250)))
+            (:frame-rate (typep value '(integer 1 480)))
             (:erase-display-history (or (eq value t) (null value)))
             (:pane-insets (bounded-geometry-p value 4))
             (:boundary-insets (or (null value) (bounded-geometry-p value 4)))

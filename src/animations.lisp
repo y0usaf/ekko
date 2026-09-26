@@ -6,7 +6,7 @@
 ;; moves the daemon publishes at display rate, and the client's row diff sends
 ;; only the rows that changed. Cells cannot move by less than a cell, but
 ;; truecolour can change by any amount, so every effect that can be a fade is.
-(defparameter +frame-seconds+ 1/60)
+(defun frame-seconds (view) (/ 1 (option (view-daemon view) :frame-rate 60)))
 (defun ease-out (p) (- 1 (expt (- 1 (max 0 (min 1 p))) 3)))
 (defun animation-seconds (view &optional (scale 1))
   (* scale (/ (option (view-daemon view) :window-animation-ms 0) 1000)))

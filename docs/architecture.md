@@ -31,7 +31,8 @@ stages assets until the associated snapshot arrives. Only one scene is in flight
 frame (DECSET 2026) holds publication until the application closes the frame or a one-second deadline expires, so a batched
 repaint presents once instead of frame by frame. The client acknowledges after its output
 drains and all local-file uploads receive host read acknowledgements. Later scene
-revisions coalesce in daemon state while it waits. Each client has an independent
+revisions coalesce in daemon state while it waits, and a viewer receives at most
+`:frame-rate` scenes a second. Each client has an independent
 8 MiB queue limit; an outstanding frame does not block other clients. Graphics
 frames use
 bounded 16 KiB control strings, a 32 MiB upload/decoded-image limit, up to 64

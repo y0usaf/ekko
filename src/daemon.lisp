@@ -437,7 +437,7 @@ creation; on an existing workspace this is attach-only and never spawns."
 (defun workspace-deadline (daemon current)
   (let ((deadline (+ current 1)))
     (dolist (view (daemon-views daemon))
-      (when (or (view-animating view) (animating-p view)) (setf deadline (min deadline (+ current +frame-seconds+))))
+      (when (or (view-animating view) (animating-p view)) (setf deadline (min deadline (+ current (frame-seconds view)))))
       (dolist (note (view-pane-notes view)) (setf deadline (min deadline (getf note :until))))
       (maphash (lambda (id state)
                  (declare (ignore id))
@@ -576,7 +576,8 @@ unchanged phase, or a creation that was finished or rejected."
     (when (daemon-torn-down daemon)
       (setf deadline (min deadline (max current (daemon-retire-until daemon)))))
     (dolist (peer (daemon-peers daemon))
-      (unless (wire-attached peer) (setf deadline (min deadline (+ (wire-at peer) 10)))))
+      (unless (wire-attached peer) (setf deadline (min deadline (+ (wire-at peer) 10))))
+      (when (wire-deferred peer) (setf deadline (min deadline (wire-frame-due peer)))))
     (dolist (event (poll-fds
                    (append (list (cons (daemon-listener daemon) 1))
                            (daemon-poll-items daemon)

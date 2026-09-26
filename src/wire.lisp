@@ -16,7 +16,7 @@
   (prefix-used 0) body (body-used 0) (known (make-hash-table :test 'equal))
   greeted selected-view-id view closing
   (binding-generation 0) binding-accepted
-  attached revision awaiting-scene (leases nil) (at (now)))
+  attached revision awaiting-scene (frame-due 0) deferred (leases nil) (at (now)))
 (defun u32 (bytes offset)
   (+ (ash (aref bytes offset) 24) (ash (aref bytes (+ offset 1)) 16)
      (ash (aref bytes (+ offset 2)) 8) (aref bytes (+ offset 3))))
