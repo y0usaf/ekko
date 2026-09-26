@@ -507,22 +507,14 @@
     (#xE0020 #xE007F 0)
     (#xE0100 #xE01EF 0)
   ))
-(defun scalar-display-width (character)
-  (let ((code (char-code character)))
-    (or (loop with low of-type fixnum = 0
-              with high of-type fixnum = (1- (length *unicode-width-exceptions*))
-              while (<= low high)
-              for mid of-type fixnum = (+ low (ash (- high low) -1))
-              for (start end width) = (aref *unicode-width-exceptions* mid)
-              if (< code start)
-                do (setf high (1- mid))
-              else if (> code end)
-                do (setf low (1+ mid))
-              else
-                return width)
-        1)))
+(defparameter *widths*
+  (let ((table (make-array #x110000 :element-type '(unsigned-byte 2) :initial-element 1)))
+    (loop for (start end width) across *unicode-width-exceptions*
+          do (fill table width :start start :end (1+ end)))
+    table))
+(declaim (type (simple-array (unsigned-byte 2) (#x110000)) *widths*))
 (defun display-width (value)
   "Return unicode-width 0.1.10 ordinary cell width for a character/string."
   (etypecase value
-    (character (scalar-display-width value))
-    (string (loop for character across value sum (scalar-display-width character)))))
+    (character (aref *widths* (char-code value)))
+    (string (loop for character across value sum (aref *widths* (char-code character))))))
