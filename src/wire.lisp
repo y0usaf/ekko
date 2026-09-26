@@ -6,7 +6,7 @@
 ;; Version 16 removes session routing: one daemon hosts one workspace and every
 ;; peer attaches to it. Input transactions stay bound to connection generations
 ;; and pane identities remain daemon-global.
-(defconstant +wire-version+ 16)
+(defconstant +wire-version+ 17)
 (defvar *instance* "default")
 (defconstant +queue-limit+ (* 8 1024 1024))
 (define-condition wire-protocol-error (simple-error) ())

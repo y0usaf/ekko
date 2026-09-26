@@ -332,7 +332,9 @@ legacy control bytes still match a folded C- chord."
   (setf (daemon-config-error daemon) (error-text error))
   (incf (daemon-revision daemon))
   (format *error-output* "configuration ~A: ~A~%" *instance* (daemon-config-error daemon)))
-(defun start-reload (daemon peer &optional recover source-worker)
+(defun start-reload (daemon peer &optional recover source-worker executable)
+  "Load a candidate worker. EXECUTABLE, named by the reloading client, supplies the
+extension code; otherwise the active worker's binary does, so recovery keeps it."
   (when (daemon-candidate daemon) (error "A configuration reload is already running"))
   (when recover
     (unless source-worker (setf (daemon-recovery-budget daemon) (1+ (length (daemon-views daemon)))))
@@ -347,7 +349,11 @@ legacy control bytes still match a folded C- chord."
     (setf (daemon-candidate daemon)
           (start-worker source path (format nil "~A.extensions.log" (socket-path))
                         :directory (daemon-launch-directory daemon)
-                        :environment (daemon-launch-environment daemon))
+                        :environment (daemon-launch-environment daemon)
+                        ;; A collected store path falls back to the daemon's own
+                        ;; binary, whose revision always matches.
+                        :executable (let ((chosen (or executable (and active (extension-worker-executable active)))))
+                                      (if (and chosen (probe-file chosen)) chosen "/proc/self/exe")))
           (daemon-reload-peer daemon) peer
           (daemon-candidate-views daemon) nil (daemon-candidate-results daemon) nil
           (daemon-candidate-contexts daemon) nil (daemon-candidate-layouts daemon) nil
@@ -565,8 +571,7 @@ legacy control bytes still match a folded C- chord."
                   (setf (extension-worker-request candidate) nil)
                   (cond
                     ((eq request :load)
-                     (unless (eq (first response) :ready) (error "Invalid extension load reply"))
-                     (validate-registry (second response))
+                     (validate-registry (ready-registry response))
                      ;; Quarantined views keep their last valid owner output.
                      ;; Do not reuse it with silently changed registrations.
                      (when (and (extension-worker-recovery candidate)

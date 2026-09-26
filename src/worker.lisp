@@ -1,7 +1,12 @@
 (in-package #:ekko/runtime)
 
 (defconstant +extension-packet-limit+ 65536)
-(defstruct extension-worker process input output source path directory environment
+;; The daemon/extension surface this binary speaks: context keys, actions and
+;; decoration fields. A reload may run extension code from a newer ekko binary,
+;; so bump this whenever that surface changes; a daemon refuses a worker whose
+;; revision differs instead of dispatching data it cannot honour.
+(defconstant +extension-revision+ 1)
+(defstruct extension-worker process executable input output source path directory environment
   registry request deadline recovery initialization-context initialization-actions)
 (defun config-path ()
   (or (uiop:getenv "EKKO_CONFIG")
@@ -39,15 +44,18 @@
       (loop while (= -11 (reap (sb-ext:process-pid process))) do (poll-fds nil 1))
       ;; Process streams own these descriptors; do not close them a second time.
       (sb-ext:process-close process))))
-(defun start-worker (source path log &key directory (environment (sb-ext:posix-environ)))
+(defun start-worker (source path log &key directory (environment (sb-ext:posix-environ))
+                                        (executable "/proc/self/exe"))
   ;; The workspace may supply another cwd and PATH. Launch the running host image,
-  ;; not argv[0], which can be only the relative command used to start it.
-  (let* ((process (sb-ext:run-program "/proc/self/exe" '("--extension-worker")
+  ;; not argv[0], which can be only the relative command used to start it, unless
+  ;; a reload named another ekko binary to supply the extension code.
+  (let* ((process (sb-ext:run-program executable '("--extension-worker")
                                     :directory directory :environment environment
                                     :wait nil :input ':stream :output ':stream :error log :if-error-exists ':append))
          (in (make-wire :fd (sb-sys:fd-stream-fd (sb-ext:process-output process)) :packet-limit (1+ +extension-packet-limit+)))
          (out (make-wire :fd (sb-sys:fd-stream-fd (sb-ext:process-input process))))
-         (worker (make-extension-worker :process process :input in :output out :source source :path path
+         (worker (make-extension-worker :process process :executable executable
+                                        :input in :output out :source source :path path
                                         :directory directory :environment (copy-list environment)
                                         :deadline (+ (now) 5) :request ':load)) (ready nil))
     (unwind-protect
@@ -77,6 +85,13 @@
        ;; Requests retain the actual originating view. Printing the complete
        ;; request would recurse through view -> daemon -> worker -> request.
        (error "Extension callback timed out")))))
+(defun ready-registry (response)
+  "The registry from a worker's :ready RESPONSE, refusing another extension revision."
+  (unless (eq (first response) :ready) (error "~A" (or (second response) "Invalid extension load reply")))
+  (unless (eql (third response) +extension-revision+)
+    (error "Extension code speaks revision ~A but this daemon speaks ~A; upgrade the daemon (ekko stop, then start)"
+           (or (third response) 0) +extension-revision+))
+  (second response))
 (defun load-worker (source path log &key directory (environment (sb-ext:posix-environ)))
   ;; Startup/check only: no running PTYs are held up by this wait. Reload uses
   ;; the normal reactor and swaps the candidate only after validation.
@@ -86,8 +101,7 @@
          (loop for response = (poll-worker worker buffer) do
            (when response
              (when (eq (first response) :error) (error "~A: ~A" path (second response)))
-             (unless (eq (first response) :ready) (error "Invalid extension startup"))
-             (setf (extension-worker-registry worker) (second response)
+             (setf (extension-worker-registry worker) (ready-registry response)
                    (extension-worker-request worker) nil ready t)
              (return worker))
            (poll-fds (worker-events worker) 10))
@@ -110,7 +124,7 @@
                    (let* ((path (pathname (third request)))
                           (*default-pathname-defaults* (uiop:pathname-directory-pathname path)))
                      (load (make-string-input-stream (second request)) :verbose nil :print nil))
-                   (extension-send output (list :ready (ekko/extensions:registry))))
+                   (extension-send output (list :ready (ekko/extensions:registry) +extension-revision+)))
                   (:initialize
                    (extension-send output
                      (list :initialized

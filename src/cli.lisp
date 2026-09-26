@@ -68,7 +68,10 @@
            (unless (and (member (first args) '("check" "reload") :test #'equal) (<= (length args) 1))
              (error "Usage: ekko config check|reload"))
            (if (equal (first args) "reload")
-               (ekko/runtime:control "reload")
+               ;; This binary supplies the new extension code, so rebuilding
+               ;; ekko and reloading swaps the desktop without a restart.
+               (ekko/runtime:control (format nil "reload~C~A" #\Null
+                                             (sb-ext:native-namestring (truename "/proc/self/exe"))))
                (progn
                  (ekko/runtime:initialize)
                  (let* ((path (ekko/runtime:config-path))

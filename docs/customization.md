@@ -17,6 +17,16 @@ reload, without rebuilding or restarting applications. A bad reload reports an
 error and keeps the previous configuration. The workspace remembers its creation
 configuration path and launch environment; `config check` uses the caller's environment.
 
+Reload also swaps the extension code itself. The `ekko` binary that runs
+`config reload` supplies the new worker, so rebuilding ekko (for example a system
+switch that installs a newer build) and reloading applies a new desktop, profile
+or theme without restarting the daemon or any application. Crash recovery keeps
+that binary; if its store path has been collected, recovery uses the daemon's own.
+Both sides carry an extension revision, bumped whenever snapshot keys, actions or
+decoration fields change. A worker of another revision is refused before it
+replaces anything, and the error says the daemon itself needs an upgrade (stop and
+start it). Changes confined to extension code keep the revision.
+
 These are trusted Lisp files with your OS permissions, like an Emacs init file.
 They run in a separate process. This boundary isolates host state and lets the
 daemon terminate a runaway callback; it is not an arbitrary-Lisp security sandbox.

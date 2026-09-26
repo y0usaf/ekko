@@ -212,15 +212,27 @@
          (error "Input requires an attached view"))
        (let ((view (or (wire-view wire)
                        (control-view daemon wire
-                                     (and (= kind 3) (member (bytes-text data) '("status" "buffer" "reload") :test #'equal))))))
+                                     (and (= kind 3) (or (member (bytes-text data) '("status" "buffer") :test #'equal)
+                                                         (reload-request data)))))))
          (cond
            ((and (= kind 3) (equalp data (text-bytes "status")))
             (send-packet wire 20 (text-bytes (status-json daemon view))))
            ((and (= kind 3) (equalp data (text-bytes "buffer")))
             (send-packet wire 20 (text-bytes (daemon-clipboard daemon))))
-           ((and (= kind 3) (equalp data (text-bytes "reload"))) (start-reload daemon wire))
+           ((and (= kind 3) (reload-request data))
+            (start-reload daemon wire nil nil (second (reload-request data))))
            (t (server-packet view wire packet))))))))
 
+(defun reload-request (data)
+  "Parse a control reload: \"reload\", optionally NUL and the absolute path of the
+ekko binary that should supply the extension code. Returns (t path) or nil."
+  (let* ((text (bytes-text data)) (nul (position #\Null text)))
+    (when (string= "reload" text :end2 (or nul (length text)))
+      (let ((path (and nul (subseq text (1+ nul)))))
+        (when path
+          (unless (and (plusp (length path)) (char= (char path 0) #\/) (probe-file path))
+            (error "Reload executable must be an existing absolute path: ~A" path)))
+        (list t path)))))
 (defun ensure-workspace (daemon wire request)
   "Packet 8: create the workspace when absent. Commands only apply at
 creation; on an existing workspace this is attach-only and never spawns."
@@ -332,8 +344,7 @@ creation; on an existing workspace this is attach-only and never spawns."
           (:load
            (let ((response (poll-worker worker buffer)))
              (when response
-               (unless (eq (first response) :ready) (error "~A" (second response)))
-               (prepare-workspace daemon creation (second response)))))
+               (prepare-workspace daemon creation (ready-registry response)))))
           (:initial-layout (service-created-initial-layout daemon creation buffer))
           (:initialize
            (let ((response (poll-worker worker buffer)))
