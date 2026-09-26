@@ -340,9 +340,10 @@ never cover application content, so these land only on the ground around them."
       (loop for pane in (ekko/extensions:value snapshot :panes)
             when (and (getf pane :visible) (getf pane :floating))
               append (destructuring-bind (x y width h) (getf pane :outer-rect)
-                       (list (list :x (+ x width) :y (1+ y) :rows h :text " " :sgr (sgr shadow shadow))
+                       (list (list :x (+ x width) :y (1+ y) :rows h :text " " :sgr (sgr shadow shadow)
+                                   :follows (getf pane :id))
                              (list :x (1+ x) :y (+ y h) :text (make-string width :initial-element #\Space)
-                                   :sgr (sgr shadow shadow))))))))
+                                   :sgr (sgr shadow shadow) :follows (getf pane :id))))))))
 
 (defun windows (snapshot event)
   (declare (ignore event))

@@ -152,18 +152,23 @@
               when (and (pane-floating p) (not (pane-view-minimized (pane-state view (pane-id p) nil))))
                 collect (cons (pane-id p) (clamp-window-rect view (pane-floating p) registry)))))))
 (defun pane-on-screen-p (view pane)
-  (let ((state (pane-state view (pane-id pane))))
-    (multiple-value-bind (viewport insets gaps width height) (workspace-geometry view)
-      (declare (ignore insets gaps))
+  "Whether PANE shows, where it is shown: a window moving off stays until it has gone."
+  (multiple-value-bind (viewport insets gaps width height) (workspace-geometry view)
+    (declare (ignore insets gaps))
+    (destructuring-bind (x y w h) (shown-rect view (pane-id pane))
       (let ((left (fourth viewport)) (top (first viewport)))
-        (and (< (pane-view-outer-x state) (+ left width))
-             (> (+ (pane-view-outer-x state) (pane-view-outer-cols state)) left)
-             (< (pane-view-outer-y state) (+ top height))
-             (> (+ (pane-view-outer-y state) (pane-view-outer-rows state)) top))))))
+        (and (plusp w) (plusp h) (< x (+ left width)) (> (+ x w) left)
+             (< y (+ top height)) (> (+ y h) top))))))
 (defun visible-panes (view)
-  (loop for placement in (view-layout-placements view)
-        for pane = (pane-by-id (view-daemon view) (getf placement :pane))
-        when (and pane (getf placement :visible t) (pane-on-screen-p view pane)) collect pane))
+  (let ((panes (loop for placement in (view-layout-placements view)
+                     for pane = (pane-by-id (view-daemon view) (getf placement :pane))
+                     when (and pane (getf placement :visible t) (pane-on-screen-p view pane)) collect pane))
+        (drag (view-window-drag view)))
+    ;; A window held by a moving drag is lifted above the rest.
+    (if (and drag (window-drag-moved drag) (not (window-drag-split drag))
+             (member (window-drag-pane drag) panes))
+        (append (remove (window-drag-pane drag) panes) (list (window-drag-pane drag)))
+        panes)))
 (defun commit-layout (view owner placements camera)
   (declare (ignore owner))
   ;; The provider validator has checked IDs, dimensions, and containment before
@@ -176,6 +181,9 @@
                                                 (getf old key (eq key :visible))))))
     (setf (view-pty-reported-cw view) (view-reported-cw view)
           (view-pty-reported-ch view) (view-reported-ch view)))
+  (let ((before (outer-places view t))
+        (committed (loop for id being the hash-keys of (view-pane-states view)
+                         collect (cons id (committed-rect view id)))))
   (maphash (lambda (id state)
              (declare (ignore id))
              (setf (pane-view-x state) 0 (pane-view-y state) 0
@@ -196,6 +204,7 @@
             (pane-view-outer-y state) (- (second outer) (second camera))
             (pane-view-outer-cols state) (third outer)
             (pane-view-outer-rows state) (fourth outer))))
+  (start-window-motions view before committed))
   (reconcile-size (view-daemon view))
   (update-application-focus (view-daemon view))
   (incf (view-revision view)))
@@ -564,10 +573,10 @@
   (let ((state (pane-state view (pane-id pane))))
     (multiple-value-bind (viewport insets gaps viewport-width viewport-height) (workspace-geometry view)
       (declare (ignore insets gaps))
-      (multiple-value-bind (cols rows) (pane-display-size view pane)
-        (list (max (pane-view-x state) (fourth viewport)) (max (pane-view-y state) (first viewport))
-              (min (+ (pane-view-x state) cols) (+ (fourth viewport) viewport-width))
-              (min (+ (pane-view-y state) rows) (+ (first viewport) viewport-height)))))))
+      (multiple-value-bind (cols rows x y) (shown-content view pane)
+        (list (max x (fourth viewport)) (max y (first viewport))
+              (min (+ x cols) (+ (fourth viewport) viewport-width))
+              (min (+ y rows) (+ (first viewport) viewport-height)))))))
 (defun rect-hit-p (rect x y width)
   (destructuring-bind (x0 y0 x1 y1) rect
     (and (< x0 (+ x width)) (< x x1) (<= y0 y) (< y y1))))
@@ -580,12 +589,12 @@
        (not (some (lambda (rect) (rect-hit-p rect x y (max 1 width))) rects))
        (not (some (lambda (pane) (window-intersects-p view pane x y (max 1 width))) occluders))))
 (defun clip-decoration (view panes span &optional occluders)
-  (let ((cursor (getf span :x)) (y (getf span :y)) (sgr (copy-list (getf span :sgr)))
+  (let ((cursor (getf span :x)) (y (getf span :y)) (sgr (copy-list (getf span :sgr))) (alpha (getf span :alpha))
         (rects (mapcar (lambda (pane) (pane-content-rect view pane)) panes))
         (run-x nil) (run-width 0) (run nil) (out nil))
     (labels ((flush ()
                (when run
-                 (push (list run-x y (coerce (nreverse run) 'string) (copy-list sgr)) out)
+                 (push (list* run-x y (coerce (nreverse run) 'string) (copy-list sgr) (when alpha (list alpha))) out)
                  (setf run nil run-x nil run-width 0))))
       (loop for char across (getf span :text)
             for width = (ekko/vt:character-width char) do
@@ -602,21 +611,61 @@
               (incf cursor width))
       (flush))
     (nreverse out)))
+(defun span-pieces (view owner span dx alpha)
+  "SPAN's text as clip-ready pieces in its shown style, a :gradient spread
+across its cells, carrying ALPHA for the ground to fade against."
+  (destructuring-bind (sgr gradient) (if (view-tweens view)
+                                         (shown-style view (span-key owner span) (span-style span))
+                                         (span-style span))
+    (let ((x (+ (getf span :x) dx)) (text (getf span :text)))
+      (if (and gradient (> (length text) 1))
+          (loop with last = (1- (length text)) for char across text for index from 0
+                collect (list :x x :text (string char) :sgr (blend-sgr sgr gradient (/ index last)) :alpha alpha)
+                do (incf x (ekko/vt:character-width char)))
+          (list (list :x x :text text :sgr sgr :alpha alpha))))))
+(defun paint-span (view owner span dx dy alpha pane panes overlay)
+  (loop for row from (+ (getf span :y) dy) below (+ (getf span :y) dy (getf span :rows 1))
+        append (loop for piece in (span-pieces view owner span dx alpha)
+                     append (clip-decoration view (unless overlay (if pane (list pane) panes))
+                              (list* :y row piece)
+                              (unless overlay (and pane (rest (member pane panes))))))))
+(defun redecorated-since-p (view owner time)
+  (> (or (rest (assoc owner (view-redecorated view) :test #'equal)) 0) time))
 (defun scene-decorations (view &optional overlay)
   (let* ((*content-rects* (make-hash-table :test 'eq))
          (panes (visible-panes view))
          (declared (mapcar (lambda (c) (getf c :id)) (getf (daemon-registry (view-daemon view)) :components)))
          (owners (append declared (loop for entry in (view-decorations view)
                                        unless (member (first entry) declared :test #'equal) collect (first entry)))))
-    (loop for owner in owners
-          append (loop for span in (rest (assoc owner (view-decorations view) :test #'equal))
-            for pane = (pane-by-id (view-daemon view) (getf span :pane))
-            when (and (eq (getf span :overlay) overlay) (or (not (getf span :pane)) (member pane panes)))
-            append (multiple-value-bind (dx dy) (motion-offset view span)
-                     (loop for row from (+ (getf span :y) dy) below (+ (getf span :y) dy (getf span :rows 1))
-                           append (clip-decoration view (unless overlay (if pane (list pane) panes))
-                                    (list :x (+ (getf span :x) dx) :y row :text (getf span :text) :sgr (getf span :sgr))
-                                    (unless overlay (and pane (rest (member pane panes)))))))))))
+    (append
+     ;; A moving window's chrome as it was, wherever its owners have redrawn.
+     (loop for (id nil started nil ref . spans) in (view-slides view)
+           for pane = (pane-by-id (view-daemon view) id)
+           when (member pane panes)
+             append (loop with rect = (shown-rect view id)
+                          for (owner . span) in spans
+                          for fitted = (and (eq (getf span :overlay) overlay) (redecorated-since-p view owner started)
+                                            (fit-span span ref rect))
+                          when fitted append (paint-span view owner fitted 0 0 nil pane panes overlay)))
+     (loop for owner in owners
+           append (loop for span in (rest (assoc owner (view-decorations view) :test #'equal))
+                        for pane = (pane-by-id (view-daemon view) (getf span :pane))
+                        when (and (eq (getf span :overlay) overlay) (or (not (getf span :pane)) (member pane panes)))
+                          append (let ((fitted (window-span view owner span)))
+                                   (when fitted
+                                     (multiple-value-bind (dx dy alpha) (motion-offset view span)
+                                       (paint-span view owner fitted dx dy alpha pane panes overlay))))))
+     (loop for (owner span dx dy alpha) in (ghost-spans view)
+           when (eq (getf span :overlay) overlay)
+             append (paint-span view owner span dx dy alpha nil panes overlay)))))
+(defun shown-content (view pane)
+  "PANE's content where it shows, as (values cols rows x y): a shrinking
+window clips it, a growing one shows the ground around it."
+  (let ((state (pane-state view (pane-id pane))))
+    (multiple-value-bind (cols rows) (pane-display-size view pane)
+      (multiple-value-bind (dx dy dcols drows) (pane-shift view (pane-id pane))
+        (values (max 0 (min cols (+ cols dcols))) (max 0 (min rows (+ rows drows)))
+                (+ (pane-view-x state) dx) (+ (pane-view-y state) dy))))))
 (defun pane-display-size (view pane)
   (let ((state (pane-state view (pane-id pane))) (vt (pane-vt pane)))
     (if (pane-view-copy-lines state)
@@ -628,8 +677,8 @@
         (or (view-focus-id view) 0)
         (loop for pane in (visible-panes view) for vt = (pane-vt pane)
               for state = (pane-state view (pane-id pane)) collect
-          (multiple-value-bind (cols rows) (pane-display-size view pane)
-            (list (pane-id pane) (pane-view-x state) (pane-view-y state) cols rows
+          (multiple-value-bind (cols rows x y) (shown-content view pane)
+            (list (pane-id pane) x y cols rows
                   (if (pane-view-copy-lines state)
                       (format nil "~A [copy ~D/~D]" (pane-label pane)
                               (1+ (pane-view-copy-cursor state)) (length (pane-view-copy-lines state)))
@@ -642,8 +691,7 @@
                                   (eq (image-screen image) (terminal-screen vt))) collect
                         (list (image-id image) (image-generation image) (image-x image) (image-y image)
                               (image-cols image) (image-rows image)))
-                  (list (pane-view-outer-x state) (pane-view-outer-y state)
-                        (pane-view-outer-cols state) (pane-view-outer-rows state)))))
+                  (shown-rect view (pane-id pane)))))
         (multiple-value-bind (viewport pane gaps width height) (workspace-geometry view)
           (declare (ignore pane width height))
           (list :view-id (view-id view) :status (status-text view)
@@ -847,23 +895,25 @@ application's screen, so it is not held."
       (append sgr (if (integerp colour) (list 48 5 colour) (list* 48 2 colour)))))
 (defun window-rects (view)
   "Visible windows' outer rectangles as half-open (x0 y0 x1 y1)."
-  (loop for pane in (visible-panes view) for state = (pane-state view (pane-id pane))
-        collect (list (pane-view-outer-x state) (pane-view-outer-y state)
-                      (+ (pane-view-outer-x state) (pane-view-outer-cols state))
-                      (+ (pane-view-outer-y state) (pane-view-outer-rows state)))))
+  (loop for (id x y cols rows) in (outer-places view)
+        collect (list x y (+ x cols) (+ y rows))))
 (defun ground-fragments (view fragments)
   "Ground every fragment without a background: dimmed like the window's glass
 inside a window, full outside. Rows' colours are computed once per frame."
   (if (option (view-daemon view) :ground)
       (let ((rects (window-rects view)) (dim (option (view-daemon view) :ground-dim 0))
             (rows (make-hash-table)))
-        (loop for (x y text sgr . more) in fragments
+        (loop for (x y text sgr alpha) in fragments
               for (full . glass) = (or (gethash y rows)
                                        (setf (gethash y rows)
                                              (let ((colour (ground-at view y))) (cons colour (dimmed colour dim)))))
-              collect (list* x y text (grounded sgr (if (some (lambda (r) (rect-hit-p r x y 1)) rects) glass full))
-                             more)))
-      fragments))
+              for colour = (if (some (lambda (r) (rect-hit-p r x y 1)) rects) glass full)
+              ;; A fading fragment is seen through: it blends toward what it covers.
+              collect (list x y text (grounded (if alpha (faded-sgr sgr alpha colour) sgr) colour))))
+      ;; Without a ground there is nothing to blend toward; a fading fragment
+      ;; shows while it is mostly opaque.
+      (loop for (x y text sgr alpha) in fragments
+            when (or (null alpha) (>= alpha 1/2)) collect (list x y text sgr))))
 (defun dimmed (colour percent)
   "COLOUR darkened by PERCENT; palette indices have no known RGB and stay as they are."
   (if (or (integerp colour) (zerop percent))
@@ -874,7 +924,8 @@ inside a window, full outside. Rows' colours are computed once per frame."
   (if (option (view-daemon view) :ground)
       ;; Cells share a few style objects, so each row colour caches its grounded styles.
       (loop with dim = (option (view-daemon view) :ground-dim 0) with styles = (make-hash-table :test 'equal)
-            for runs in lines for row from (pane-view-y (pane-state view (pane-id pane)))
+            for runs in lines for row from (+ (pane-view-y (pane-state view (pane-id pane)))
+                                              (nth-value 1 (pane-shift view (pane-id pane))))
             for colour = (dimmed (ground-at view row) dim)
             for cache = (or (gethash colour styles) (setf (gethash colour styles) (make-hash-table :test 'eq)))
             collect (loop for (start text attr) in runs

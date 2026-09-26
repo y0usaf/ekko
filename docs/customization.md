@@ -782,10 +782,22 @@ directly; the window switcher numbers its rows 1–9 this way.
 
 Any decoration or menu span may declare `:enter (id dx dy)`. Spans sharing an
 `id` first appear offset by `dx` columns and `dy` rows and ease into place over
-`:window-animation-ms`, with the same cubic ease-out as window transitions. A
-group animates again after it disappears and returns, so a new toast id slides
-in afresh. Motion is presentation only: hit testing uses the resting position,
-and `:window-animation-ms 0` disables it.
+`:window-animation-ms`, fading up out of the ground as they come, with the same
+cubic ease-out as window transitions. A group animates again after it
+disappears and returns, so a new toast id slides in afresh; a group that
+disappears fades out moving back the way it came, and a closed menu fades where
+it was. Entrance hit testing uses the resting position.
+
+Motion is presentation, and all of it runs in the host on the clock, so
+extensions stay pure functions of the snapshot. While anything moves the daemon
+publishes at 60 frames a second and the viewer sends only changed rows.
+Colour changes are continuous where cell positions cannot be: a span that keeps
+its place and text but changes style crossfades to the new one, so focus moving
+between title bars or taskbar entries blends; `:hover-sgr` and menu selection
+glow in quickly and fade out slowly. A span may declare `:gradient SGR`, the
+style of its last cell; cells between blend from `:sgr`. A span may declare
+`:follows ID` to move with window `ID` without taking that window's stacking or
+clipping, as the desktop's floating-window shadows do.
 
 The desktop draws every panel (the switcher, menus, notification centre, toast
 and backdrop) with `ekko/desktop:panel`, and takes every colour, border glyph
@@ -827,11 +839,21 @@ validated actions/commands as other controls. The host clamps
 the popup to the viewport and owns only its transient input state. Reload,
 layout changes and detach discard it. Nested popups are not supported.
 
-The desktop enables a 160 ms outline transition for minimize, restore, maximize and window placement. It is a decorative outline, not a scaled image of the application:
-logical layout and PTY sizing commit once. Transient strokes are clipped away
-from graphics content to preserve image placement and avoid retransmission.
-Set `:window-animation-ms` to `0` on a later configuration owner to disable
-motion; permitted durations are 0–250 ms.
+Windows move between layouts. When a committed layout places a window
+elsewhere, it glides there from where it showed, growing or shrinking on the
+way; a new window grows out of the edge of the window it split. Application
+content is already at its final size, so a changing window clips or reveals it
+rather than scaling it, and logical layout and PTY sizing still commit once.
+Window chrome follows by nine-slice: spans that cross the window stretch
+inside their longest run of one character, spans nearer an edge keep their
+distance to it, and borders that span its height grow with it. Until an owner
+redraws, the chrome it drew for the old place carries the window. Minimize and
+restore fly the window's title bar between the window and its taskbar entry;
+maximize, float and tile also sweep an outline. Transient strokes are clipped
+away from graphics content to preserve image placement and avoid
+retransmission. The desktop sets 160 ms; set `:window-animation-ms` to `0` on a
+later configuration owner to disable all motion; permitted durations are
+0–250 ms.
 
 
 ### Window placement
@@ -844,8 +866,10 @@ Shared tiled borders resize their split while keeping both sides tiled; the
 bottom edge of the upper window or the top corners of the lower window resize
 a row split. Outside tiled edges and maximized tiles do not resize.
 Hover highlights resize handles, and `:hover-sgr` on a menu entry or other
-chrome span repaints it under the pointer. Escape cancels the gesture. The preview
-changes while held; application dimensions commit once on release. Dragging to
+chrome span repaints it under the pointer. Escape cancels the gesture. Held
+windows follow the pointer themselves, a moved window above the rest, and a
+snap target is outlined behind it; application dimensions commit once on
+release, when the windows glide into place. Dragging to
 the outermost content cell snaps there instead of onto a window below: the top
 cell maximizes, the left or right cell takes half the content area.
 

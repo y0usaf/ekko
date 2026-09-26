@@ -2,7 +2,7 @@
 
 ;; Geometry and gesture state belong to each view. Profiles declare which
 ;; spans are handles; applications retain their ordinary mouse protocol.
-(defstruct window-drag owner pane kind x y from preview target edge moved split tree)
+(defstruct window-drag owner pane kind x y from preview free target edge moved split tree)
 
 (defun tiled-border-split (tree rectangles pane edge)
   "Find the actual visible split at PANE's edge, retaining its full-tree node.
@@ -39,11 +39,8 @@ Hidden leaves have no rectangles, so restoring them keeps their own ratios."
                        (pane-id pane) kind)))
 (defun window-intersects-p (view pane x y &optional (width 1))
   (when pane
-    (let ((state (pane-state view (pane-id pane))))
-      (and (< (pane-view-outer-x state) (+ x width))
-           (< x (+ (pane-view-outer-x state) (pane-view-outer-cols state)))
-           (<= (pane-view-outer-y state) y)
-           (< y (+ (pane-view-outer-y state) (pane-view-outer-rows state)))))))
+    (destructuring-bind (ox oy w h) (shown-rect view (pane-id pane))
+      (and (< ox (+ x width)) (< x (+ ox w)) (<= oy y) (< y (+ oy h))))))
 (defun window-at (view x y)
   (find-if (lambda (p) (window-intersects-p view p x y)) (reverse (visible-panes view))))
 (defun begin-window-drag (view owner span x y)
@@ -131,7 +128,8 @@ Hidden leaves have no rectangles, so restoring them keeps their own ratios."
         (setf (view-window-drag view) nil)
         (incf (view-revision view))
         (return-from window-drag-mouse t))
-      (let ((dx (- x (window-drag-x drag))) (dy (- y (window-drag-y drag))))
+      (let ((dx (- x (window-drag-x drag))) (dy (- y (window-drag-y drag)))
+            (before (loop for (id . nil) in (drag-rects view) collect (cons id (shown-rect view id)))))
         (when (or (window-drag-moved drag)
                   (>= (+ (abs dx) (abs dy)) (if (eq (window-drag-kind drag) :move) 2 1)))
           (setf (window-drag-moved drag) t)
@@ -140,7 +138,8 @@ Hidden leaves have no rectangles, so restoring them keeps their own ratios."
                     (tiled-drag-rectangles view drag dx dy))
               (progn
                 (setf (window-drag-target drag) nil (window-drag-edge drag) nil
-                      (window-drag-preview drag) (floating-drag-rect view drag dx dy))
+                      (window-drag-free drag) (floating-drag-rect view drag dx dy)
+                      (window-drag-preview drag) (window-drag-free drag))
                 (when (eq (window-drag-kind drag) :move)
                   (let ((snap (viewport-snap-rect view x y)))
                     (if snap
@@ -150,8 +149,10 @@ Hidden leaves have no rectangles, so restoring them keeps their own ratios."
                           (when target
                             (setf (window-drag-target drag) target (window-drag-edge drag) edge
                                   (window-drag-preview drag) preview))))))))
+          (chase-drag view before)
           (incf (view-revision view)))
         (when up
+          (release-drag view)
           (setf (view-window-drag view) nil)
           (when (and (not (window-drag-moved drag)) (= (logand button 3) 0)
                      (eq (window-drag-kind drag) :move))
@@ -181,31 +182,35 @@ Hidden leaves have no rectangles, so restoring them keeps their own ratios."
               (error (e) (note-error view e))))
           (incf (view-revision view))))
       t)))
+(defun chase-drag (view before)
+  "Held windows follow the pointer with a short glide from where they showed."
+  (let ((seconds (animation-seconds view 1/3)))
+    (when (plusp seconds)
+      (loop for (id . rect) in (drag-rects view)
+            for shown = (or (rest (assoc id before)) (committed-rect view id))
+            unless (equal shown rect)
+              do (move-window view id shown seconds (committed-rect view id))))))
+(defun release-drag (view)
+  "Hold released windows where they show, so a commit glides them into place
+and a cancelled drag glides them home."
+  (when (plusp (animation-seconds view))
+    (loop for (id . nil) in (drag-rects view)
+          do (move-window view id (shown-rect view id) (animation-seconds view 3/2)
+                          (committed-rect view id) (pane-chrome view id)))))
 (defun outline-spans (rect sgr)
   (destructuring-bind (x y w h) rect
     (append (list (list x y (make-string w :initial-element #\─) sgr))
             (when (> h 1) (list (list x (+ y h -1) (make-string w :initial-element #\─) sgr)))
             (loop for row from (1+ y) below (+ y h -1)
                   append (list (list x row "│" sgr) (list (+ x w -1) row "│" sgr))))))
-(defun filled-rect-spans (rect sgr)
-  (destructuring-bind (x y width height) rect
-    (when (and (plusp width) (plusp height))
-      (loop for row from y below (+ y height)
-            collect (list x row (make-string width :initial-element #\Space) sgr)))))
 (defun window-drag-overlays (view)
+  "A drag moves the windows themselves; a snap outlines where the window will land."
   (let ((drag (view-window-drag view)))
-    (when (and drag (window-drag-moved drag))
-      (graphics-safe-outlines view
-        (if (window-drag-split drag)
-            (loop for (id . rect) in (window-drag-preview drag)
-                  for pane = (pane-by-id (view-daemon view) id)
-                  when (and pane (not (equal rect (pane-outer-rect view pane))))
-                    append (outline-spans rect '(0 1 38 5 117 48 5 235)))
-            (let ((rect (window-drag-preview drag))
-                  (sgr (if (window-drag-target drag) '(0 1 38 5 117 48 5 235) '(0 38 5 250 48 5 235))))
-              (append (filled-rect-spans rect '(0 48 5 236))
-                      (outline-spans rect sgr))))
-        (when (window-drag-split drag) (remove-if-not #'pane-floating (visible-panes view)))))))
+    (when (and drag (window-drag-moved drag) (not (window-drag-split drag))
+               (not (equal (window-drag-preview drag) (window-drag-free drag))))
+      (let ((rect (window-drag-preview drag)))
+        ;; The outline passes behind the held window.
+        (graphics-safe-outlines view (outline-spans rect '(0 1 38 5 117)) (list (window-drag-pane drag)))))))
 
 (defun update-window-hover (view button x y up)
   (let ((hover
@@ -220,6 +225,10 @@ Hidden leaves have no rectangles, so restoring them keeps their own ratios."
                                         (window-resize-split view pane (getf span :drag)))))))
                 (list owner span))))))
     (unless (equal hover (view-window-hover view))
+      (destructuring-bind (&optional owner span) (view-window-hover view)
+        (when span (set-glow view (cons :hover (span-key owner span)) nil span owner)))
+      (destructuring-bind (&optional owner span) hover
+        (when span (set-glow view (cons :hover (span-key owner span)) t span owner)))
       (setf (view-window-hover view) hover)
       (incf (view-revision view)))))
 
@@ -227,16 +236,24 @@ Hidden leaves have no rectangles, so restoring them keeps their own ratios."
   (loop for row from (getf span :y) below (+ (getf span :y) (getf span :rows 1))
         collect (list (getf span :x) row (getf span :text) (getf span :sgr))))
 (defun window-hover-overlays (view)
-  (destructuring-bind (&optional owner span) (view-window-hover view)
-    (let* ((spans (rest (assoc owner (view-decorations view) :test #'equal)))
-           (pane (pane-by-id (view-daemon view) (getf span :pane)))
-           (occluders (and pane (rest (member pane (visible-panes view)))))
-           (hover (getf span :hover-sgr)))
-      (when (and span (member span spans :test #'equal) (not (view-popup view)))
-        (graphics-safe-outlines view
-          (loop for (x y text sgr) in (expand-span-rows span)
-                collect (list x y text (or hover '(0 1 38 5 117 48 5 235))))
-          occluders)))))
+  "Hover glows: each hovered span blends toward its :hover-sgr, and back after."
+  (unless (view-popup view)
+    (loop for glow in (view-glows view)
+          for (key nil nil nil span owner) = glow
+          for level = (glow-level view glow)
+          for hover = (or (getf span :hover-sgr) '(0 1 38 5 117 48 5 235))
+          when (and (eq (first key) :hover) (plusp level) (not (equal hover (getf span :sgr)))
+                    (member span (rest (assoc owner (view-decorations view) :test #'equal)) :test #'equal))
+            append (let* ((pane (pane-by-id (view-daemon view) (getf span :pane)))
+                          (occluders (and pane (rest (member pane (visible-panes view))))))
+                     (let ((fitted (window-span view owner span)))
+                       (when fitted
+                         (graphics-safe-outlines view
+                           (loop for row from (getf fitted :y) below (+ (getf fitted :y) (getf fitted :rows 1))
+                                 append (loop for piece in (span-pieces view owner fitted 0 nil)
+                                              collect (list (getf piece :x) row (getf piece :text)
+                                                            (blend-sgr (getf piece :sgr) hover level))))
+                           occluders)))))))
 
 (defun graphics-safe-outlines (view spans &optional occluders)
   ;; Transient strokes leave image placements intact; committed floating
@@ -244,5 +261,5 @@ Hidden leaves have no rectangles, so restoring them keeps their own ratios."
   (let ((graphics (remove-if-not
                    (lambda (p) (loop for image being the hash-values of (store-images (pane-graphics p))
                                      thereis (image-visible image))) (visible-panes view))))
-    (loop for (x y text sgr) in spans append
-      (clip-decoration view graphics (list :x x :y y :text text :sgr sgr) occluders))))
+    (loop for (x y text sgr alpha) in spans append
+      (clip-decoration view graphics (list :x x :y y :text text :sgr sgr :alpha alpha) occluders))))

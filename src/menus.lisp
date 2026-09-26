@@ -18,9 +18,15 @@
           (when (getf span :action)
             (apply-actions view owner (list (getf span :action)) nil nil)))
     (error (e) (note-error view e))))
+(defun forget-popup-glows (view)
+  (setf (view-glows view) (remove :popup (view-glows view) :key #'caar)))
 (defun close-popup (view)
   (when (view-popup view)
+    ;; A closed menu fades out where it was, without taking input.
+    (when (plusp (animation-seconds view))
+      (setf (view-popup-ghost view) (list (view-popup view) (now))))
     (setf (view-popup view) nil)
+    (forget-popup-glows view)
     (incf (view-revision view))))
 (defun open-popup (view owner spans x y)
   (let* ((width (min (view-cols view)
@@ -33,10 +39,13 @@
                       :y (max 0 (min y (- (view-rows view) height)))
                       :width width :height height)
           (view-drag view) nil (view-transition view) nil)
+    (forget-popup-glows view)
     (incf (view-revision view))))
 (defun popup-select (view index)
   (let* ((popup (view-popup view)) (span (and index (nth index (popup-spans popup)))))
     (unless (eql index (popup-selected popup))
+      (when (popup-selected popup) (set-glow view (list :popup (popup-selected popup)) nil))
+      (when index (set-glow view (list :popup index) t))
       (setf (popup-selected popup) index)
       (when span
         (setf (popup-scroll popup)
@@ -94,15 +103,24 @@
                (when (view-popup view) (popup-select view index)))
               ((logbitp 5 button) (popup-select view index))))
       t)))
-(defun popup-overlays (view)
-  (let ((popup (view-popup view)))
-    (when popup
-      (loop for span in (popup-spans popup) for index from 0
-            for row = (- (getf span :y) (popup-scroll popup))
-            when (<= 0 row (1- (popup-height popup)))
-            append (multiple-value-bind (dx dy) (motion-offset view span)
+(defun popup-pieces (view popup &optional fading)
+  "POPUP's cells: entering, or FADING out at that opacity. The selection's
+highlight glows in and out rather than jumping between rows."
+  (loop for span in (popup-spans popup) for index from 0
+        for row = (- (getf span :y) (popup-scroll popup))
+        when (<= 0 row (1- (popup-height popup)))
+          append (multiple-value-bind (dx dy entering) (if fading (values 0 0 fading) (motion-offset view span))
+                   (let ((level (if fading
+                                    (if (eql index (popup-selected popup)) 1 0)
+                                    (glow-at view (list :popup index)))))
                      (clip-decoration view nil
                        (list :x (+ (popup-x popup) (getf span :x) dx) :y (+ (popup-y popup) row dy)
                              :text (getf span :text)
-                             :sgr (if (eql index (popup-selected popup))
-                                      (getf span :hover-sgr (getf span :sgr)) (getf span :sgr)))))))))
+                             :sgr (blend-sgr (getf span :sgr) (getf span :hover-sgr (getf span :sgr)) level)
+                             :alpha entering))))))
+(defun popup-overlays (view)
+  (append
+   (destructuring-bind (&optional ghost started) (view-popup-ghost view)
+     (when ghost
+       (popup-pieces view ghost (max 1/100 (- 1 (ease-out (animation-progress started (animation-seconds view 3/4))))))))
+   (when (view-popup view) (popup-pieces view (view-popup view)))))

@@ -437,7 +437,7 @@ creation; on an existing workspace this is attach-only and never spawns."
 (defun workspace-deadline (daemon current)
   (let ((deadline (+ current 1)))
     (dolist (view (daemon-views daemon))
-      (when (or (view-transition view) (motions-running-p view)) (setf deadline (min deadline (+ current 1/50))))
+      (when (or (view-animating view) (animating-p view)) (setf deadline (min deadline (+ current +frame-seconds+))))
       (dolist (note (view-pane-notes view)) (setf deadline (min deadline (getf note :until))))
       (maphash (lambda (id state)
                  (declare (ignore id))
@@ -461,7 +461,7 @@ creation; on an existing workspace this is attach-only and never spawns."
   ;; owner in the same pass; the caller still bounds whole-service failures.
   (dolist (view (daemon-views daemon))
     (handler-case
-        (progn (tick-transition view) (tick-motions view) (expire-copy-flashes view) (expire-pane-notes view))
+        (progn (tick-animations view) (expire-copy-flashes view) (expire-pane-notes view))
       (error (condition) (note-error view condition))))
   (service-extensions daemon buffer)
   (dolist (pane (daemon-panes daemon))

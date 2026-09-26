@@ -5,7 +5,7 @@
 ;; decoration fields. A reload may run extension code from a newer ekko binary,
 ;; so bump this whenever that surface changes; a daemon refuses a worker whose
 ;; revision differs instead of dispatching data it cannot honour.
-(defconstant +extension-revision+ 1)
+(defconstant +extension-revision+ 2)
 (defstruct extension-worker process executable input output source path directory environment
   registry request deadline recovery initialization-context initialization-actions)
 (defun config-path ()

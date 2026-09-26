@@ -1528,7 +1528,7 @@ The single extension worker process and its bounded packet protocol.
 ;; decoration fields. A reload may run extension code from a newer ekko binary,
 ;; so bump this whenever that surface changes; a daemon refuses a worker whose
 ;; revision differs instead of dispatching data it cannot honour.
-(defconstant +extension-revision+ 1)
+(defconstant +extension-revision+ 2)
 (defstruct extension-worker process executable input output source path directory environment
   registry request deadline recovery initialization-context initialization-actions)
 (defun config-path ()
@@ -1996,7 +1996,8 @@ Views over panes: mode, geometry and ownership, with no aliasing.
   input-read-framed input-read-bytes input-queue (input-bytes 0)
   (notice "") error geometry-contributions contributions decorations pane-notes
   component-state hook-context hooks (layout-state (make-layout-state))
-  layout-placements (camera-x 0) (camera-y 0) motions initialized extension-initialized initialization-failure quarantined)
+  layout-placements (camera-x 0) (camera-y 0) motions tweens glows ghosts slides redecorated popup-ghost animating
+  initialized extension-initialized initialization-failure quarantined)
 (defstruct command-origin daemon view epoch target-pane-id peer config-generation layout)
 (defstruct command-request origin name event snapshot)
 (defstruct hook-request origin owner snapshot)
@@ -2315,18 +2316,23 @@ The daemon's single-workspace server core and PTY sizing.
               when (and (pane-floating p) (not (pane-view-minimized (pane-state view (pane-id p) nil))))
                 collect (cons (pane-id p) (clamp-window-rect view (pane-floating p) registry)))))))
 (defun pane-on-screen-p (view pane)
-  (let ((state (pane-state view (pane-id pane))))
-    (multiple-value-bind (viewport insets gaps width height) (workspace-geometry view)
-      (declare (ignore insets gaps))
+  "Whether PANE shows, where it is shown: a window moving off stays until it has gone."
+  (multiple-value-bind (viewport insets gaps width height) (workspace-geometry view)
+    (declare (ignore insets gaps))
+    (destructuring-bind (x y w h) (shown-rect view (pane-id pane))
       (let ((left (fourth viewport)) (top (first viewport)))
-        (and (< (pane-view-outer-x state) (+ left width))
-             (> (+ (pane-view-outer-x state) (pane-view-outer-cols state)) left)
-             (< (pane-view-outer-y state) (+ top height))
-             (> (+ (pane-view-outer-y state) (pane-view-outer-rows state)) top))))))
+        (and (plusp w) (plusp h) (< x (+ left width)) (> (+ x w) left)
+             (< y (+ top height)) (> (+ y h) top))))))
 (defun visible-panes (view)
-  (loop for placement in (view-layout-placements view)
-        for pane = (pane-by-id (view-daemon view) (getf placement :pane))
-        when (and pane (getf placement :visible t) (pane-on-screen-p view pane)) collect pane))
+  (let ((panes (loop for placement in (view-layout-placements view)
+                     for pane = (pane-by-id (view-daemon view) (getf placement :pane))
+                     when (and pane (getf placement :visible t) (pane-on-screen-p view pane)) collect pane))
+        (drag (view-window-drag view)))
+    ;; A window held by a moving drag is lifted above the rest.
+    (if (and drag (window-drag-moved drag) (not (window-drag-split drag))
+             (member (window-drag-pane drag) panes))
+        (append (remove (window-drag-pane drag) panes) (list (window-drag-pane drag)))
+        panes)))
 (defun commit-layout (view owner placements camera)
   (declare (ignore owner))
   ;; The provider validator has checked IDs, dimensions, and containment before
@@ -2339,6 +2345,9 @@ The daemon's single-workspace server core and PTY sizing.
                                                 (getf old key (eq key :visible))))))
     (setf (view-pty-reported-cw view) (view-reported-cw view)
           (view-pty-reported-ch view) (view-reported-ch view)))
+  (let ((before (outer-places view t))
+        (committed (loop for id being the hash-keys of (view-pane-states view)
+                         collect (cons id (committed-rect view id)))))
   (maphash (lambda (id state)
              (declare (ignore id))
              (setf (pane-view-x state) 0 (pane-view-y state) 0
@@ -2359,6 +2368,7 @@ The daemon's single-workspace server core and PTY sizing.
             (pane-view-outer-y state) (- (second outer) (second camera))
             (pane-view-outer-cols state) (third outer)
             (pane-view-outer-rows state) (fourth outer))))
+  (start-window-motions view before committed))
   (reconcile-size (view-daemon view))
   (update-application-focus (view-daemon view))
   (incf (view-revision view)))
@@ -2727,10 +2737,10 @@ The daemon's single-workspace server core and PTY sizing.
   (let ((state (pane-state view (pane-id pane))))
     (multiple-value-bind (viewport insets gaps viewport-width viewport-height) (workspace-geometry view)
       (declare (ignore insets gaps))
-      (multiple-value-bind (cols rows) (pane-display-size view pane)
-        (list (max (pane-view-x state) (fourth viewport)) (max (pane-view-y state) (first viewport))
-              (min (+ (pane-view-x state) cols) (+ (fourth viewport) viewport-width))
-              (min (+ (pane-view-y state) rows) (+ (first viewport) viewport-height)))))))
+      (multiple-value-bind (cols rows x y) (shown-content view pane)
+        (list (max x (fourth viewport)) (max y (first viewport))
+              (min (+ x cols) (+ (fourth viewport) viewport-width))
+              (min (+ y rows) (+ (first viewport) viewport-height)))))))
 (defun rect-hit-p (rect x y width)
   (destructuring-bind (x0 y0 x1 y1) rect
     (and (< x0 (+ x width)) (< x x1) (<= y0 y) (< y y1))))
@@ -2743,12 +2753,12 @@ The daemon's single-workspace server core and PTY sizing.
        (not (some (lambda (rect) (rect-hit-p rect x y (max 1 width))) rects))
        (not (some (lambda (pane) (window-intersects-p view pane x y (max 1 width))) occluders))))
 (defun clip-decoration (view panes span &optional occluders)
-  (let ((cursor (getf span :x)) (y (getf span :y)) (sgr (copy-list (getf span :sgr)))
+  (let ((cursor (getf span :x)) (y (getf span :y)) (sgr (copy-list (getf span :sgr))) (alpha (getf span :alpha))
         (rects (mapcar (lambda (pane) (pane-content-rect view pane)) panes))
         (run-x nil) (run-width 0) (run nil) (out nil))
     (labels ((flush ()
                (when run
-                 (push (list run-x y (coerce (nreverse run) 'string) (copy-list sgr)) out)
+                 (push (list* run-x y (coerce (nreverse run) 'string) (copy-list sgr) (when alpha (list alpha))) out)
                  (setf run nil run-x nil run-width 0))))
       (loop for char across (getf span :text)
             for width = (ekko/vt:character-width char) do
@@ -2765,21 +2775,61 @@ The daemon's single-workspace server core and PTY sizing.
               (incf cursor width))
       (flush))
     (nreverse out)))
+(defun span-pieces (view owner span dx alpha)
+  "SPAN's text as clip-ready pieces in its shown style, a :gradient spread
+across its cells, carrying ALPHA for the ground to fade against."
+  (destructuring-bind (sgr gradient) (if (view-tweens view)
+                                         (shown-style view (span-key owner span) (span-style span))
+                                         (span-style span))
+    (let ((x (+ (getf span :x) dx)) (text (getf span :text)))
+      (if (and gradient (> (length text) 1))
+          (loop with last = (1- (length text)) for char across text for index from 0
+                collect (list :x x :text (string char) :sgr (blend-sgr sgr gradient (/ index last)) :alpha alpha)
+                do (incf x (ekko/vt:character-width char)))
+          (list (list :x x :text text :sgr sgr :alpha alpha))))))
+(defun paint-span (view owner span dx dy alpha pane panes overlay)
+  (loop for row from (+ (getf span :y) dy) below (+ (getf span :y) dy (getf span :rows 1))
+        append (loop for piece in (span-pieces view owner span dx alpha)
+                     append (clip-decoration view (unless overlay (if pane (list pane) panes))
+                              (list* :y row piece)
+                              (unless overlay (and pane (rest (member pane panes))))))))
+(defun redecorated-since-p (view owner time)
+  (> (or (rest (assoc owner (view-redecorated view) :test #'equal)) 0) time))
 (defun scene-decorations (view &optional overlay)
   (let* ((*content-rects* (make-hash-table :test 'eq))
          (panes (visible-panes view))
          (declared (mapcar (lambda (c) (getf c :id)) (getf (daemon-registry (view-daemon view)) :components)))
          (owners (append declared (loop for entry in (view-decorations view)
                                        unless (member (first entry) declared :test #'equal) collect (first entry)))))
-    (loop for owner in owners
-          append (loop for span in (rest (assoc owner (view-decorations view) :test #'equal))
-            for pane = (pane-by-id (view-daemon view) (getf span :pane))
-            when (and (eq (getf span :overlay) overlay) (or (not (getf span :pane)) (member pane panes)))
-            append (multiple-value-bind (dx dy) (motion-offset view span)
-                     (loop for row from (+ (getf span :y) dy) below (+ (getf span :y) dy (getf span :rows 1))
-                           append (clip-decoration view (unless overlay (if pane (list pane) panes))
-                                    (list :x (+ (getf span :x) dx) :y row :text (getf span :text) :sgr (getf span :sgr))
-                                    (unless overlay (and pane (rest (member pane panes)))))))))))
+    (append
+     ;; A moving window's chrome as it was, wherever its owners have redrawn.
+     (loop for (id nil started nil ref . spans) in (view-slides view)
+           for pane = (pane-by-id (view-daemon view) id)
+           when (member pane panes)
+             append (loop with rect = (shown-rect view id)
+                          for (owner . span) in spans
+                          for fitted = (and (eq (getf span :overlay) overlay) (redecorated-since-p view owner started)
+                                            (fit-span span ref rect))
+                          when fitted append (paint-span view owner fitted 0 0 nil pane panes overlay)))
+     (loop for owner in owners
+           append (loop for span in (rest (assoc owner (view-decorations view) :test #'equal))
+                        for pane = (pane-by-id (view-daemon view) (getf span :pane))
+                        when (and (eq (getf span :overlay) overlay) (or (not (getf span :pane)) (member pane panes)))
+                          append (let ((fitted (window-span view owner span)))
+                                   (when fitted
+                                     (multiple-value-bind (dx dy alpha) (motion-offset view span)
+                                       (paint-span view owner fitted dx dy alpha pane panes overlay))))))
+     (loop for (owner span dx dy alpha) in (ghost-spans view)
+           when (eq (getf span :overlay) overlay)
+             append (paint-span view owner span dx dy alpha nil panes overlay)))))
+(defun shown-content (view pane)
+  "PANE's content where it shows, as (values cols rows x y): a shrinking
+window clips it, a growing one shows the ground around it."
+  (let ((state (pane-state view (pane-id pane))))
+    (multiple-value-bind (cols rows) (pane-display-size view pane)
+      (multiple-value-bind (dx dy dcols drows) (pane-shift view (pane-id pane))
+        (values (max 0 (min cols (+ cols dcols))) (max 0 (min rows (+ rows drows)))
+                (+ (pane-view-x state) dx) (+ (pane-view-y state) dy))))))
 (defun pane-display-size (view pane)
   (let ((state (pane-state view (pane-id pane))) (vt (pane-vt pane)))
     (if (pane-view-copy-lines state)
@@ -2791,8 +2841,8 @@ The daemon's single-workspace server core and PTY sizing.
         (or (view-focus-id view) 0)
         (loop for pane in (visible-panes view) for vt = (pane-vt pane)
               for state = (pane-state view (pane-id pane)) collect
-          (multiple-value-bind (cols rows) (pane-display-size view pane)
-            (list (pane-id pane) (pane-view-x state) (pane-view-y state) cols rows
+          (multiple-value-bind (cols rows x y) (shown-content view pane)
+            (list (pane-id pane) x y cols rows
                   (if (pane-view-copy-lines state)
                       (format nil "~A [copy ~D/~D]" (pane-label pane)
                               (1+ (pane-view-copy-cursor state)) (length (pane-view-copy-lines state)))
@@ -2805,8 +2855,7 @@ The daemon's single-workspace server core and PTY sizing.
                                   (eq (image-screen image) (terminal-screen vt))) collect
                         (list (image-id image) (image-generation image) (image-x image) (image-y image)
                               (image-cols image) (image-rows image)))
-                  (list (pane-view-outer-x state) (pane-view-outer-y state)
-                        (pane-view-outer-cols state) (pane-view-outer-rows state)))))
+                  (shown-rect view (pane-id pane)))))
         (multiple-value-bind (viewport pane gaps width height) (workspace-geometry view)
           (declare (ignore pane width height))
           (list :view-id (view-id view) :status (status-text view)
@@ -3010,23 +3059,25 @@ application's screen, so it is not held."
       (append sgr (if (integerp colour) (list 48 5 colour) (list* 48 2 colour)))))
 (defun window-rects (view)
   "Visible windows' outer rectangles as half-open (x0 y0 x1 y1)."
-  (loop for pane in (visible-panes view) for state = (pane-state view (pane-id pane))
-        collect (list (pane-view-outer-x state) (pane-view-outer-y state)
-                      (+ (pane-view-outer-x state) (pane-view-outer-cols state))
-                      (+ (pane-view-outer-y state) (pane-view-outer-rows state)))))
+  (loop for (id x y cols rows) in (outer-places view)
+        collect (list x y (+ x cols) (+ y rows))))
 (defun ground-fragments (view fragments)
   "Ground every fragment without a background: dimmed like the window's glass
 inside a window, full outside. Rows' colours are computed once per frame."
   (if (option (view-daemon view) :ground)
       (let ((rects (window-rects view)) (dim (option (view-daemon view) :ground-dim 0))
             (rows (make-hash-table)))
-        (loop for (x y text sgr . more) in fragments
+        (loop for (x y text sgr alpha) in fragments
               for (full . glass) = (or (gethash y rows)
                                        (setf (gethash y rows)
                                              (let ((colour (ground-at view y))) (cons colour (dimmed colour dim)))))
-              collect (list* x y text (grounded sgr (if (some (lambda (r) (rect-hit-p r x y 1)) rects) glass full))
-                             more)))
-      fragments))
+              for colour = (if (some (lambda (r) (rect-hit-p r x y 1)) rects) glass full)
+              ;; A fading fragment is seen through: it blends toward what it covers.
+              collect (list x y text (grounded (if alpha (faded-sgr sgr alpha colour) sgr) colour))))
+      ;; Without a ground there is nothing to blend toward; a fading fragment
+      ;; shows while it is mostly opaque.
+      (loop for (x y text sgr alpha) in fragments
+            when (or (null alpha) (>= alpha 1/2)) collect (list x y text sgr))))
 (defun dimmed (colour percent)
   "COLOUR darkened by PERCENT; palette indices have no known RGB and stay as they are."
   (if (or (integerp colour) (zerop percent))
@@ -3037,7 +3088,8 @@ inside a window, full outside. Rows' colours are computed once per frame."
   (if (option (view-daemon view) :ground)
       ;; Cells share a few style objects, so each row colour caches its grounded styles.
       (loop with dim = (option (view-daemon view) :ground-dim 0) with styles = (make-hash-table :test 'equal)
-            for runs in lines for row from (pane-view-y (pane-state view (pane-id pane)))
+            for runs in lines for row from (+ (pane-view-y (pane-state view (pane-id pane)))
+                                              (nth-value 1 (pane-shift view (pane-id pane))))
             for colour = (dimmed (ground-at view row) dim)
             for cache = (or (gethash colour styles) (setf (gethash colour styles) (make-hash-table :test 'eq)))
             collect (loop for (start text attr) in runs
@@ -3928,7 +3980,7 @@ extension code; otherwise the active worker's binary does, so recovery keeps it.
       (unless (and (listp span) (evenp (length span))) (error "Malformed decoration span: ~S" span))
       (let ((keys nil))
         (loop for (key value) on span by #'cddr do
-          (unless (member key '(:x :y :text :sgr :rows :overlay :action :context-command :command :arguments :hover-sgr :wheel-command :middle-command :pane :drag :enter :key)) (error "Unknown decoration field: ~S" key))
+          (unless (member key '(:x :y :text :sgr :rows :overlay :action :context-command :command :arguments :hover-sgr :gradient :follows :wheel-command :middle-command :pane :drag :enter :key)) (error "Unknown decoration field: ~S" key))
           (when (member key keys) (error "Duplicate decoration field: ~S" key))
           (push key keys))
         (let ((x (getf span :x)) (y (getf span :y)) (text (getf span :text))
@@ -3976,6 +4028,13 @@ extension code; otherwise the active worker's binary does, so recovery keeps it.
               (unless (and (listp hover) (<= (length hover) 16)
                            (every (lambda (n) (typep n '(integer 0 255))) hover))
                 (error "Invalid hover style")))
+            (unless (typep (getf span :follows) '(or null (integer 1 *)))
+              (error "A span follows a window by its pane id"))
+            (let ((gradient (getf span :gradient)))
+              (unless (or (null gradient)
+                          (and (listp gradient) (<= (length gradient) 16)
+                               (every (lambda (n) (typep n '(integer 0 255))) gradient)))
+                (error "Invalid gradient style")))
             )
           (incf total (* rows (length text))))))
     (when (> total 16000) (error "Decoration text exceeds 16000 characters")))
@@ -4212,6 +4271,8 @@ extension code; otherwise the active worker's binary does, so recovery keeps it.
        (setf (view-contributions view)
              (acons owner (getf (rest a) :text) (remove owner (view-contributions view) :key #'car :test #'equal))))
       (:decorate
+       (note-decorations view owner (rest (assoc owner (view-decorations view) :test #'equal))
+                         (getf (rest a) :spans))
        (setf (view-decorations view)
              (acons owner (copy-tree (getf (rest a) :spans))
                     (remove owner (view-decorations view) :key #'car :test #'equal))))
@@ -4635,9 +4696,15 @@ Attachment-local popups, placed and routed by the host.
           (when (getf span :action)
             (apply-actions view owner (list (getf span :action)) nil nil)))
     (error (e) (note-error view e))))
+(defun forget-popup-glows (view)
+  (setf (view-glows view) (remove :popup (view-glows view) :key #'caar)))
 (defun close-popup (view)
   (when (view-popup view)
+    ;; A closed menu fades out where it was, without taking input.
+    (when (plusp (animation-seconds view))
+      (setf (view-popup-ghost view) (list (view-popup view) (now))))
     (setf (view-popup view) nil)
+    (forget-popup-glows view)
     (incf (view-revision view))))
 (defun open-popup (view owner spans x y)
   (let* ((width (min (view-cols view)
@@ -4650,10 +4717,13 @@ Attachment-local popups, placed and routed by the host.
                       :y (max 0 (min y (- (view-rows view) height)))
                       :width width :height height)
           (view-drag view) nil (view-transition view) nil)
+    (forget-popup-glows view)
     (incf (view-revision view))))
 (defun popup-select (view index)
   (let* ((popup (view-popup view)) (span (and index (nth index (popup-spans popup)))))
     (unless (eql index (popup-selected popup))
+      (when (popup-selected popup) (set-glow view (list :popup (popup-selected popup)) nil))
+      (when index (set-glow view (list :popup index) t))
       (setf (popup-selected popup) index)
       (when span
         (setf (popup-scroll popup)
@@ -4711,29 +4781,314 @@ Attachment-local popups, placed and routed by the host.
                (when (view-popup view) (popup-select view index)))
               ((logbitp 5 button) (popup-select view index))))
       t)))
-(defun popup-overlays (view)
-  (let ((popup (view-popup view)))
-    (when popup
-      (loop for span in (popup-spans popup) for index from 0
-            for row = (- (getf span :y) (popup-scroll popup))
-            when (<= 0 row (1- (popup-height popup)))
-            append (multiple-value-bind (dx dy) (motion-offset view span)
+(defun popup-pieces (view popup &optional fading)
+  "POPUP's cells: entering, or FADING out at that opacity. The selection's
+highlight glows in and out rather than jumping between rows."
+  (loop for span in (popup-spans popup) for index from 0
+        for row = (- (getf span :y) (popup-scroll popup))
+        when (<= 0 row (1- (popup-height popup)))
+          append (multiple-value-bind (dx dy entering) (if fading (values 0 0 fading) (motion-offset view span))
+                   (let ((level (if fading
+                                    (if (eql index (popup-selected popup)) 1 0)
+                                    (glow-at view (list :popup index)))))
                      (clip-decoration view nil
                        (list :x (+ (popup-x popup) (getf span :x) dx) :y (+ (popup-y popup) row dy)
                              :text (getf span :text)
-                             :sgr (if (eql index (popup-selected popup))
-                                      (getf span :hover-sgr (getf span :sgr)) (getf span :sgr)))))))))
+                             :sgr (blend-sgr (getf span :sgr) (getf span :hover-sgr (getf span :sgr)) level)
+                             :alpha entering))))))
+(defun popup-overlays (view)
+  (append
+   (destructuring-bind (&optional ghost started) (view-popup-ghost view)
+     (when ghost
+       (popup-pieces view ghost (max 1/100 (- 1 (ease-out (animation-progress started (animation-seconds view 3/4))))))))
+   (when (view-popup view) (popup-pieces view (view-popup view)))))
 #+end_src
 
 ** src/animations.lisp
-Short outline transitions riding the existing overlay channel.
+Motion: continuous fades, glows, entrances, exits, window slides and transitions.
 
 #+begin_src lisp :tangle src/animations.lisp :mkdirp yes
 (in-package #:ekko/runtime)
 
-;; Short outline transitions use the existing overlay channel. Logical layout
-;; commits once; animation ticks never touch application VT or PTY geometry.
-(defstruct transition from to sgr started duration (step 0))
+;; Motion is presentation. Logical layout commits once; every effect here is a
+;; function of committed state and the clock, and ticks never touch
+;; application VT or PTY geometry. Progress is continuous: while anything
+;; moves the daemon publishes at display rate, and the client's row diff sends
+;; only the rows that changed. Cells cannot move by less than a cell, but
+;; truecolour can change by any amount, so every effect that can be a fade is.
+(defparameter +frame-seconds+ 1/60)
+(defun ease-out (p) (- 1 (expt (- 1 (max 0 (min 1 p))) 3)))
+(defun animation-seconds (view &optional (scale 1))
+  (* scale (/ (option (view-daemon view) :window-animation-ms 0) 1000)))
+(defun animation-progress (started seconds)
+  (if (plusp seconds) (min 1 (/ (- (now) started) seconds)) 1))
+
+;; Colour arithmetic on SGR parameter lists.
+(defparameter +system-colours+
+  '((0 0 0) (205 0 0) (0 205 0) (205 205 0) (0 0 238) (205 0 205) (0 205 205) (229 229 229)
+    (127 127 127) (255 0 0) (0 255 0) (255 255 0) (92 92 255) (255 0 255) (0 255 255) (255 255 255)))
+(defun palette-rgb (index)
+  "An xterm 256-colour INDEX as (r g b); the 16 system colours take xterm's defaults."
+  (cond ((< index 16) (nth index +system-colours+))
+        ((< index 232) (let ((i (- index 16)))
+                         (mapcar (lambda (c) (if (zerop c) 0 (+ 55 (* 40 c))))
+                                 (list (floor i 36) (mod (floor i 6) 6) (mod i 6)))))
+        (t (let ((v (+ 8 (* 10 (- index 232))))) (list v v v)))))
+(defun rgb (colour) (if (integerp colour) (palette-rgb colour) colour))
+(defun split-sgr (sgr)
+  "SGR as (values fg bg rest): colours as (r g b) or nil for the default, REST
+the remaining codes in order."
+  (let (fg bg rest)
+    (loop while sgr for code = (pop sgr) do
+      (case code
+        ((38 48 58)
+         (let* ((kind (pop sgr))
+                (colour (case kind
+                          (5 (let ((index (pop sgr))) (and index (palette-rgb index))))
+                          (2 (let ((c (list (pop sgr) (pop sgr) (pop sgr)))) (and (every #'integerp c) c))))))
+           (case code (38 (setf fg colour)) (48 (setf bg colour)))))
+        (39 (setf fg nil)) (49 (setf bg nil))
+        (t (cond ((<= 30 code 37) (setf fg (palette-rgb (- code 30))))
+                 ((<= 90 code 97) (setf fg (palette-rgb (- code 82))))
+                 ((<= 40 code 47) (setf bg (palette-rgb (- code 40))))
+                 ((<= 100 code 107) (setf bg (palette-rgb (- code 92))))
+                 (t (push code rest))))))
+    (values fg bg (nreverse rest))))
+(defun join-sgr (fg bg rest)
+  (append rest (when fg (list* 38 2 fg)) (when bg (list* 48 2 bg))))
+(defun mix (a b p)
+  (mapcar (lambda (x y) (round (+ x (* (- y x) p)))) a b))
+(defun blend-sgr (from to p)
+  "Style TO with its colours P of the way from FROM's. A colour that one side
+leaves to the terminal default cannot be interpolated; it switches halfway."
+  (if (or (>= p 1) (equal from to))
+      to
+      (multiple-value-bind (f1 b1 r1) (split-sgr from)
+        (multiple-value-bind (f2 b2 r2) (split-sgr to)
+          (flet ((pick (a b) (cond ((and a b) (mix a b p)) ((< p 1/2) a) (t b))))
+            (join-sgr (pick f1 f2) (pick b1 b2) (if (< p 1/2) r1 r2)))))))
+(defun faded-sgr (sgr alpha ground)
+  "SGR seen at opacity ALPHA over GROUND."
+  (let ((ground (rgb ground)))
+    (multiple-value-bind (fg bg rest) (split-sgr sgr)
+      (join-sgr (and fg (mix ground fg alpha)) (mix ground (or bg ground) alpha) rest))))
+
+;; Restyle crossfades. A decoration span that keeps its place and text but
+;; changes style (focus moving between title bars, a taskbar entry becoming
+;; active) blends from the style it showed to the new one. Keyed by owner,
+;; position and text, so anything that moves or rewrites itself just switches.
+(defun span-key (owner span)
+  (list owner (getf span :x) (getf span :y) (getf span :rows 1) (getf span :text)))
+(defun span-style (span) (list (getf span :sgr) (getf span :gradient)))
+(defun shown-style (view key style)
+  (let ((tween (and (view-tweens view) (gethash key (view-tweens view)))))
+    (if (and tween (equal (second tween) style))
+        (destructuring-bind (from to started) tween
+          (let ((p (ease-out (animation-progress started (animation-seconds view)))))
+            (list (blend-sgr (first from) (first to) p)
+                  (and (second to) (blend-sgr (or (second from) (first from)) (second to) p)))))
+        style)))
+(defun note-decorations (view owner old new)
+  "Start crossfades, exit ghosts and slide bookkeeping as OWNER's spans change."
+  (let ((seconds (animation-seconds view)))
+    (push (cons owner (now)) (view-redecorated view))
+    (setf (view-redecorated view) (remove-duplicates (view-redecorated view) :key #'car :test #'equal :from-end t))
+    (when (and (plusp seconds) old)
+      (let ((before (make-hash-table :test 'equal)))
+        (dolist (span old)
+          (let ((key (span-key owner span)))
+            (setf (gethash key before) (shown-style view key (span-style span)))))
+        (dolist (span new)
+          (let* ((key (span-key owner span)) (from (gethash key before)) (to (span-style span)))
+            (when (and from (not (equal from to)))
+              (unless (view-tweens view) (setf (view-tweens view) (make-hash-table :test 'equal)))
+              (setf (gethash key (view-tweens view)) (list from to (now)))))))
+      ;; Entrance groups that disappear leave through the way they came.
+      (let ((kept (loop for span in new when (getf span :enter) collect (first (getf span :enter)))))
+        (loop for span in old for enter = (getf span :enter)
+              when (and enter (not (member (first enter) kept :test #'equal)))
+                do (let ((ghost (copy-list span)))
+                     (remf ghost :pane)
+                     (push (list owner ghost (now)) (view-ghosts view))))))))
+(defun ghost-spans (view)
+  "Departed entrance spans, as (owner span dx dy alpha)."
+  (loop with seconds = (animation-seconds view 3/4)
+        for (owner span started) in (view-ghosts view)
+        for p = (ease-out (animation-progress started seconds))
+        when (< p 1)
+          collect (destructuring-bind (id dx dy) (getf span :enter)
+                    (declare (ignore id))
+                    (list owner span (round (* dx p 1/2)) (round (* dy p 1/2)) (- 1 p)))))
+
+;; Glows: pointer and keyboard highlight that arrives quickly and leaves
+;; slowly, so a sweep across a taskbar or a menu trails light behind it.
+;; Each glow is (key level started target span owner).
+(defun glow-level (view glow)
+  (destructuring-bind (key level started target &rest more) glow
+    (declare (ignore key more))
+    (let ((seconds (animation-seconds view (if target 1/3 3/2))))
+      (if (plusp seconds)
+          (let ((step (/ (- (now) started) seconds)))
+            (if target (min 1 (+ level step)) (max 0 (- level step))))
+          (if target 1 0)))))
+(defun set-glow (view key target &optional span owner)
+  (let ((old (find key (view-glows view) :key #'first :test #'equal)))
+    (unless (and old (eq (fourth old) target))
+      (setf (view-glows view)
+            (cons (list key (if old (glow-level view old) 0) (now) target span owner)
+                  (remove old (view-glows view))))
+      (incf (view-revision view)))))
+(defun glow-at (view key)
+  (let ((glow (find key (view-glows view) :key #'first :test #'equal)))
+    (if glow (glow-level view glow) 0)))
+
+;; Entrance motion: spans that declare (:enter (id dx dy)) start offset by
+;; (dx dy) and transparent, and ease into place over :window-animation-ms.
+;; Each motion is (id started). A group re-enters after it disappears.
+(defun motion-offset (view span)
+  "SPAN's current (values dx dy alpha), starting its group's motion on first sight."
+  (let ((enter (getf span :enter)))
+    (if (null enter)
+        (values 0 0 nil)
+        (destructuring-bind (id dx dy) enter
+          (let* ((motion (or (assoc id (view-motions view) :test #'equal)
+                             (first (push (list id (now)) (view-motions view)))))
+                 (p (ease-out (animation-progress (second motion) (animation-seconds view)))))
+            (values (round (* dx (- 1 p))) (round (* dy (- 1 p))) (and (< p 1) p)))))))
+
+;; Window motion. A window shows at its target: the rectangle a drag holds it
+;; at, else its committed place. A motion carries it from where it showed to
+;; its target, sliding, and growing or shrinking by clipping content that is
+;; already at its new size. Chrome follows by nine-slice: rows that span the
+;; window stretch in their longest run of one character, spans nearer an
+;; edge keep their distance to it, borders that span its height grow with it.
+;; A motion is (id from started seconds ref . spans): the rectangle it starts
+;; from, and the window's chrome as it was, drawn for rectangle REF, which
+;; carries the window until its owners redraw and covers any part of the
+;; frame that was off screen on one side of the move.
+(defun lerp-rect (a b p) (mapcar (lambda (x y) (round (+ x (* (- y x) p)))) a b))
+(defun committed-rect (view id)
+  (let ((state (gethash id (view-pane-states view))))
+    (and state (list (pane-view-outer-x state) (pane-view-outer-y state)
+                     (pane-view-outer-cols state) (pane-view-outer-rows state)))))
+(defun drag-rects (view)
+  "The rectangles an active drag holds windows at, as (id . rect)."
+  (let ((drag (view-window-drag view)))
+    (when (and drag (window-drag-moved drag))
+      (if (window-drag-split drag)
+          (window-drag-preview drag)
+          (list (cons (pane-id (window-drag-pane drag)) (window-drag-free drag)))))))
+(defun target-rect (view id)
+  (or (rest (assoc id (drag-rects view))) (committed-rect view id)))
+(defun shown-rect (view id)
+  (let ((target (target-rect view id)) (motion (assoc id (view-slides view))))
+    (if (and motion target)
+        (destructuring-bind (from started seconds &rest more) (rest motion)
+          (declare (ignore more))
+          (lerp-rect from target (ease-out (animation-progress started seconds))))
+        target)))
+(defun window-moving-p (view) (or (view-slides view) (view-window-drag view)))
+(defun pane-shift (view id)
+  "Pane ID shown against its committed place, as (values dx dy dcols drows)."
+  (let ((committed (and (window-moving-p view) (committed-rect view id))))
+    (if committed
+        (values-list (mapcar #'- (shown-rect view id) committed))
+        (values 0 0 0 0))))
+(defun outer-places (view &optional placed)
+  "Shown outer rectangles as (id x y cols rows): of the visible windows, or
+with PLACED of every window the layout places."
+  (loop for pane in (if placed
+                        (loop for placement in (view-layout-placements view)
+                              for pane = (pane-by-id (view-daemon view) (getf placement :pane))
+                              when (and pane (getf placement :visible t)) collect pane)
+                        (visible-panes view))
+        collect (cons (pane-id pane) (shown-rect view (pane-id pane)))))
+(defun pane-chrome (view id)
+  "Every owner's spans that belong to window ID, as (owner . span)."
+  (loop for (owner . spans) in (view-decorations view)
+        append (loop for span in spans
+                     when (eql (or (getf span :pane) (getf span :follows)) id) collect (cons owner span))))
+(defun move-window (view id from seconds &optional ref spans)
+  (setf (view-slides view)
+        (cons (list* id from (now) seconds ref spans) (remove id (view-slides view) :key #'first))))
+(defun grown-from (rect before)
+  "Where a new window at RECT grows from: the far edge of the window it split."
+  (destructuring-bind (x y w h) rect
+    (loop for (nil bx by bw bh) in before
+          when (and (< bx (+ x w)) (< x (+ bx bw)) (< by (+ y h)) (< y (+ by bh)))
+            return (cond ((> x bx) (list (+ bx bw) y 0 h))
+                         ((> y by) (list x (+ by bh) w 0))
+                         ((< (+ x w) (+ bx bw)) (list x y 0 h))
+                         (t (list x y w 0))))))
+(defun start-window-motions (view before committed)
+  "Move each window from where BEFORE showed it; COMMITTED holds the places
+the last layout gave, and a window whose place is unchanged keeps its motion."
+  (setf (view-slides view)
+        (when (and (plusp (animation-seconds view)) (view-wire view))
+          (loop for placement in (view-layout-placements view)
+                for id = (getf placement :pane)
+                for new = (committed-rect view id)
+                for shown = (rest (assoc id before))
+                for old = (rest (assoc id committed))
+                for motion = (assoc id (view-slides view))
+                when (and new (getf placement :visible t))
+                  append (cond ((and shown (equal old new)) (and motion (list motion)))
+                               (shown (unless (equal shown new)
+                                        (list (list* id shown (now) (animation-seconds view 3/2)
+                                                     old (pane-chrome view id)))))
+                               (t (let ((from (grown-from new before)))
+                                    (and from (list (list* id from (now) (animation-seconds view 3/2) nil))))))))))
+(defun stretch-text (text delta)
+  "TEXT DELTA cells wider or narrower, changed inside its longest run of one character."
+  (if (or (zerop delta) (zerop (length text)))
+      text
+      (let ((best 0) (best-length 0) (start 0))
+        (loop for i from 1 to (length text)
+              when (or (= i (length text)) (char/= (char text i) (char text start)))
+                do (when (> (- i start) best-length) (setf best start best-length (- i start)))
+                   (setf start i))
+        (if (plusp delta)
+            (concatenate 'string (subseq text 0 best) (make-string delta :initial-element (char text best))
+                         (subseq text best))
+            (let* ((cut (min best-length (- delta)))
+                   (shrunk (concatenate 'string (subseq text 0 best) (subseq text (+ best cut)))))
+              (subseq shrunk 0 (max 0 (- (length shrunk) (- (- delta) cut)))))))))
+(defun fit-span (span ref rect)
+  "SPAN, drawn for window rectangle REF, fitted by nine-slice to RECT; nil when nothing is left."
+  (if (or (null ref) (equal ref rect))
+      span
+      (destructuring-bind (rx ry rw rh) ref
+        (destructuring-bind (tx ty tw th) rect
+          (let* ((x (getf span :x)) (y (getf span :y)) (rows (getf span :rows 1))
+                 (width (span-width span)) (text (getf span :text))
+                 (left (- x rx)) (right (- (+ rx rw) (+ x width)))
+                 (top (- y ry)) (bottom (- (+ ry rh) (+ y rows)))
+                 (wide (and (> width 2) (>= width (- rw 2))))
+                 (tall (and (> rows 1) (>= rows (- rh 2))))
+                 (text (if wide (stretch-text text (- tw rw)) text))
+                 (rows (if tall (+ rows (- th rh)) rows)))
+            (when (and (plusp (length text)) (plusp rows))
+              (let ((fitted (copy-list span)))
+                (setf (getf fitted :x) (if (or wide (<= left right)) (+ tx left) (- (+ tx tw) right width))
+                      (getf fitted :y) (if (or tall (<= top bottom)) (+ ty top) (- (+ ty th) bottom rows))
+                      (getf fitted :text) text)
+                (when (or tall (getf span :rows)) (setf (getf fitted :rows) rows))
+                fitted)))))))
+(defun window-span (view owner span)
+  "OWNER's live SPAN where its window shows now; nil when it has no room."
+  (let ((id (and (window-moving-p view) (or (getf span :pane) (getf span :follows)))))
+    (if id
+        (let* ((motion (assoc id (view-slides view)))
+               (ref (if (and motion (fifth motion) (not (redecorated-since-p view owner (third motion))))
+                        (fifth motion)
+                        (committed-rect view id))))
+          (fit-span span ref (shown-rect view id)))
+        span)))
+
+;; Short window transitions use the overlay channel: a minimize or restore
+;; flies the window's title bar between the window and its taskbar entry,
+;; fading as it lands, and other geometry changes sweep an outline.
+(defstruct transition style from to sgr started duration)
 (defun pane-outer-rect (view pane)
   (let ((state (pane-state view (pane-id pane))))
     (list (pane-view-outer-x state) (pane-view-outer-y state)
@@ -4743,8 +5098,8 @@ Short outline transitions riding the existing overlay channel.
                    (pane-by-id (view-daemon view) (getf (rest action) :pane))
                    (focused-pane view)))
          (state (when pane (pane-state view (pane-id pane))))
-         (op (first action)) (duration (option (view-daemon view) :window-animation-ms 0)))
-    (when (and pane (plusp duration) (view-wire view)
+         (op (first action)))
+    (when (and pane (plusp (animation-seconds view)) (view-wire view)
                (or (member op '(:minimize :restore :zoom :float :tile :place-window))
                    (and (eq op :focus) (pane-view-minimized state))))
       (let* ((spans (loop for entry in (view-decorations view) append (rest entry)))
@@ -4756,64 +5111,69 @@ Short outline transitions riding the existing overlay channel.
                                      (= (getf span :y) (pane-view-outer-y state))
                                      (eql (getf (rest (getf span :action)) :pane) (pane-id pane)))) spans))
              (dock-rect (if dock (list (getf dock :x) (getf dock :y) (max 1 (span-width dock)) 1)
-                            (list (floor (view-cols view) 2) (1- (view-rows view)) 1 1))))
-        (list pane op (if (pane-view-minimized state) dock-rect (pane-outer-rect view pane)) dock-rect
-              (copy-list (getf (or header dock) :sgr '(0 38 5 245))) duration)))))
+                            (list (floor (view-cols view) 2) (1- (view-rows view)) 1 1)))
+             (sgr (copy-list (getf (or header dock) :sgr '(0 38 5 245))))
+             (caption (and (member op '(:minimize :restore :focus)) (nth-value 1 (split-sgr sgr)))))
+        (list pane op (if caption :caption :outline)
+              (if (pane-view-minimized state) dock-rect (pane-outer-rect view pane)) dock-rect
+              (if caption (join-sgr nil caption nil) sgr))))))
 (defun start-transition (view captured)
   (when captured
-    (destructuring-bind (pane op from dock sgr duration) captured
+    (destructuring-bind (pane op style from dock sgr) captured
       (let ((to (if (eq op :minimize) dock (pane-outer-rect view pane))))
         (unless (equal from to)
           (setf (view-transition view)
-                (make-transition :from from :to to :sgr sgr :started (now) :duration (/ duration 1000))))))))
-(defun tick-transition (view)
-  (let ((transition (view-transition view)))
-    (when transition
-      (let ((step (min 8 (floor (* 8 (/ (- (now) (transition-started transition))
-                                       (transition-duration transition)))))))
-        (unless (= step (transition-step transition))
-          (setf (transition-step transition) step)
-          (when (= step 8) (setf (view-transition view) nil))
-          (incf (view-revision view)))))))
+                (make-transition :style style :from from :to to :sgr sgr :started (now)
+                                 :duration (animation-seconds view (if (eq style :caption) 3/2 1)))))))))
 (defun transition-overlays (view)
   (let ((transition (view-transition view)))
     (when transition
-      (let* ((progress (- 1 (expt (- 1 (/ (transition-step transition) 8)) 3)))
-             (rect (mapcar (lambda (a b) (round (+ a (* (- b a) progress))))
+      (let* ((p (ease-out (animation-progress (transition-started transition)
+                                              (transition-duration transition))))
+             (rect (mapcar (lambda (a b) (round (+ a (* (- b a) p))))
                            (transition-from transition) (transition-to transition)))
              (sgr (transition-sgr transition)))
-        (graphics-safe-outlines view (outline-spans rect sgr))))))
-;; Entrance motion: spans that declare (:enter (id dx dy)) start offset by
-;; (dx dy) and ease into place over :window-animation-ms, like transitions.
-;; Each motion is (id started step). A group re-enters after it disappears.
-(defun motion-duration (view)
-  (/ (option (view-daemon view) :window-animation-ms 0) 1000))
-(defun motion-step (view motion)
-  (let ((duration (motion-duration view)))
-    (if (plusp duration) (min 8 (floor (* 8 (/ (- (now) (second motion)) duration)))) 8)))
-(defun motion-offset (view span)
-  "SPAN's current (values dx dy), starting its group's motion on first sight."
-  (let ((enter (getf span :enter)))
-    (if (null enter)
-        (values 0 0)
-        (destructuring-bind (id dx dy) enter
-          (let* ((motion (or (assoc id (view-motions view) :test #'equal)
-                             (first (push (list id (now) 0) (view-motions view)))))
-                 (remaining (expt (- 1 (/ (motion-step view motion) 8)) 3)))
-            (values (round (* dx remaining)) (round (* dy remaining))))))))
-(defun motions-running-p (view)
-  (some (lambda (motion) (< (third motion) 8)) (view-motions view)))
-(defun tick-motions (view)
+        (graphics-safe-outlines view
+          (if (eq (transition-style transition) :caption)
+              (list (list (first rect) (second rect) (make-string (max 1 (third rect)) :initial-element #\Space)
+                          sgr (- 1 (* p p))))
+              (outline-spans rect sgr)))))))
+
+;; One tick advances everything above. Each tick republishes while anything
+;; moves, and once more after it stops so the last frame is the final state.
+(defun animating-p (view)
+  (or (view-transition view) (view-slides view) (view-ghosts view) (view-popup-ghost view)
+      (some (lambda (glow) (let ((level (glow-level view glow))) (if (fourth glow) (< level 1) (> level 0))))
+            (view-glows view))
+      (and (view-tweens view) (plusp (hash-table-count (view-tweens view))))
+      (some (lambda (motion) (< (animation-progress (second motion) (animation-seconds view)) 1))
+            (view-motions view))))
+(defun finished-p (started seconds) (>= (animation-progress started seconds) 1))
+(defun tick-animations (view)
+  ;; A group that disappears re-enters when it next appears.
   (let ((present (loop for span in (append (loop for entry in (view-decorations view) append (rest entry))
                                             (and (view-popup view) (popup-spans (view-popup view))))
                        when (getf span :enter) collect (first (getf span :enter)))))
     (setf (view-motions view)
-          (remove-if-not (lambda (motion) (member (first motion) present :test #'equal)) (view-motions view)))
-    (dolist (motion (view-motions view))
-      (let ((step (motion-step view motion)))
-        (unless (= step (third motion))
-          (setf (third motion) step)
-          (incf (view-revision view)))))))
+          (remove-if-not (lambda (motion) (member (first motion) present :test #'equal)) (view-motions view))))
+  (let ((moving (animating-p view)) (seconds (animation-seconds view)))
+    (when moving
+      (let ((transition (view-transition view)))
+        (when (and transition (finished-p (transition-started transition) (transition-duration transition)))
+          (setf (view-transition view) nil)))
+      (when (and (view-popup-ghost view) (finished-p (second (view-popup-ghost view)) (animation-seconds view 3/4)))
+        (setf (view-popup-ghost view) nil))
+      (setf (view-slides view)
+            (remove-if (lambda (motion) (finished-p (third motion) (fourth motion))) (view-slides view))
+            (view-ghosts view)
+            (remove-if (lambda (ghost) (finished-p (third ghost) (animation-seconds view 3/4))) (view-ghosts view))
+            (view-glows view)
+            (remove-if (lambda (glow) (and (not (fourth glow)) (zerop (glow-level view glow)))) (view-glows view)))
+      (when (view-tweens view)
+        (maphash (lambda (key tween) (when (finished-p (third tween) seconds) (remhash key (view-tweens view))))
+                 (view-tweens view))))
+    (when (or moving (view-animating view)) (incf (view-revision view)))
+    (setf (view-animating view) moving)))
 #+end_src
 
 ** src/windows.lisp
@@ -4824,7 +5184,7 @@ Per-view geometry and mouse-gesture state (handles, drags, resizes).
 
 ;; Geometry and gesture state belong to each view. Profiles declare which
 ;; spans are handles; applications retain their ordinary mouse protocol.
-(defstruct window-drag owner pane kind x y from preview target edge moved split tree)
+(defstruct window-drag owner pane kind x y from preview free target edge moved split tree)
 
 (defun tiled-border-split (tree rectangles pane edge)
   "Find the actual visible split at PANE's edge, retaining its full-tree node.
@@ -4861,11 +5221,8 @@ Hidden leaves have no rectangles, so restoring them keeps their own ratios."
                        (pane-id pane) kind)))
 (defun window-intersects-p (view pane x y &optional (width 1))
   (when pane
-    (let ((state (pane-state view (pane-id pane))))
-      (and (< (pane-view-outer-x state) (+ x width))
-           (< x (+ (pane-view-outer-x state) (pane-view-outer-cols state)))
-           (<= (pane-view-outer-y state) y)
-           (< y (+ (pane-view-outer-y state) (pane-view-outer-rows state)))))))
+    (destructuring-bind (ox oy w h) (shown-rect view (pane-id pane))
+      (and (< ox (+ x width)) (< x (+ ox w)) (<= oy y) (< y (+ oy h))))))
 (defun window-at (view x y)
   (find-if (lambda (p) (window-intersects-p view p x y)) (reverse (visible-panes view))))
 (defun begin-window-drag (view owner span x y)
@@ -4953,7 +5310,8 @@ Hidden leaves have no rectangles, so restoring them keeps their own ratios."
         (setf (view-window-drag view) nil)
         (incf (view-revision view))
         (return-from window-drag-mouse t))
-      (let ((dx (- x (window-drag-x drag))) (dy (- y (window-drag-y drag))))
+      (let ((dx (- x (window-drag-x drag))) (dy (- y (window-drag-y drag)))
+            (before (loop for (id . nil) in (drag-rects view) collect (cons id (shown-rect view id)))))
         (when (or (window-drag-moved drag)
                   (>= (+ (abs dx) (abs dy)) (if (eq (window-drag-kind drag) :move) 2 1)))
           (setf (window-drag-moved drag) t)
@@ -4962,7 +5320,8 @@ Hidden leaves have no rectangles, so restoring them keeps their own ratios."
                     (tiled-drag-rectangles view drag dx dy))
               (progn
                 (setf (window-drag-target drag) nil (window-drag-edge drag) nil
-                      (window-drag-preview drag) (floating-drag-rect view drag dx dy))
+                      (window-drag-free drag) (floating-drag-rect view drag dx dy)
+                      (window-drag-preview drag) (window-drag-free drag))
                 (when (eq (window-drag-kind drag) :move)
                   (let ((snap (viewport-snap-rect view x y)))
                     (if snap
@@ -4972,8 +5331,10 @@ Hidden leaves have no rectangles, so restoring them keeps their own ratios."
                           (when target
                             (setf (window-drag-target drag) target (window-drag-edge drag) edge
                                   (window-drag-preview drag) preview))))))))
+          (chase-drag view before)
           (incf (view-revision view)))
         (when up
+          (release-drag view)
           (setf (view-window-drag view) nil)
           (when (and (not (window-drag-moved drag)) (= (logand button 3) 0)
                      (eq (window-drag-kind drag) :move))
@@ -5003,31 +5364,35 @@ Hidden leaves have no rectangles, so restoring them keeps their own ratios."
               (error (e) (note-error view e))))
           (incf (view-revision view))))
       t)))
+(defun chase-drag (view before)
+  "Held windows follow the pointer with a short glide from where they showed."
+  (let ((seconds (animation-seconds view 1/3)))
+    (when (plusp seconds)
+      (loop for (id . rect) in (drag-rects view)
+            for shown = (or (rest (assoc id before)) (committed-rect view id))
+            unless (equal shown rect)
+              do (move-window view id shown seconds (committed-rect view id))))))
+(defun release-drag (view)
+  "Hold released windows where they show, so a commit glides them into place
+and a cancelled drag glides them home."
+  (when (plusp (animation-seconds view))
+    (loop for (id . nil) in (drag-rects view)
+          do (move-window view id (shown-rect view id) (animation-seconds view 3/2)
+                          (committed-rect view id) (pane-chrome view id)))))
 (defun outline-spans (rect sgr)
   (destructuring-bind (x y w h) rect
     (append (list (list x y (make-string w :initial-element #\─) sgr))
             (when (> h 1) (list (list x (+ y h -1) (make-string w :initial-element #\─) sgr)))
             (loop for row from (1+ y) below (+ y h -1)
                   append (list (list x row "│" sgr) (list (+ x w -1) row "│" sgr))))))
-(defun filled-rect-spans (rect sgr)
-  (destructuring-bind (x y width height) rect
-    (when (and (plusp width) (plusp height))
-      (loop for row from y below (+ y height)
-            collect (list x row (make-string width :initial-element #\Space) sgr)))))
 (defun window-drag-overlays (view)
+  "A drag moves the windows themselves; a snap outlines where the window will land."
   (let ((drag (view-window-drag view)))
-    (when (and drag (window-drag-moved drag))
-      (graphics-safe-outlines view
-        (if (window-drag-split drag)
-            (loop for (id . rect) in (window-drag-preview drag)
-                  for pane = (pane-by-id (view-daemon view) id)
-                  when (and pane (not (equal rect (pane-outer-rect view pane))))
-                    append (outline-spans rect '(0 1 38 5 117 48 5 235)))
-            (let ((rect (window-drag-preview drag))
-                  (sgr (if (window-drag-target drag) '(0 1 38 5 117 48 5 235) '(0 38 5 250 48 5 235))))
-              (append (filled-rect-spans rect '(0 48 5 236))
-                      (outline-spans rect sgr))))
-        (when (window-drag-split drag) (remove-if-not #'pane-floating (visible-panes view)))))))
+    (when (and drag (window-drag-moved drag) (not (window-drag-split drag))
+               (not (equal (window-drag-preview drag) (window-drag-free drag))))
+      (let ((rect (window-drag-preview drag)))
+        ;; The outline passes behind the held window.
+        (graphics-safe-outlines view (outline-spans rect '(0 1 38 5 117)) (list (window-drag-pane drag)))))))
 
 (defun update-window-hover (view button x y up)
   (let ((hover
@@ -5042,6 +5407,10 @@ Hidden leaves have no rectangles, so restoring them keeps their own ratios."
                                         (window-resize-split view pane (getf span :drag)))))))
                 (list owner span))))))
     (unless (equal hover (view-window-hover view))
+      (destructuring-bind (&optional owner span) (view-window-hover view)
+        (when span (set-glow view (cons :hover (span-key owner span)) nil span owner)))
+      (destructuring-bind (&optional owner span) hover
+        (when span (set-glow view (cons :hover (span-key owner span)) t span owner)))
       (setf (view-window-hover view) hover)
       (incf (view-revision view)))))
 
@@ -5049,16 +5418,24 @@ Hidden leaves have no rectangles, so restoring them keeps their own ratios."
   (loop for row from (getf span :y) below (+ (getf span :y) (getf span :rows 1))
         collect (list (getf span :x) row (getf span :text) (getf span :sgr))))
 (defun window-hover-overlays (view)
-  (destructuring-bind (&optional owner span) (view-window-hover view)
-    (let* ((spans (rest (assoc owner (view-decorations view) :test #'equal)))
-           (pane (pane-by-id (view-daemon view) (getf span :pane)))
-           (occluders (and pane (rest (member pane (visible-panes view)))))
-           (hover (getf span :hover-sgr)))
-      (when (and span (member span spans :test #'equal) (not (view-popup view)))
-        (graphics-safe-outlines view
-          (loop for (x y text sgr) in (expand-span-rows span)
-                collect (list x y text (or hover '(0 1 38 5 117 48 5 235))))
-          occluders)))))
+  "Hover glows: each hovered span blends toward its :hover-sgr, and back after."
+  (unless (view-popup view)
+    (loop for glow in (view-glows view)
+          for (key nil nil nil span owner) = glow
+          for level = (glow-level view glow)
+          for hover = (or (getf span :hover-sgr) '(0 1 38 5 117 48 5 235))
+          when (and (eq (first key) :hover) (plusp level) (not (equal hover (getf span :sgr)))
+                    (member span (rest (assoc owner (view-decorations view) :test #'equal)) :test #'equal))
+            append (let* ((pane (pane-by-id (view-daemon view) (getf span :pane)))
+                          (occluders (and pane (rest (member pane (visible-panes view))))))
+                     (let ((fitted (window-span view owner span)))
+                       (when fitted
+                         (graphics-safe-outlines view
+                           (loop for row from (getf fitted :y) below (+ (getf fitted :y) (getf fitted :rows 1))
+                                 append (loop for piece in (span-pieces view owner fitted 0 nil)
+                                              collect (list (getf piece :x) row (getf piece :text)
+                                                            (blend-sgr (getf piece :sgr) hover level))))
+                           occluders)))))))
 
 (defun graphics-safe-outlines (view spans &optional occluders)
   ;; Transient strokes leave image placements intact; committed floating
@@ -5066,8 +5443,8 @@ Hidden leaves have no rectangles, so restoring them keeps their own ratios."
   (let ((graphics (remove-if-not
                    (lambda (p) (loop for image being the hash-values of (store-images (pane-graphics p))
                                      thereis (image-visible image))) (visible-panes view))))
-    (loop for (x y text sgr) in spans append
-      (clip-decoration view graphics (list :x x :y y :text text :sgr sgr) occluders))))
+    (loop for (x y text sgr alpha) in spans append
+      (clip-decoration view graphics (list :x x :y y :text text :sgr sgr :alpha alpha) occluders))))
 #+end_src
 
 ** src/selection.lisp
@@ -5657,7 +6034,7 @@ creation; on an existing workspace this is attach-only and never spawns."
 (defun workspace-deadline (daemon current)
   (let ((deadline (+ current 1)))
     (dolist (view (daemon-views daemon))
-      (when (or (view-transition view) (motions-running-p view)) (setf deadline (min deadline (+ current 1/50))))
+      (when (or (view-animating view) (animating-p view)) (setf deadline (min deadline (+ current +frame-seconds+))))
       (dolist (note (view-pane-notes view)) (setf deadline (min deadline (getf note :until))))
       (maphash (lambda (id state)
                  (declare (ignore id))
@@ -5681,7 +6058,7 @@ creation; on an existing workspace this is attach-only and never spawns."
   ;; owner in the same pass; the caller still bounds whole-service failures.
   (dolist (view (daemon-views daemon))
     (handler-case
-        (progn (tick-transition view) (tick-motions view) (expire-copy-flashes view) (expire-pane-notes view))
+        (progn (tick-animations view) (expire-copy-flashes view) (expire-pane-notes view))
       (error (condition) (note-error view condition))))
   (service-extensions daemon buffer)
   (dolist (pane (daemon-panes daemon))
@@ -9530,9 +9907,10 @@ never cover application content, so these land only on the ground around them."
       (loop for pane in (ekko/extensions:value snapshot :panes)
             when (and (getf pane :visible) (getf pane :floating))
               append (destructuring-bind (x y width h) (getf pane :outer-rect)
-                       (list (list :x (+ x width) :y (1+ y) :rows h :text " " :sgr (sgr shadow shadow))
+                       (list (list :x (+ x width) :y (1+ y) :rows h :text " " :sgr (sgr shadow shadow)
+                                   :follows (getf pane :id))
                              (list :x (1+ x) :y (+ y h) :text (make-string width :initial-element #\Space)
-                                   :sgr (sgr shadow shadow))))))))
+                                   :sgr (sgr shadow shadow) :follows (getf pane :id))))))))
 
 (defun windows (snapshot event)
   (declare (ignore event))

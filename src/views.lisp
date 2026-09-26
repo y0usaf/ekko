@@ -22,7 +22,8 @@
   input-read-framed input-read-bytes input-queue (input-bytes 0)
   (notice "") error geometry-contributions contributions decorations pane-notes
   component-state hook-context hooks (layout-state (make-layout-state))
-  layout-placements (camera-x 0) (camera-y 0) motions initialized extension-initialized initialization-failure quarantined)
+  layout-placements (camera-x 0) (camera-y 0) motions tweens glows ghosts slides redecorated popup-ghost animating
+  initialized extension-initialized initialization-failure quarantined)
 (defstruct command-origin daemon view epoch target-pane-id peer config-generation layout)
 (defstruct command-request origin name event snapshot)
 (defstruct hook-request origin owner snapshot)
