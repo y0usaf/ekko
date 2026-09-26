@@ -6434,9 +6434,6 @@ Terminal attachment: raw mode, alternate screen, input and paint loops.
   (transport :unknown) probe-deadline awaiting-scene
   (uploads (make-hash-table))
   (drawn (make-hash-table :test 'equal))
-  ;; Complete per-row terminal sequences from the last frame.  Keeping these
-  ;; as strings lets us skip all cursor movement and text output for rows that
-  ;; did not change.
   (row-cache (make-array 0)) (row-cache-cols 0) (row-cache-rows 0)
   (ids (ekko/client:make-attachment :max-mappings 4096 :max-id 4294967294))
   (input-state :ground) (input (make-array 0 :element-type '(unsigned-byte 8) :adjustable t :fill-pointer 0))
@@ -6571,15 +6568,6 @@ Terminal attachment: raw mode, alternate screen, input and paint loops.
       (terminal-write viewer (format nil "~C[~D;~DH~C_Ga=p,i=~D,p=1,C=1,q=2,x=~D,y=~D,w=~D,h=~D,X=~D,Y=~D;~C\\"
                                      esc (1+ (floor y ch)) (1+ (floor x cw)) esc id
                                      sx sy w h (mod x cw) (mod y ch) esc)))))
-(defun render-decoration (stream cols rows decoration)
-  (destructuring-bind (x y text sgr) decoration
-    (when (and (integerp x) (integerp y) (stringp text)
-               (<= 0 x) (< x cols) (<= 0 y) (< y rows))
-      ;; The server clips spans at cell boundaries and never publishes a
-      ;; decoration over app content. Keep this renderer deliberately small:
-      ;; it only emits the already validated, published cells.
-      (format stream "~C[~D;~DH~C[~{~D~^;~}m~A~C[0m"
-              (code-char 27) (1+ y) (1+ x) (code-char 27) sgr text (code-char 27)))))
 (defun scene-content-rect (cols rows metadata &optional (cw 1) (ch 1))
   "Return the content viewport in cells, or pixels when cell metrics are given."
   (destructuring-bind (top right bottom left)
@@ -6589,58 +6577,64 @@ Terminal attachment: raw mode, alternate screen, input and paint loops.
 
 (defun clip-text-run (text x left right)
   "Clip a run on cell boundaries; combining marks stay with an accepted base."
-  (let ((cursor x) (start nil) (accepted nil) (characters nil))
-    (loop for character across text for width = (ekko/text:display-width character) do
-      (cond ((zerop width) (when accepted (push character characters)))
-            ((and (<= left cursor) (<= (+ cursor width) right))
-             (unless start (setf start cursor))
-             (setf accepted t)
-             (push character characters))
-            (t (setf accepted nil)))
-      (incf cursor width))
-    (values start (when start (coerce (nreverse characters) 'string)))))
-
+  (if (and (plusp (length text)) (plusp (ekko/text:display-width (char text 0)))
+           (<= left x) (<= (+ x (ekko/text:display-width text)) right))
+      (values x text)
+      (let ((cursor x) (start nil) (accepted nil) (characters nil))
+        (loop for character across text for width = (ekko/text:display-width character) do
+          (cond ((zerop width) (when accepted (push character characters)))
+                ((and (<= left cursor) (<= (+ cursor width) right))
+                 (unless start (setf start cursor))
+                 (setf accepted t)
+                 (push character characters))
+                (t (setf accepted nil)))
+          (incf cursor width))
+        (values start (when start (coerce (nreverse characters) 'string))))))
+(defvar *row-sink* (make-sink))
 (defun scene-text-rows (cols rows focus panes &optional metadata)
+  "Each screen row's complete terminal output, as UTF-8 octets."
   (declare (ignore focus))
-  (let ((output (map 'vector (lambda (ignored) (declare (ignore ignored))
-                               (make-string-output-stream)) (make-array rows)))
-        (viewport (scene-content-rect cols rows metadata))
-        (esc (code-char 27)))
-    (dotimes (row rows)
-      (format (aref output row) "~C[0m~C[~D;1H~A" esc esc (1+ row)
-              (make-string cols :initial-element #\Space)))
-    (dolist (pane panes)
-      (destructuring-bind (id x y width height label status cursor-x cursor-y visible lines placements outer) pane
-        (declare (ignore id label status cursor-x cursor-y visible placements))
-        (let ((background (ekko/scene:rect-intersection
-                           (apply #'ekko/scene:make-rect outer) viewport))
-              (content (ekko/scene:rect-intersection
-                        (ekko/scene:make-rect x y width height) viewport)))
-          (when background
-            (loop for row from (ekko/scene:rect-y background)
-                  below (ekko/scene:rect-bottom background) do
-              (format (aref output row) "~C[0m~C[~D;~DH~A" esc esc (1+ row)
-                      (1+ (ekko/scene:rect-x background))
-                      (make-string (ekko/scene:rect-width background) :initial-element #\Space))))
-          (when content
-            (loop for line in lines for row from y
-                  when (and (<= (ekko/scene:rect-y content) row)
-                            (< row (ekko/scene:rect-bottom content))) do
-              (dolist (run line)
+  (let* ((sink *row-sink*) (viewport (scene-content-rect cols rows metadata))
+         (decorations (make-array rows :initial-element nil))
+         (layers (loop for pane in panes collect
+                   (destructuring-bind (id x y width height label status cursor-x cursor-y visible lines placements outer) pane
+                     (declare (ignore id label status cursor-x cursor-y visible placements))
+                     (list (ekko/scene:rect-intersection (apply #'ekko/scene:make-rect outer) viewport)
+                           (ekko/scene:rect-intersection (ekko/scene:make-rect x y width height) viewport)
+                           x y (coerce lines 'vector))))))
+    (dolist (decoration (reverse (append (getf metadata :decorations) (getf metadata :overlays))))
+      (destructuring-bind (x y text sgr) decoration
+        (declare (ignore sgr))
+        (when (and (integerp x) (integerp y) (stringp text) (<= 0 x) (< x cols) (<= 0 y) (< y rows))
+          (push decoration (aref decorations y)))))
+    (flet ((cursor (row column)
+             (sink-byte sink 27) (sink-byte sink 91) (sink-decimal sink row) (sink-byte sink 59)
+             (sink-decimal sink column) (sink-byte sink 72))
+           (sgr (codes)
+             (sink-byte sink 27) (sink-byte sink 91)
+             (loop for (code . more) on codes
+                   do (if (typep code '(signed-byte 62)) (sink-decimal sink code) (sink-text sink (princ-to-string code)))
+                      (when more (sink-byte sink 59)))
+             (sink-byte sink 109))
+           (spaces (count) (loop repeat count do (sink-byte sink 32))))
+      (let ((result (make-array rows)))
+        (dotimes (row rows result)
+          (setf (sink-fill sink) 0)
+          (sgr '(0)) (cursor (1+ row) 1) (spaces cols)
+          (loop for (background content x y lines) in layers do
+            (when (and background (<= (ekko/scene:rect-y background) row) (< row (ekko/scene:rect-bottom background)))
+              (sgr '(0)) (cursor (1+ row) (1+ (ekko/scene:rect-x background))) (spaces (ekko/scene:rect-width background)))
+            (when (and content (<= (ekko/scene:rect-y content) row) (< row (ekko/scene:rect-bottom content))
+                       (< -1 (- row y) (length lines)))
+              (dolist (run (aref lines (- row y)))
                 (destructuring-bind (column text attributes) run
                   (multiple-value-bind (start clipped)
-                      (clip-text-run text (+ x column) (ekko/scene:rect-x content)
-                                     (ekko/scene:rect-right content))
+                      (clip-text-run text (+ x column) (ekko/scene:rect-x content) (ekko/scene:rect-right content))
                     (when start
-                      (format (aref output row) "~C[~D;~DH~C[~{~D~^;~}m~A"
-                              esc (1+ row) (1+ start) esc attributes clipped))))))))))
-    ;; Chrome policy is supplied by Lisp hooks as bounded spans. The server
-    ;; clips these before publication, and the client merely places them.
-    (dolist (decoration (append (getf metadata :decorations) (getf metadata :overlays)))
-      (let ((y (second decoration)))
-        (when (and (integerp y) (<= 0 y) (< y rows))
-          (render-decoration (aref output y) cols rows decoration))))
-    (map 'vector #'get-output-stream-string output)))
+                      (cursor (1+ row) (1+ start)) (sgr attributes) (sink-text sink clipped)))))))
+          (loop for (x y text sgr) in (aref decorations row)
+                do (cursor (1+ y) (1+ x)) (sgr sgr) (sink-text sink text) (sgr '(0)))
+          (setf (aref result row) (sink-octets sink)))))))
 
 (defun overlay-image-crops (crop overlays cw ch &optional occlusions)
   "Subtract opaque cell spans from a pixel crop, preserving source offsets."
@@ -6694,8 +6688,8 @@ Terminal attachment: raw mode, alternate screen, input and paint loops.
           (setf (viewer-row-cache viewer) (make-array 0)))
         (dotimes (index rows)
           (unless (and (< index (length (viewer-row-cache viewer)))
-                       (equal (aref current index) (aref (viewer-row-cache viewer) index)))
-            (terminal-write viewer (aref current index))))
+                       (equalp (aref current index) (aref (viewer-row-cache viewer) index)))
+            (queue-bytes (viewer-io viewer) (aref current index))))
         (setf (viewer-row-cache viewer) current
               (viewer-row-cache-cols viewer) cols (viewer-row-cache-rows viewer) rows))
       (maphash
