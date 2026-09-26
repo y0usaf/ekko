@@ -1,7 +1,5 @@
 (in-package #:ekko/vt)
 
-;; Bounded main-screen rows. Cells/renditions are replaced by the VT, never
-;; mutated in place, so copying the row vector detaches it from screen scrolling.
 (defconstant +history-rows+ 10000)
 (defconstant +history-bytes+ (* 8 1024 1024))
 (defstruct history (rows (make-array +history-rows+ :initial-element nil))
@@ -36,14 +34,14 @@
           (history-bytes (terminal-history vt)) 0)))
 (defun history-cells (vt)
   "Frozen rows retain the VT's immutable text/rendition cells."
-  (let ((history (terminal-history vt)) (cols (terminal-cols vt)))
+  (let ((history (terminal-history vt)))
     (coerce
       (append
         (when (and history (eq (terminal-screen vt) :main))
           (loop for i below (history-count history)
                 collect (aref (history-rows history) (mod (+ (history-start history) i) +history-rows+))))
         (loop for y below (terminal-rows vt)
-              collect (subseq (terminal-cells vt) (* y cols) (* (1+ y) cols))))
+              collect (copy-seq (svref (terminal-cells vt) y))))
       'vector)))
 (defun history-text (vt)
   (map 'vector #'row-text (history-cells vt)))
