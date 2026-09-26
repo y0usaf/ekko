@@ -103,6 +103,8 @@
                   :chrome-status (list :text (status-text view registry)
                                        :style (getf options :status-style '(0 30 47)))
                   :pane-notes (pane-note-data view registry)
+                  :notifications (remove-if-not (lambda (n) (pane-by-id daemon (getf n :pane)))
+                                                (daemon-notifications daemon))
                   :component-state (view-component-state view)
                   :store (daemon-store-entries daemon) :layout (daemon-tree daemon)
                   :panes (loop for pane in (view-panes view)
@@ -846,7 +848,7 @@ legacy control bytes still match a folded C- chord."
       (unless (and (listp span) (evenp (length span))) (error "Malformed decoration span: ~S" span))
       (let ((keys nil))
         (loop for (key value) on span by #'cddr do
-          (unless (member key '(:x :y :text :sgr :rows :overlay :action :context-command :command :arguments :hover-sgr :wheel-command :middle-command :pane :drag)) (error "Unknown decoration field: ~S" key))
+          (unless (member key '(:x :y :text :sgr :rows :overlay :action :context-command :command :arguments :hover-sgr :wheel-command :middle-command :pane :drag :enter :key)) (error "Unknown decoration field: ~S" key))
           (when (member key keys) (error "Duplicate decoration field: ~S" key))
           (push key keys))
         (let ((x (getf span :x)) (y (getf span :y)) (text (getf span :text))
@@ -858,6 +860,14 @@ legacy control bytes still match a folded C- chord."
                        (listp sgr) (<= (length sgr) 16)
                        (every (lambda (n) (and (integerp n) (<= 0 n 255))) sgr))
             (error "Invalid decoration span: ~S" span))
+          (let ((enter (getf span :enter)) (key (getf span :key)))
+            (unless (or (null enter)
+                        (and (listp enter) (= (length enter) 3) (stringp (first enter))
+                             (<= 1 (length (first enter)) 64)
+                             (typep (second enter) '(integer -500 500)) (typep (third enter) '(integer -300 300))))
+              (error "Entrance must be (id dx dy): ~S" enter))
+            (unless (or (null key) (and menu-p (stringp key) (= (length key) 1) (graphic-char-p (char key 0))))
+              (error "A menu key must be one printable character: ~S" key)))
           (when (or (getf span :pane) (getf span :drag))
             (unless (and (not menu-p) (typep (getf span :pane) '(integer 1 *))
                          (member (getf span :drag) '(nil :move :left :right :top :bottom :top-left :top-right :bottom-left :bottom-right)))
@@ -921,6 +931,7 @@ legacy control bytes still match a folded C- chord."
       (let* ((op (first a)) (args (rest a)) (pane (getf args :pane))
              (keys (case op
                      (:pane-note '(:pane :text :sgr :duration))
+                     (:notifications '(:op :id))
                      (:send-input '(:pane :bytes)) (:set-keymap '(:name)) (:set-layout '(:tree)) (:set-state '(:value)) (:store-set '(:key :value)) (:set-geometry '(:value)) (:decorate '(:spans)) (:show-menu '(:spans :x :y)) (:split '(:pane :axis :argv)) (:focus '(:pane)) (:rename '(:pane :text)) (:resize '(:pane :delta))
                      (:stop '(:force))
                      (:copy-point '(:pane :x :y :start)) (:copy-scroll '(:pane :delta))
@@ -948,7 +959,7 @@ legacy control bytes still match a folded C- chord."
            (unless (find (getf args :name) (getf registry :keymaps)
                          :key (lambda (m) (getf m :name)))
              (error "Unknown keymap")))
-          ((:status :decorate :show-menu :pane-note :set-state :store-set)
+          ((:status :decorate :show-menu :pane-note :notifications :set-state :store-set)
            (when (member op '(:set-state :store-set))
              (incf state-count)
              (when (> state-count 1) (error "A batch may contain at most one state update"))
@@ -1017,6 +1028,11 @@ legacy control bytes still match a folded C- chord."
              (error "Invalid menu owner or geometry"))
            (validate-decoration-spans (getf args :spans) t))
           (:decorate (validate-decoration-spans (getf args :spans)))
+          (:notifications
+           (unless (if (member (getf args :op) '(:read :dismiss))
+                       (typep (getf args :id) '(integer 1))
+                       (and (member (getf args :op) '(:read-all :clear)) (null (getf args :id))))
+             (error "Invalid notification change")))
           (:pane-note
            (unless (and pane (valid-decoration-text-p (getf args :text))
                         (<= (length (getf args :text)) 512)
@@ -1079,7 +1095,7 @@ legacy control bytes still match a folded C- chord."
   ;; Complete a mode transition only after the primary action succeeds. This
   ;; keeps mode and status contributions out of a batch whose primary action
   ;; raises after partially updating its own state.
-  (let ((primary (find-if (lambda (a) (and (not (member (first a) '(:status :decorate :show-menu :pane-note :set-state :store-set)))
+  (let ((primary (find-if (lambda (a) (and (not (member (first a) '(:status :decorate :show-menu :pane-note :notifications :set-state :store-set)))
                                            (not (eq (first a) :set-keymap)))) actions))
         (mode-transition (find-if (lambda (a) (eq (first a) :set-keymap)) actions)))
     (when primary
@@ -1094,6 +1110,7 @@ legacy control bytes still match a folded C- chord."
       (apply-primary-action view (first mode-transition) (rest mode-transition) origin)))
   (dolist (a actions)
     (case (first a)
+      (:notifications (change-notifications (view-daemon view) (getf (rest a) :op) (getf (rest a) :id)))
       (:show-menu (open-popup view owner (getf (rest a) :spans)
                               (getf (rest a) :x) (getf (rest a) :y)))
       (:pane-note
@@ -1473,6 +1490,11 @@ legacy control bytes still match a folded C- chord."
               :chrome-status (cons :object (getf context :chrome-status))
               :panes (mapcar #'pane-json-data (getf context :panes))
               :pane-notes (mapcar (lambda (note) (cons :object note)) (getf context :pane-notes))
+              :notifications (mapcar (lambda (n)
+                                       (list :object :id (getf n :id) :pane (getf n :pane) :time (getf n :time)
+                                             :title (getf n :title) :body (getf n :body) :count (getf n :count)
+                                             :bell (if (getf n :bell) t :false) :read (if (getf n :read) t :false)))
+                                     (getf context :notifications))
               :geometry (list* :object :contributions
                                (loop for (owner . value) in (view-geometry-contributions view)
                                      collect (list :object :owner owner :value (copy-component-state value)))

@@ -1,10 +1,10 @@
 # Ekko v2
 
-Ekko opens with centered, dark window titlebars, colored borders and a fixed
+Ekko opens with centered, dark window titlebars, rounded borders and a fixed
 bottom taskbar. The taskbar reserves its own row, so it never covers applications.
-Each window keeps its accent color: open windows have filled entries, `▸` marks
-focus, and minimized entries have contrasting gray backgrounds. Click the focused
-entry to minimize, another entry to focus, or a minimized entry to restore.
+Each window keeps an accent color, and only the focused window wears it: its border,
+title and filled taskbar entry. Other windows recede to gray borders and muted titles.
+Click the focused entry to minimize, another entry to focus, or a minimized entry to restore.
 Titlebar `_`, `□` and `×` controls minimize, maximize/restore and close.
 
 Drag a shared tiled border to resize the neighboring windows. Hover highlights
@@ -16,11 +16,13 @@ corner. The rest of the titlebar moves the window. Drag a floating or tiled
 window to the outermost content cell to snap there: the top cell maximizes, the
 left or right cell takes half. Double-click a titlebar to maximize or restore.
 
-The taskbar shows a clock at its right while Normal mode is active, a `●` on
-windows that produced output since you last focused them, and a `+N` chip when
-entries do not fit. Wheel over an entry cycles focus; middle-click closes that
-window. **Alt-Tab** lists windows most-recently-used; **Super-1** through
-**Super-9** focus a taskbar slot directly. With every window minimized, the
+The taskbar shows a clock at its right while Normal mode is active, and a `+N` chip when
+entries do not fit. Each entry has one status mark: `▸` focused, `!` unread
+notifications, `◐` busy, `●` output since you last looked, `–` minimized. A program that
+puts a spinner before its title, as coding agents do, is shown as busy, and the
+spinner is dropped from the title. Wheel over an entry cycles focus; middle-click closes
+that window. **Alt-Tab** lists windows most-recently-used, with the same marks; press
+**1** to **9** to pick one. **Super-1** through **Super-9** focus a taskbar slot directly. With every window minimized, the
 desktop shows a centered backdrop with the session name and clock.
 
 A cramped desktop shows as many windows as fit: when the viewport is smaller
@@ -69,6 +71,34 @@ column width, **c** to create a pane and **d** to detach. Reloading the workspac
 configuration changes policy without restarting its applications. Panning crops
 the display, not the application's logical size. The workspace can expand, but
 PTYs, placements and messages remain bounded. See [layout providers](docs/customization.md#layout-providers).
+
+## Notifications
+
+Applications can ask for attention. Ekko records OSC 9 (`ESC ] 9 ; text BEL`),
+OSC 777 (`ESC ] 777 ; notify ; title ; body BEL`) and the bell. OSC 9 commands with a numeric
+first field, such as `9;4` progress, are not notifications. A bell from the window you are
+looking at is only a beep. A message from it is recorded already read. Repeated bells coalesce.
+
+The taskbar's 🔔 shows the unread count, and `!` marks a taskbar entry with unread
+notifications. A new notification also shows a toast above the taskbar for six seconds. Click
+the toast to open its window. Click 🔔, or press **Ctrl-p, then b**, to open the notification
+centre, which lists the newest 64 notifications and marks them all read. Click an entry to
+focus or restore its window, or choose **Clear all**. **Alt-`** jumps to the newest unread
+notification's window. Focusing a window marks its notifications read. Notifications live in
+the daemon, so they survive detach and reattach. `ekko inspect` lists them.
+
+## Themes
+
+The desktop's look is data: `ekko/desktop:*theme*` holds every colour, border glyph and
+status mark, and the `:ground` option is the background that runs through every window.
+[`examples/themes/xp.lisp`](examples/themes/xp.lisp) is a complete Windows XP theme; load it
+as the config, or append it to your own:
+
+```sh
+EKKO_CONFIG="$PWD/examples/themes/xp.lisp" nix run . -- run "$SHELL" -i
+```
+
+See [themes and the ground](docs/customization.md#context-menus-and-motion).
 
 ## Text selection and scrollback
 

@@ -9,11 +9,21 @@
   "Return the ordinary Unicode terminal cell width of a character or string."
   (ekko/text:display-width value))
 
+(defun ground-colour-p (value)
+  (or (typep value '(integer 0 255))
+      (and (listp value) (= (length value) 3) (every (lambda (n) (typep n '(integer 0 255))) value))))
+(defun valid-ground-p (value)
+  "nil, one colour (index or (r g b)), or 1-16 bands of (weight colour), top to bottom."
+  (or (null value) (ground-colour-p value)
+      (and (listp value) (<= 1 (length value) 16)
+           (every (lambda (band) (and (listp band) (= (length band) 2) (typep (first band) '(integer 1 100))
+                                      (ground-colour-p (second band))))
+                  value))))
 (defun api-version () 1)
 (defun layout-api-version () 1)
 (defconstant +maximum-pane-budget+ 128)
 (defparameter *context-keys*
-  '(:session :view :focus :panes :layout :mode :zoom :viewport :chrome-status :pane-notes
+  '(:session :view :focus :panes :layout :mode :zoom :viewport :chrome-status :pane-notes :notifications
     :component-state :store :geometry :time :all-panes :workspace))
 (defstruct component id reads handler initialize commands bindings options keymaps layouts)
 (defvar *components* nil)
@@ -192,7 +202,9 @@ base inside a modified chord sets the Shift bit on the letter's lowercase key."
             (:boundary-insets (or (null value) (bounded-geometry-p value 4)))
             (:viewport-insets (bounded-geometry-p value 4))
             (:split-gaps (bounded-geometry-p value 2))
-            (:pty-pixel-source (member value '(:effective :reported))))
+            (:pty-pixel-source (member value '(:effective :reported)))
+            (:ground (valid-ground-p value))
+            (:ground-dim (typep value '(integer 0 90))))
     (error "Invalid option ~S: ~S" name value))
   (setf (getf (component-options (owner component)) name)
         (case name (:prefix (key-code value)) (:layout-provider (name-string value))

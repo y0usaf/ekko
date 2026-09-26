@@ -170,6 +170,7 @@ cross this boundary.
 | `:chrome-status` | Resolved status `:text` and SGR `:style` |
 | `:component-state` | Per-view detached alist of component ID strings to daemon-owned plain values; other components can read it when declared |
 | `:pane-notes` | Active temporary contributions, each with `:owner`, `:pane`, `:text`, and `:sgr`, ordered by component registration |
+| `:notifications` | Newest first, at most 64, for live panes: `:id`, `:pane`, `:time` (universal time), `:title`, `:body`, `:bell`, `:count` (coalesced bells) and `:read` |
 | `:layout` | Pane ID leaves; branches `(axis percentage first second)` |
 | `:time` | Wall-clock seconds (CL universal time); a component that reads it re-runs its hook when the second changes |
 
@@ -505,6 +506,7 @@ primary action made before raising are not rolled back.
 | `:set-keymap` | `:name` registered custom keymap |
 | `:status` | `:text`, owned by the returning component |
 | `:pane-note` | `:pane` ID, printable `:text` up to 512 characters, `:sgr` up to 16 integers 0–255, `:duration` 1–60000 milliseconds |
+| `:notifications` | `:op :read` or `:dismiss` with an `:id`, or `:op :read-all` or `:clear`; like `:pane-note`, it may accompany a primary action |
 | `:send-input` | `:bytes` list of at most 4,096 octets, sent literally to the focused PTY through its bounded input queue; a primary workspace action |
 | `:copy-move` | `:delta` rows |
 | `:copy-edge` | `:edge :start` or `:end` |
@@ -742,7 +744,7 @@ Decoration spans accept an optional `:action`, one of `(:focus :pane ID)`,
 `(:minimize :pane ID)`, `(:restore :pane ID)`, `(:zoom :pane ID)` or
 `(:close :pane ID)`. These use the normal validated action path. A left press
 and release on the same control activates it; dragging away cancels it.
-Only reserved chrome cells accept these actions. Removing the decoration owner
+Only reserved chrome cells, and `:overlay t` spans painted over application content, accept these actions. Removing the decoration owner
 removes its hit targets too. No viewer protocol changes are needed. Any
 reserved span may declare `:hover-sgr` to repaint itself while the pointer is
 over it. A span may instead declare `:wheel-command`, called with `:direction`
@@ -765,6 +767,46 @@ empty taskbar space for new-window and session actions. Applications keep their
 own right-click handling inside their content. Menus support hover, Up/Down,
 Tab, Enter and Escape; clicking outside dismisses them without sending that
 click to the application.
+A menu span may declare `:key`, one printable character that activates it
+directly; the window switcher numbers its rows 1–9 this way.
+
+Any decoration or menu span may declare `:enter (id dx dy)`. Spans sharing an
+`id` first appear offset by `dx` columns and `dy` rows and ease into place over
+`:window-animation-ms`, with the same cubic ease-out as window transitions. A
+group animates again after it disappears and returns, so a new toast id slides
+in afresh. Motion is presentation only: hit testing uses the resting position,
+and `:window-animation-ms 0` disables it.
+
+The desktop draws every panel (the switcher, menus, notification centre, toast
+and backdrop) with `ekko/desktop:panel`, and takes every colour, border glyph
+and status mark from the plist `ekko/desktop:*theme*`. A profile restyles all
+of them at once by changing that table. A colour is a 256-colour index or an
+`(r g b)` triple. Besides base tokens, the table names a role for every surface
+(`:bar-bg`, `:tray-bg`, `:start`, `:entry-active`, `:title-active`,
+`:frame-style`, `:panel-bg`, `:highlight`, `:toast-bg`, `:desktop-bands` and
+the rest), each defaulting to a base token, so a theme restyles one surface
+without touching the others. Prepending keys in a config file overrides them:
+
+```lisp
+(setf ekko/desktop:*theme*
+      (list* :bar-bg '(36 94 220) :start '(" ❖ start " (255 255 255) (60 150 50))
+             ekko/desktop:*theme*))
+```
+
+With `:start` set, the taskbar's left end is a button that opens a start menu.
+The `:ground` option is Ekko's default background: nil (the terminal's own),
+one colour (an index or `(r g b)`), or up to 16 bands of `(weight colour)`
+from top to bottom. It shows wherever neither an application nor a decoration
+chose a background: the empty desktop, around windows, under line borders, and
+inside every pane, so the desktop runs through the windows as one surface.
+Bands are sampled at each cell's screen row. `:ground-dim` (0–90) darkens it
+inside windows by that percentage, like tinted glass, so text stays legible;
+window borders and title rows share the window's glass, so a border stays a
+plain line rather than a coloured strip. It applies to `(r g b)` colours. Only floating windows and panels cast the theme's
+shadow. Gaps remain available through `:split-gaps` and `:viewport-insets`, at
+the cost of application size.
+`panel`, `sgr`, `clip`, `status-mark` and `pane-title` are exported for
+extensions that want to match the desktop, and nothing requires them to.
 
 Decoration spans can declare `:command` for left-click or `:context-command`
 for right-click, plus a shared `:arguments` list of strings. A context command

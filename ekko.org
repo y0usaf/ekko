@@ -1032,7 +1032,16 @@ MATERIALIZED-ROWS carries that distinction."
                (let ((title (coerce (remove-if (lambda (c) (< (char-code c) 32)) body)
                                    'string)))
                  (setf (terminal-title vt) title)
-                 (incf (terminal-revision vt)))))))))
+                 (incf (terminal-revision vt))))
+              ;; OSC 9 is iTerm2's notification unless it is a numbered ConEmu
+              ;; command such as 9;4 progress. OSC 777 is notify;title;body.
+              ((eql code 9)
+               (unless (let ((end (position #\; body))) (and end (plusp end) (every #'digit-char-p (subseq body 0 end))))
+                 (funcall emit :notify (list nil body))))
+              ((and (eql code 777) (> (length body) 7) (string= "notify;" body :end2 7))
+               (let* ((rest (subseq body 7)) (semi (position #\; rest)))
+                 (funcall emit :notify (if semi (list (subseq rest 0 semi) (subseq rest (1+ semi)))
+                                           (list rest ""))))))))))
 (defun feed (vt bytes emit)
   (declare (optimize (speed 3) (safety 2))
            (type (vector (unsigned-byte 8)) bytes))
@@ -1050,6 +1059,7 @@ MATERIALIZED-ROWS carries that distinction."
          (case byte
            (27 (setf (terminal-parser vt) :escape))
            ((10 11 12) (newline vt emit))
+           (7 (funcall emit :notify nil))
            (13 (setf (terminal-x vt) 0))
            (8 (setf (terminal-x vt) (max 0 (1- (terminal-x vt)))))
            (9 (setf (terminal-x vt) (min (1- (terminal-cols vt)) (* 8 (1+ (floor (terminal-x vt) 8))))))
@@ -1972,7 +1982,7 @@ Views over panes: mode, geometry and ownership, with no aliasing.
   input-read-framed input-read-bytes input-queue (input-bytes 0)
   (notice "") error geometry-contributions contributions decorations pane-notes
   component-state hook-context hooks (layout-state (make-layout-state))
-  layout-placements (camera-x 0) (camera-y 0) initialized extension-initialized initialization-failure quarantined)
+  layout-placements (camera-x 0) (camera-y 0) motions initialized extension-initialized initialization-failure quarantined)
 (defstruct command-origin daemon view epoch target-pane-id peer config-generation layout)
 (defstruct command-request origin name event snapshot)
 (defstruct hook-request origin owner snapshot)
@@ -2069,18 +2079,57 @@ Views over panes: mode, geometry and ownership, with no aliasing.
   (not (null (view-wire view))))
 (defun update-application-focus (daemon)
   (dolist (pane (daemon-panes daemon))
-    (let ((focused (not (null (some (lambda (view)
-                                    (and (view-live-p view) (view-host-focused view)
-                                         (eql (view-focus-id view) (pane-id pane))))
-                                  (daemon-views daemon))))))
+    (let ((focused (not (null (pane-watched-p daemon pane)))))
       (unless (eql focused (pane-application-focused pane))
         (setf (pane-application-focused pane) focused)
+        (when focused (change-notifications daemon :read-pane (pane-id pane)))
         (when (gethash 1004 (terminal-modes (pane-vt pane)))
           (pane-input pane (text-bytes (format nil "~C[~A" #\Esc (if focused "I" "O")))))))))
 (defun note-pane-output (daemon pane)
   (dolist (view (daemon-views daemon))
     (when (and (member pane (view-panes view)) (not (eql (pane-id pane) (view-focus-id view))))
       (setf (pane-view-unseen-output (pane-state view (pane-id pane))) t))))
+(defun pane-watched-p (daemon pane)
+  (some (lambda (view) (and (view-live-p view) (view-host-focused view)
+                            (eql (view-focus-id view) (pane-id pane))))
+        (daemon-views daemon)))
+(defun notification-text (text limit)
+  (let ((clean (substitute-if #\Space (lambda (c) (or (< (char-code c) 32) (<= 127 (char-code c) 159)))
+                              (string-trim '(#\Space) (or text "")))))
+    (subseq clean 0 (min limit (length clean)))))
+(defun record-notification (pane message)
+  "Keep the newest 64 notifications. MESSAGE is (title body), or nil for BEL.
+A bell from a pane someone is watching is only a beep; an explicit message
+from it is stored already read. Repeated unread bells coalesce."
+  (let* ((daemon (pane-daemon pane)) (watched (pane-watched-p daemon pane))
+         (live (remove-if-not (lambda (n) (pane-by-id daemon (getf n :pane)))
+                              (daemon-notifications daemon)))
+         (previous (find (pane-id pane) live :key (lambda (n) (getf n :pane)))))
+    (cond ((and (null message) watched))
+          ((and (null message) previous (getf previous :bell) (not (getf previous :read)))
+           (setf (getf previous :time) (get-universal-time))
+           (incf (getf previous :count))
+           (setf (daemon-notifications daemon) (cons previous (remove previous live))))
+          (t
+           (push (list :id (daemon-next-notification-id daemon) :pane (pane-id pane)
+                       :time (get-universal-time) :bell (null message) :count 1
+                       :title (notification-text (first message) 80)
+                       :body (notification-text (second message) 240)
+                       :read (not (null watched)))
+                 live)
+           (incf (daemon-next-notification-id daemon))
+           (setf (daemon-notifications daemon) (subseq live 0 (min 64 (length live))))))))
+(defun change-notifications (daemon op &optional id)
+  "Apply OP (:read, :dismiss, :read-pane, :read-all or :clear) to ID."
+  (let ((key (if (eq op :read-pane) :pane :id)))
+    (ecase op
+      (:clear (setf (daemon-notifications daemon) nil))
+      (:dismiss (setf (daemon-notifications daemon)
+                      (remove id (daemon-notifications daemon) :key (lambda (n) (getf n :id)))))
+      ((:read :read-pane :read-all)
+       (dolist (n (daemon-notifications daemon))
+         (when (or (eq op :read-all) (eql id (getf n key)))
+           (setf (getf n :read) t)))))))
 (defun prune-view-pane (view id)
   (unless (or (gethash id (view-pane-states view)) (eql id (view-focus-id view)))
     (return-from prune-view-pane))
@@ -2153,6 +2202,7 @@ The daemon's single-workspace server core and PTY sizing.
        ;; deadline stays expired until the mode clears, so the next frame arms
        ;; a fresh one.
        (setf (pane-sync-until pane) (if value (+ (now) 1) nil)))
+      (:notify (record-notification pane value))
       (:reset (clear-screen graphics :main) (clear-screen graphics :alternate)))))
 (defun pane-mid-frame-p (pane)
   (let ((until (pane-sync-until pane)))
@@ -2545,13 +2595,13 @@ The daemon's single-workspace server core and PTY sizing.
          (t (pane-input pane bytes))) nil))))
 (defun octets-from-list (items) (coerce items '(vector (unsigned-byte 8))))
 (defun decoration-at (view x y)
-  ;; Hit only reserved chrome, in the same component/span order as paint.
-  (unless (or (>= x (view-cols view)) (>= y (view-rows view))
-              (decoration-content-p view (window-at view x y) x y 1))
-    (let ((hit nil) (owner nil))
+  ;; Hit reserved chrome, or an opaque overlay painted over content, in the
+  ;; same component/span order as paint.
+  (unless (or (>= x (view-cols view)) (>= y (view-rows view)))
+    (let ((hit nil) (owner nil) (content (decoration-content-p view (window-at view x y) x y 1)))
       (dolist (component (getf (daemon-registry (view-daemon view)) :components))
         (dolist (span (rest (assoc (getf component :id) (view-decorations view) :test #'equal)))
-          (when (and (span-hit-p span x y)
+          (when (and (span-hit-p span x y) (or (not content) (getf span :overlay))
                      (or (not (getf span :pane))
                          (eql (getf span :pane) (let ((p (window-at view x y))) (and p (pane-id p))))))
             (setf hit span owner (getf component :id)))))
@@ -2651,23 +2701,36 @@ The daemon's single-workspace server core and PTY sizing.
 (defun pane-lines (vt)
   (loop with cols = (terminal-cols vt) for y below (terminal-rows vt)
         collect (cell-runs (terminal-cells vt) nil nil (* y cols) (* (1+ y) cols))))
+(defvar *content-rects* nil "Pane content rectangles memoized for one scene build.")
+(defun pane-content-rect (view pane)
+  "PANE's visible application cells within the viewport, as half-open (x0 y0 x1 y1)."
+  (let ((memo (and *content-rects* (gethash pane *content-rects*))))
+    (or memo
+        (let ((rect (compute-content-rect view pane)))
+          (when *content-rects* (setf (gethash pane *content-rects*) rect))
+          rect))))
+(defun compute-content-rect (view pane)
+  (let ((state (pane-state view (pane-id pane))))
+    (multiple-value-bind (viewport insets gaps viewport-width viewport-height) (workspace-geometry view)
+      (declare (ignore insets gaps))
+      (multiple-value-bind (cols rows) (pane-display-size view pane)
+        (list (max (pane-view-x state) (fourth viewport)) (max (pane-view-y state) (first viewport))
+              (min (+ (pane-view-x state) cols) (+ (fourth viewport) viewport-width))
+              (min (+ (pane-view-y state) rows) (+ (first viewport) viewport-height)))))))
+(defun rect-hit-p (rect x y width)
+  (destructuring-bind (x0 y0 x1 y1) rect
+    (and (< x0 (+ x width)) (< x x1) (<= y0 y) (< y y1))))
 (defun decoration-content-p (view pane x y width)
-  (when pane
-    (let ((state (pane-state view (pane-id pane))))
-      (multiple-value-bind (viewport insets gaps viewport-width viewport-height) (workspace-geometry view)
-        (declare (ignore insets gaps))
-        (multiple-value-bind (cols rows) (pane-display-size view pane)
-          (and (< (pane-view-x state) (+ x width)) (< x (+ (pane-view-x state) cols))
-               (< (pane-view-y state) (1+ y)) (< y (+ (pane-view-y state) rows))
-               (< x (+ (fourth viewport) viewport-width)) (> (+ x width) (fourth viewport))
-               (<= (first viewport) y) (< y (+ (first viewport) viewport-height))))))))
-(defun decoration-cell-free-p (view panes x y width &optional occluders)
+  (when pane (rect-hit-p (pane-content-rect view pane) x y width)))
+(defun decoration-cell-free-p (view rects x y width &optional occluders)
+  "RECTS are the content rectangles clipping must avoid, computed once per span."
   (and (<= 0 x) (< x (view-cols view)) (<= 0 y) (< y (view-rows view))
        (<= (+ x width) (view-cols view))
-       (not (some (lambda (pane) (decoration-content-p view pane x y (max 1 width))) panes))
+       (not (some (lambda (rect) (rect-hit-p rect x y (max 1 width))) rects))
        (not (some (lambda (pane) (window-intersects-p view pane x y (max 1 width))) occluders))))
 (defun clip-decoration (view panes span &optional occluders)
   (let ((cursor (getf span :x)) (y (getf span :y)) (sgr (copy-list (getf span :sgr)))
+        (rects (mapcar (lambda (pane) (pane-content-rect view pane)) panes))
         (run-x nil) (run-width 0) (run nil) (out nil))
     (labels ((flush ()
                (when run
@@ -2680,7 +2743,7 @@ The daemon's single-workspace server core and PTY sizing.
               ;; span cannot affect an unrelated cell.
               (cond
                 ((zerop width) (when run (push char run)))
-                ((decoration-cell-free-p view panes cursor y width occluders)
+                ((decoration-cell-free-p view rects cursor y width occluders)
                  (unless (and run-x (= cursor (+ run-x run-width))) (flush))
                  (unless run-x (setf run-x cursor))
                  (push char run) (incf run-width width))
@@ -2689,7 +2752,8 @@ The daemon's single-workspace server core and PTY sizing.
       (flush))
     (nreverse out)))
 (defun scene-decorations (view &optional overlay)
-  (let* ((panes (visible-panes view))
+  (let* ((*content-rects* (make-hash-table :test 'eq))
+         (panes (visible-panes view))
          (declared (mapcar (lambda (c) (getf c :id)) (getf (daemon-registry (view-daemon view)) :components)))
          (owners (append declared (loop for entry in (view-decorations view)
                                        unless (member (first entry) declared :test #'equal) collect (first entry)))))
@@ -2697,10 +2761,11 @@ The daemon's single-workspace server core and PTY sizing.
           append (loop for span in (rest (assoc owner (view-decorations view) :test #'equal))
             for pane = (pane-by-id (view-daemon view) (getf span :pane))
             when (and (eq (getf span :overlay) overlay) (or (not (getf span :pane)) (member pane panes)))
-            append (loop for row from (getf span :y) below (+ (getf span :y) (getf span :rows 1))
-              append (clip-decoration view (unless overlay (if pane (list pane) panes))
-                        (list :x (getf span :x) :y row :text (getf span :text) :sgr (getf span :sgr))
-                        (unless overlay (and pane (rest (member pane panes))))))))))
+            append (multiple-value-bind (dx dy) (motion-offset view span)
+                     (loop for row from (+ (getf span :y) dy) below (+ (getf span :y) dy (getf span :rows 1))
+                           append (clip-decoration view (unless overlay (if pane (list pane) panes))
+                                    (list :x (+ (getf span :x) dx) :y row :text (getf span :text) :sgr (getf span :sgr))
+                                    (unless overlay (and pane (rest (member pane panes)))))))))))
 (defun pane-display-size (view pane)
   (let ((state (pane-state view (pane-id pane))) (vt (pane-vt pane)))
     (if (pane-view-copy-lines state)
@@ -2720,7 +2785,7 @@ The daemon's single-workspace server core and PTY sizing.
                       (pane-label pane))
                   (pane-status pane) (min (1- cols) (terminal-x vt)) (terminal-y vt)
                   (and (not (pane-view-copy-lines state)) (terminal-visible vt))
-                  (if (pane-view-copy-lines state) (copy-display-lines view pane) (pane-lines vt))
+                  (ground-lines view pane (if (pane-view-copy-lines state) (copy-display-lines view pane) (pane-lines vt)))
                   (loop for image being the hash-values of (store-images (pane-graphics pane))
                         when (and (not (pane-view-copy-lines state)) (image-visible image)
                                   (eq (image-screen image) (terminal-screen vt))) collect
@@ -2732,9 +2797,11 @@ The daemon's single-workspace server core and PTY sizing.
           (declare (ignore pane width height))
           (list :view-id (view-id view) :status (status-text view)
                 :style (option (view-daemon view) :status-style '(0 30 47))
-                :viewport-insets viewport :split-gaps gaps :decorations (scene-decorations view)
-                :overlays (append (scene-decorations view t) (transition-overlays view)
-                                  (window-hover-overlays view) (window-drag-overlays view) (popup-overlays view))
+                :viewport-insets viewport :split-gaps gaps
+                :decorations (ground-fragments view (append (ground-fill view) (scene-decorations view)))
+                :overlays (ground-fragments view
+                            (append (scene-decorations view t) (transition-overlays view)
+                                    (window-hover-overlays view) (window-drag-overlays view) (popup-overlays view)))
                 :exit-text (option (view-daemon view) :viewer-exit-text nil)))))
 (defun checked-startup-viewport (viewport)
   (when viewport
@@ -2905,6 +2972,87 @@ application's screen, so it is not held."
       (3 (unless (equalp data (text-bytes "inspect")) (error "Unknown view control command"))
          (send-packet wire 20 (text-bytes (inspect-json view))))
       (otherwise (error "Unknown IPC message")))))
+;; The ground is Ekko's default background: the :ground option shows wherever
+;; neither an application nor a decoration chose a background, so the desktop
+;; runs through every window. Bands are sampled at each cell's screen row.
+(defun ground-at (view row)
+  (let ((ground (option (view-daemon view) :ground)))
+    (if (or (null ground) (integerp ground) (every #'integerp ground))
+        ground
+        (let* ((height (max 1 (- (view-rows view) (min 1 (third (workspace-geometry view))))))
+               (total (reduce #'+ ground :key #'first)) (top 0))
+          (loop for (band . more) on ground
+                do (incf top (if more (round (* height (first band)) total) height))
+                   (when (or (< row top) (null more)) (return (second band))))))))
+(defun sgr-background-p (codes)
+  (loop while codes for code = (pop codes)
+        do (cond ((member code '(38 58)) (pop codes) (pop codes))
+                 ((eql code 48) (return t))
+                 ((or (<= 40 code 47) (<= 100 code 107)) (return t)))))
+(defun grounded (sgr colour)
+  "SGR with COLOUR as its background, unless it already has one."
+  (if (or (null colour) (sgr-background-p sgr))
+      sgr
+      (append sgr (if (integerp colour) (list 48 5 colour) (list* 48 2 colour)))))
+(defun window-rects (view)
+  "Visible windows' outer rectangles as half-open (x0 y0 x1 y1)."
+  (loop for pane in (visible-panes view) for state = (pane-state view (pane-id pane))
+        collect (list (pane-view-outer-x state) (pane-view-outer-y state)
+                      (+ (pane-view-outer-x state) (pane-view-outer-cols state))
+                      (+ (pane-view-outer-y state) (pane-view-outer-rows state)))))
+(defun ground-fragments (view fragments)
+  "Ground every fragment without a background: dimmed like the window's glass
+inside a window, full outside. Rows' colours are computed once per frame."
+  (if (option (view-daemon view) :ground)
+      (let ((rects (window-rects view)) (dim (option (view-daemon view) :ground-dim 0))
+            (rows (make-hash-table)))
+        (loop for (x y text sgr . more) in fragments
+              for (full . glass) = (or (gethash y rows)
+                                       (setf (gethash y rows)
+                                             (let ((colour (ground-at view y))) (cons colour (dimmed colour dim)))))
+              collect (list* x y text (grounded sgr (if (some (lambda (r) (rect-hit-p r x y 1)) rects) glass full))
+                             more)))
+      fragments))
+(defun dimmed (colour percent)
+  "COLOUR darkened by PERCENT; palette indices have no known RGB and stay as they are."
+  (if (or (integerp colour) (zerop percent))
+      colour
+      (mapcar (lambda (c) (round (* c (- 100 percent)) 100)) colour)))
+(defun ground-lines (view pane lines)
+  "Pane rows on the ground, darkened by :ground-dim percent so text stays legible."
+  (if (option (view-daemon view) :ground)
+      ;; Cells share a few style objects, so each row colour caches its grounded styles.
+      (loop with dim = (option (view-daemon view) :ground-dim 0) with styles = (make-hash-table :test 'equal)
+            for runs in lines for row from (pane-view-y (pane-state view (pane-id pane)))
+            for colour = (dimmed (ground-at view row) dim)
+            for cache = (or (gethash colour styles) (setf (gethash colour styles) (make-hash-table :test 'eq)))
+            collect (loop for (start text attr) in runs
+                          collect (list start text (or (gethash attr cache)
+                                                       (setf (gethash attr cache) (grounded attr colour))))))
+      lines))
+(defun ground-fill (view)
+  "Blank ground runs under every decoration: each row minus application content,
+split at window edges so window chrome takes the dimmed ground and the desktop
+the full one."
+  (when (option (view-daemon view) :ground)
+    (let ((rects (mapcar (lambda (pane) (compute-content-rect view pane)) (visible-panes view)))
+          (edges (loop for rect in (window-rects view) collect (first rect) collect (third rect)))
+          (cols (view-cols view)))
+      (flet ((blank (x0 x1 row)
+               ;; Cut at window edges so each piece is wholly inside or outside a window.
+               (loop with cuts = (sort (remove-duplicates (remove-if-not (lambda (e) (< x0 e x1)) edges)) #'<)
+                     for start = x0 then end for end in (append cuts (list x1))
+                     collect (list start row (make-string (- end start) :initial-element #\Space) (list 0)))))
+        (loop for row below (view-rows view)
+              append (let ((x 0) (out nil))
+                       (dolist (rect (sort (remove-if-not (lambda (r) (and (<= (second r) row) (< row (fourth r))
+                                                                           (< (first r) (third r))))
+                                                          rects)
+                                           #'< :key #'first))
+                         (when (< x (first rect)) (push (blank x (first rect) row) out))
+                         (setf x (max x (third rect))))
+                       (when (< x cols) (push (blank x cols row) out))
+                       (reduce #'append (nreverse out))))))))
 #+end_src
 
 ** src/commands.lisp
@@ -3016,6 +3164,8 @@ Command dispatch and per-daemon option lookup.
                   :chrome-status (list :text (status-text view registry)
                                        :style (getf options :status-style '(0 30 47)))
                   :pane-notes (pane-note-data view registry)
+                  :notifications (remove-if-not (lambda (n) (pane-by-id daemon (getf n :pane)))
+                                                (daemon-notifications daemon))
                   :component-state (view-component-state view)
                   :store (daemon-store-entries daemon) :layout (daemon-tree daemon)
                   :panes (loop for pane in (view-panes view)
@@ -3759,7 +3909,7 @@ legacy control bytes still match a folded C- chord."
       (unless (and (listp span) (evenp (length span))) (error "Malformed decoration span: ~S" span))
       (let ((keys nil))
         (loop for (key value) on span by #'cddr do
-          (unless (member key '(:x :y :text :sgr :rows :overlay :action :context-command :command :arguments :hover-sgr :wheel-command :middle-command :pane :drag)) (error "Unknown decoration field: ~S" key))
+          (unless (member key '(:x :y :text :sgr :rows :overlay :action :context-command :command :arguments :hover-sgr :wheel-command :middle-command :pane :drag :enter :key)) (error "Unknown decoration field: ~S" key))
           (when (member key keys) (error "Duplicate decoration field: ~S" key))
           (push key keys))
         (let ((x (getf span :x)) (y (getf span :y)) (text (getf span :text))
@@ -3771,6 +3921,14 @@ legacy control bytes still match a folded C- chord."
                        (listp sgr) (<= (length sgr) 16)
                        (every (lambda (n) (and (integerp n) (<= 0 n 255))) sgr))
             (error "Invalid decoration span: ~S" span))
+          (let ((enter (getf span :enter)) (key (getf span :key)))
+            (unless (or (null enter)
+                        (and (listp enter) (= (length enter) 3) (stringp (first enter))
+                             (<= 1 (length (first enter)) 64)
+                             (typep (second enter) '(integer -500 500)) (typep (third enter) '(integer -300 300))))
+              (error "Entrance must be (id dx dy): ~S" enter))
+            (unless (or (null key) (and menu-p (stringp key) (= (length key) 1) (graphic-char-p (char key 0))))
+              (error "A menu key must be one printable character: ~S" key)))
           (when (or (getf span :pane) (getf span :drag))
             (unless (and (not menu-p) (typep (getf span :pane) '(integer 1 *))
                          (member (getf span :drag) '(nil :move :left :right :top :bottom :top-left :top-right :bottom-left :bottom-right)))
@@ -3834,6 +3992,7 @@ legacy control bytes still match a folded C- chord."
       (let* ((op (first a)) (args (rest a)) (pane (getf args :pane))
              (keys (case op
                      (:pane-note '(:pane :text :sgr :duration))
+                     (:notifications '(:op :id))
                      (:send-input '(:pane :bytes)) (:set-keymap '(:name)) (:set-layout '(:tree)) (:set-state '(:value)) (:store-set '(:key :value)) (:set-geometry '(:value)) (:decorate '(:spans)) (:show-menu '(:spans :x :y)) (:split '(:pane :axis :argv)) (:focus '(:pane)) (:rename '(:pane :text)) (:resize '(:pane :delta))
                      (:stop '(:force))
                      (:copy-point '(:pane :x :y :start)) (:copy-scroll '(:pane :delta))
@@ -3861,7 +4020,7 @@ legacy control bytes still match a folded C- chord."
            (unless (find (getf args :name) (getf registry :keymaps)
                          :key (lambda (m) (getf m :name)))
              (error "Unknown keymap")))
-          ((:status :decorate :show-menu :pane-note :set-state :store-set)
+          ((:status :decorate :show-menu :pane-note :notifications :set-state :store-set)
            (when (member op '(:set-state :store-set))
              (incf state-count)
              (when (> state-count 1) (error "A batch may contain at most one state update"))
@@ -3930,6 +4089,11 @@ legacy control bytes still match a folded C- chord."
              (error "Invalid menu owner or geometry"))
            (validate-decoration-spans (getf args :spans) t))
           (:decorate (validate-decoration-spans (getf args :spans)))
+          (:notifications
+           (unless (if (member (getf args :op) '(:read :dismiss))
+                       (typep (getf args :id) '(integer 1))
+                       (and (member (getf args :op) '(:read-all :clear)) (null (getf args :id))))
+             (error "Invalid notification change")))
           (:pane-note
            (unless (and pane (valid-decoration-text-p (getf args :text))
                         (<= (length (getf args :text)) 512)
@@ -3992,7 +4156,7 @@ legacy control bytes still match a folded C- chord."
   ;; Complete a mode transition only after the primary action succeeds. This
   ;; keeps mode and status contributions out of a batch whose primary action
   ;; raises after partially updating its own state.
-  (let ((primary (find-if (lambda (a) (and (not (member (first a) '(:status :decorate :show-menu :pane-note :set-state :store-set)))
+  (let ((primary (find-if (lambda (a) (and (not (member (first a) '(:status :decorate :show-menu :pane-note :notifications :set-state :store-set)))
                                            (not (eq (first a) :set-keymap)))) actions))
         (mode-transition (find-if (lambda (a) (eq (first a) :set-keymap)) actions)))
     (when primary
@@ -4007,6 +4171,7 @@ legacy control bytes still match a folded C- chord."
       (apply-primary-action view (first mode-transition) (rest mode-transition) origin)))
   (dolist (a actions)
     (case (first a)
+      (:notifications (change-notifications (view-daemon view) (getf (rest a) :op) (getf (rest a) :id)))
       (:show-menu (open-popup view owner (getf (rest a) :spans)
                               (getf (rest a) :x) (getf (rest a) :y)))
       (:pane-note
@@ -4386,6 +4551,11 @@ legacy control bytes still match a folded C- chord."
               :chrome-status (cons :object (getf context :chrome-status))
               :panes (mapcar #'pane-json-data (getf context :panes))
               :pane-notes (mapcar (lambda (note) (cons :object note)) (getf context :pane-notes))
+              :notifications (mapcar (lambda (n)
+                                       (list :object :id (getf n :id) :pane (getf n :pane) :time (getf n :time)
+                                             :title (getf n :title) :body (getf n :body) :count (getf n :count)
+                                             :bell (if (getf n :bell) t :false) :read (if (getf n :read) t :false)))
+                                     (getf context :notifications))
               :geometry (list* :object :contributions
                                (loop for (owner . value) in (view-geometry-contributions view)
                                      collect (list :object :owner owner :value (copy-component-state value)))
@@ -4481,15 +4651,20 @@ Attachment-local popups, placed and routed by the host.
                                       (length indices)) indices)))))
 (defun popup-key (view key)
   (when (view-popup view)
-    ;; Up/Down, Tab and the vim keys j/k move the picker selection.
-    (cond ((member key '(27 7)) (close-popup view))
-          ((member key '(:down 9 106)) (popup-cycle view 1))
-          ((member key '(:up 107)) (popup-cycle view -1))
-          ((eql key 13)
-           (let* ((popup (view-popup view))
-                  (span (and (popup-selected popup) (nth (popup-selected popup) (popup-spans popup)))))
-             (close-popup view)
-             (when span (activate-span view (popup-owner popup) span)))))
+    ;; Up/Down, Tab and the vim keys j/k move the picker selection; a span's
+    ;; own :key activates it directly.
+    (let* ((popup (view-popup view))
+           (keyed (and (integerp key)
+                       (find (string (code-char key)) (popup-spans popup)
+                             :key (lambda (span) (getf span :key)) :test #'equal))))
+      (cond ((member key '(27 7)) (close-popup view))
+            (keyed (close-popup view) (activate-span view (popup-owner popup) keyed))
+            ((member key '(:down 9 106)) (popup-cycle view 1))
+            ((member key '(:up 107)) (popup-cycle view -1))
+            ((eql key 13)
+             (let ((span (and (popup-selected popup) (nth (popup-selected popup) (popup-spans popup)))))
+               (close-popup view)
+               (when span (activate-span view (popup-owner popup) span))))))
     t))
 (defun popup-mouse (view button x y up)
   (let ((popup (view-popup view)))
@@ -4523,11 +4698,12 @@ Attachment-local popups, placed and routed by the host.
       (loop for span in (popup-spans popup) for index from 0
             for row = (- (getf span :y) (popup-scroll popup))
             when (<= 0 row (1- (popup-height popup)))
-            append (clip-decoration view nil
-                     (list :x (+ (popup-x popup) (getf span :x)) :y (+ (popup-y popup) row)
-                           :text (getf span :text)
-                           :sgr (if (eql index (popup-selected popup))
-                                    (getf span :hover-sgr (getf span :sgr)) (getf span :sgr))))))))
+            append (multiple-value-bind (dx dy) (motion-offset view span)
+                     (clip-decoration view nil
+                       (list :x (+ (popup-x popup) (getf span :x) dx) :y (+ (popup-y popup) row dy)
+                             :text (getf span :text)
+                             :sgr (if (eql index (popup-selected popup))
+                                      (getf span :hover-sgr (getf span :sgr)) (getf span :sgr)))))))))
 #+end_src
 
 ** src/animations.lisp
@@ -4588,6 +4764,37 @@ Short outline transitions riding the existing overlay channel.
                            (transition-from transition) (transition-to transition)))
              (sgr (transition-sgr transition)))
         (graphics-safe-outlines view (outline-spans rect sgr))))))
+;; Entrance motion: spans that declare (:enter (id dx dy)) start offset by
+;; (dx dy) and ease into place over :window-animation-ms, like transitions.
+;; Each motion is (id started step). A group re-enters after it disappears.
+(defun motion-duration (view)
+  (/ (option (view-daemon view) :window-animation-ms 0) 1000))
+(defun motion-step (view motion)
+  (let ((duration (motion-duration view)))
+    (if (plusp duration) (min 8 (floor (* 8 (/ (- (now) (second motion)) duration)))) 8)))
+(defun motion-offset (view span)
+  "SPAN's current (values dx dy), starting its group's motion on first sight."
+  (let ((enter (getf span :enter)))
+    (if (null enter)
+        (values 0 0)
+        (destructuring-bind (id dx dy) enter
+          (let* ((motion (or (assoc id (view-motions view) :test #'equal)
+                             (first (push (list id (now) 0) (view-motions view)))))
+                 (remaining (expt (- 1 (/ (motion-step view motion) 8)) 3)))
+            (values (round (* dx remaining)) (round (* dy remaining))))))))
+(defun motions-running-p (view)
+  (some (lambda (motion) (< (third motion) 8)) (view-motions view)))
+(defun tick-motions (view)
+  (let ((present (loop for span in (append (loop for entry in (view-decorations view) append (rest entry))
+                                            (and (view-popup view) (popup-spans (view-popup view))))
+                       when (getf span :enter) collect (first (getf span :enter)))))
+    (setf (view-motions view)
+          (remove-if-not (lambda (motion) (member (first motion) present :test #'equal)) (view-motions view)))
+    (dolist (motion (view-motions view))
+      (let ((step (motion-step view motion)))
+        (unless (= step (third motion))
+          (setf (third motion) step)
+          (incf (view-revision view)))))))
 #+end_src
 
 ** src/windows.lisp
@@ -5006,7 +5213,7 @@ The daemon: one workspace, its registry, PTYs and worker lifecycle.
   (work-turn 0) dispatch-cursors (recovery-budget 0) (service-failures 0)
   reload-peer initialization-queue candidate-views candidate-results candidate-contexts
   candidate-layouts candidate-stage candidate-members pending-splits
-  (clipboard "") (revision 0) (started (now))
+  (clipboard "") (revision 0) (started (now)) notifications (next-notification-id 1)
   creation stopping torn-down (retire-until 0) quit)
 (defstruct creation commands viewport peers (phase :load) initialization)
 (defstruct launch-request commands viewport directory environment config-path)
@@ -5420,7 +5627,7 @@ creation; on an existing workspace this is attach-only and never spawns."
 (defun workspace-deadline (daemon current)
   (let ((deadline (+ current 1)))
     (dolist (view (daemon-views daemon))
-      (when (view-transition view) (setf deadline (min deadline (+ current 1/50))))
+      (when (or (view-transition view) (motions-running-p view)) (setf deadline (min deadline (+ current 1/50))))
       (dolist (note (view-pane-notes view)) (setf deadline (min deadline (getf note :until))))
       (maphash (lambda (id state)
                  (declare (ignore id))
@@ -5444,7 +5651,7 @@ creation; on an existing workspace this is attach-only and never spawns."
   ;; owner in the same pass; the caller still bounds whole-service failures.
   (dolist (view (daemon-views daemon))
     (handler-case
-        (progn (tick-transition view) (expire-copy-flashes view) (expire-pane-notes view))
+        (progn (tick-transition view) (tick-motions view) (expire-copy-flashes view) (expire-pane-notes view))
       (error (condition) (note-error view condition))))
   (service-extensions daemon buffer)
   (dolist (pane (daemon-panes daemon))
@@ -7151,11 +7358,21 @@ The public extension API: components, commands, keymaps, layouts, options.
   "Return the ordinary Unicode terminal cell width of a character or string."
   (ekko/text:display-width value))
 
+(defun ground-colour-p (value)
+  (or (typep value '(integer 0 255))
+      (and (listp value) (= (length value) 3) (every (lambda (n) (typep n '(integer 0 255))) value))))
+(defun valid-ground-p (value)
+  "nil, one colour (index or (r g b)), or 1-16 bands of (weight colour), top to bottom."
+  (or (null value) (ground-colour-p value)
+      (and (listp value) (<= 1 (length value) 16)
+           (every (lambda (band) (and (listp band) (= (length band) 2) (typep (first band) '(integer 1 100))
+                                      (ground-colour-p (second band))))
+                  value))))
 (defun api-version () 1)
 (defun layout-api-version () 1)
 (defconstant +maximum-pane-budget+ 128)
 (defparameter *context-keys*
-  '(:session :view :focus :panes :layout :mode :zoom :viewport :chrome-status :pane-notes
+  '(:session :view :focus :panes :layout :mode :zoom :viewport :chrome-status :pane-notes :notifications
     :component-state :store :geometry :time :all-panes :workspace))
 (defstruct component id reads handler initialize commands bindings options keymaps layouts)
 (defvar *components* nil)
@@ -7334,7 +7551,9 @@ base inside a modified chord sets the Shift bit on the letter's lowercase key."
             (:boundary-insets (or (null value) (bounded-geometry-p value 4)))
             (:viewport-insets (bounded-geometry-p value 4))
             (:split-gaps (bounded-geometry-p value 2))
-            (:pty-pixel-source (member value '(:effective :reported))))
+            (:pty-pixel-source (member value '(:effective :reported)))
+            (:ground (valid-ground-p value))
+            (:ground-dim (typep value '(integer 0 90))))
     (error "Invalid option ~S: ~S" name value))
   (setf (getf (component-options (owner component)) name)
         (case name (:prefix (key-code value)) (:layout-provider (name-string value))
@@ -7843,7 +8062,7 @@ Installs the built-in profiles as a component.
 (defun install ()
   (install-layouts)
   (register-component :id ':defaults
-                      :reads '(:session :focus :panes :viewport :mode :zoom :layout :component-state :time)
+                      :reads '(:session :focus :panes :viewport :mode :zoom :layout :component-state :time :notifications)
                       :handler #'ekko/desktop:hook)
   (set-option :component ':defaults :name ':pane-insets :value '(1 1 1 1))
   (set-option :component ':defaults :name ':viewport-insets :value '(0 0 1 0))
@@ -8121,14 +8340,14 @@ A desktop profile: window headers and a fixed, clickable task dock.
 (ekko/extensions:unregister-component :zellij-decoration)
 (ekko/extensions:unregister-component :zellij-bars)
 (ekko/extensions:unregister-component :zellij-frames)
-(ekko/extensions:register-component :id ':desktop-windows :reads '(:session :focus :mode :panes :zoom :component-state :viewport :time)
+(ekko/extensions:register-component :id ':desktop-windows :reads '(:session :focus :mode :panes :zoom :component-state :viewport :time :notifications)
                                     :handler #'ekko/desktop:windows)
 (ekko/extensions:set-option :component ':desktop-windows :name ':pane-insets :value '(1 1 1 1))
 (ekko/extensions:set-option :component ':desktop-windows :name ':viewport-insets :value '(0 0 1 0))
 (ekko/extensions:set-option :component ':desktop-windows :name ':split-gaps :value '(0 0))
 (ekko/extensions:set-option :component ':desktop-windows :name ':erase-display-history :value t)
 (ekko/extensions:set-option :component ':desktop-windows :name ':pty-pixel-source :value ':reported)
-(ekko/extensions:register-component :id ':desktop-dock :reads '(:session :viewport :focus :panes :mode :zoom :time)
+(ekko/extensions:register-component :id ':desktop-dock :reads '(:session :viewport :focus :panes :mode :zoom :time :notifications)
                                     :handler #'ekko/desktop:dock)
 
 (ekko/desktop:install-controls :desktop-windows)
@@ -8940,16 +9159,76 @@ Desktop-terminal styling profile (rounded borders, padding, shadows).
 ;; All interaction uses ordinary, owner-scoped decoration actions.
 (defpackage #:ekko/desktop
   (:use #:cl)
-  (:export #:windows #:dock #:hook #:install-controls #:*hints*))
+  (:export #:windows #:dock #:hook #:install-controls #:*hints*
+           #:*theme* #:theme #:sgr #:clip #:panel #:menu-spans #:status-mark #:pane-title))
 (in-package #:ekko/desktop)
 
 (defparameter *hints*
   '((:normal) (:locked ("Ctrl-g" "Unlock"))
-    (:pane ("r/d/n" "New pane") ("Tab" "Cycle/restore") ("h/j/k/l" "Focus")
+    (:pane ("r/d/n" "New pane") ("Tab" "Cycle/restore") ("b" "Notifications") ("h/j/k/l" "Focus")
            ("m" "Minimize") ("f" "Maximize") ("t" "Float/tile") ("c" "Rename") ("x" "Close") ("Esc" "Normal"))
     (:move ("h/j/k/l" "Move pane") ("n/Tab" "Next") ("p" "Previous") ("Esc" "Normal"))
     (:rename ("Type" "Rename pane") ("Enter" "Save") ("Esc" "Cancel"))
     (:session ("d" "Detach") ("Ctrl-q" "Quit") ("Esc" "Normal"))))
+
+;; The look is data. Colours are 256-colour indices; a profile restyles every
+;; panel, menu, toast and taskbar entry by rebinding or editing *theme*.
+(defparameter *theme*
+  '(:surface 235 :raised 237 :selection 238 :border 241 :text 252 :muted 245 :faint 241
+    :attention 221 :danger 203 :ok 114 :on-accent 16
+    :accents (154 117 213 221 114 209)
+    :corners ("╭" "╮" "╰" "╯") :horizontal #\─ :vertical "│" :tees ("├" "┤") :ellipsis "…"
+    :marks (:focus "▸" :attention "!" :busy "◐" :activity "●" :minimized "–" :idle "·")
+    :bell "🔔" :toast-seconds 6 :toast-width 48
+    ;; Depth. The desktop itself is the core :ground option, which also shows
+    ;; through every window; :shadow is a colour cast by floating windows and
+    ;; panels, the things above the tiled plane; a
+    ;; :filled titlebar paints the focused window's title strip in its accent;
+    ;; :attention-style :mark colours only the taskbar mark, :entry the whole entry.
+    :shadow 233 :titlebar :plain :attention-style :entry
+    ;; Roles. Each names what it colours and defaults to a token above; nil
+    ;; means "the window's accent". A theme restyles one surface by setting its
+    ;; role, and a colour anywhere may be an index or an (r g b) triple.
+    ;; :frame-style :solid fills borders with the frame colour instead of
+    ;; drawing lines on the ground.
+    :frame-style :line :title-align :center
+    :frame-active nil :frame-inactive :border
+    :title-active nil :title-inactive :raised :title-text :on-accent :title-inactive-text :muted
+    :control-bg nil :close-bg nil
+    :bar-bg :surface :bar-text :muted :start nil :tray-bg :bar-bg :tray-text :text
+    :entry-bg :raised :entry-text nil :entry-active nil :entry-active-text :on-accent :entry-hover nil
+    :entry-minimized :bar-bg :entry-minimized-text :faint
+    :panel-bg :surface :panel-text :text :panel-muted :muted :panel-border :border
+    :highlight nil :highlight-text :on-accent
+    :toast-bg :panel-bg :toast-text :panel-text :toast-frame :attention))
+
+(defun theme (key) (getf *theme* key))
+
+(defun color (value)
+  "Resolve a theme keyword, following aliases, to an index or (r g b)."
+  (loop while (keywordp value) do (setf value (theme value)))
+  value)
+
+(defun layer (code value)
+  "SGR parameters for colour VALUE: CODE is 38 for foreground, 48 for background."
+  (let ((c (color value)))
+    (if (listp c) (list code 2 (first c) (second c) (third c)) (list code 5 c))))
+
+(defun sgr (fg &optional (bg :surface) bold)
+  (append (list 0) (when bold (list 1)) (layer 38 fg) (layer 48 bg)))
+
+(defun ink (fg &optional bold)
+  "Text colour FG on the panel background."
+  (sgr fg :panel-bg bold))
+
+(defun role (key id)
+  "Role KEY's colour, or window ID's accent when the role is nil."
+  (or (theme key) (desktop-color id)))
+
+(defun mark (key) (getf (theme :marks) key))
+
+(defun desktop-color (id)
+  (let ((accents (theme :accents))) (nth (mod (1- id) (length accents)) accents)))
 
 (defun safe-text (text)
   (map 'string (lambda (c) (if (or (< (char-code c) 32) (<= 127 (char-code c) 159)) #\Space c))
@@ -8962,50 +9241,124 @@ Desktop-terminal styling profile (rounded borders, padding, shadows).
           while (<= (+ used size) width)
           do (write-char c out) (incf used size))))
 
-(defun pane-title (pane)
-  (let ((name (getf pane :name)))
-    (cond ((and name (plusp (length name))) name)
-          ((getf pane :terminal-title) (string-trim '(#\Space #\Tab #\Newline #\Return)
-                                                   (getf pane :terminal-title)))
-          ((eq (getf pane :launch-kind) :command) (format nil "~{~A~^ ~}" (getf pane :argv)))
-          (t (format nil "Pane #~D" (getf pane :id))))))
+(defun clip (text width)
+  "TEXT in at most WIDTH cells, ending in the theme's ellipsis when cut."
+  (if (<= (ekko/extensions:display-width text) width)
+      text
+      (concatenate 'string (fit-text text (max 0 (1- width))) (if (plusp width) (theme :ellipsis) ""))))
+
+(defun padded (text width &optional (fill #\Space))
+  (let ((text (clip text width)))
+    (concatenate 'string text (make-string (max 0 (- width (ekko/extensions:display-width text)))
+                                           :initial-element fill))))
+
+(defun busy-glyph-p (char)
+  "Spinner glyphs programs put before their title while they work."
+  (or (<= #x2800 (char-code char) #x28FF) (find char "◐◑◒◓◴◵◶◷")))
+
+(defun title-parts (pane)
+  "The pane's display title, and whether its program marked it busy. A leading
+status glyph and space, as coding agents write them, becomes the busy flag."
+  (let* ((name (getf pane :name))
+         (raw (cond ((and name (plusp (length name))) name)
+                    ((getf pane :terminal-title)
+                     (string-trim '(#\Space #\Tab #\Newline #\Return) (getf pane :terminal-title)))
+                    ((eq (getf pane :launch-kind) :command) (format nil "~{~A~^ ~}" (getf pane :argv)))
+                    (t (format nil "Pane #~D" (getf pane :id)))))
+         (glyph (and (> (length raw) 2) (char= (char raw 1) #\Space)
+                     (not (alphanumericp (char raw 0))) (not (find (char raw 0) "~/.([<$#-"))
+                     (char raw 0))))
+    (values (safe-text (if glyph (subseq raw 2) raw)) (and glyph (busy-glyph-p glyph)))))
+
+(defun pane-title (pane) (values (title-parts pane)))
+
+(defun border-glyph () (if (eq (theme :frame-style) :solid) " " (theme :vertical)))
 
 (defun frame-spans (pane)
   (destructuring-bind (x y width height) (getf pane :rect)
-    (let* ((title (fit-text (getf pane :title) (max 0 (- width 2))))
+    (let* ((title (clip (getf pane :title) (max 0 (- width 2))))
            (padding (- width (ekko/extensions:display-width title)))
-           (left (floor padding 2)) (sgr (getf pane :sgr))
+           (left (if (eq (theme :title-align) :left) (min 2 padding) (floor padding 2)))
+           (sgr (getf pane :sgr)) (corners (theme :corners)) (solid (eq (theme :frame-style) :solid))
            (header (concatenate 'string (make-string left :initial-element #\Space) title
                                 (make-string (- padding left) :initial-element #\Space))))
       (append (list (list :x x :y y :text header :sgr sgr))
         (when (> height 2)
           (loop for edge in (remove-duplicates (list x (+ x width -1)))
-                collect (list :x edge :y (1+ y) :text "│" :sgr sgr :rows (- height 2))))
+                collect (list :x edge :y (1+ y) :text (border-glyph) :sgr sgr :rows (- height 2))))
         (when (> height 1)
           (list (list :x x :y (+ y height -1)
-                      :text (if (= width 1) "│"
-                                (concatenate 'string "└" (make-string (- width 2) :initial-element #\─) "┘"))
+                      :text (cond (solid (make-string width :initial-element #\Space))
+                                  ((= width 1) (theme :vertical))
+                                  (t (rule (third corners) (fourth corners) width)))
                       :sgr sgr)))))))
 
-(defun desktop-color (id)
-  (nth (mod (1- id) 6) '(154 117 213 221 114 209)))
+(defun status-mark (pane focus unread)
+  "One status vocabulary for the taskbar and the switcher: (values glyph colour)."
+  (let ((id (getf pane :id)))
+    (cond ((eql id focus) (values (mark :focus) (desktop-color id)))
+          ((find id unread :key (lambda (n) (getf n :pane))) (values (mark :attention) :attention))
+          ((nth-value 1 (title-parts pane)) (values (mark :busy) (desktop-color id)))
+          ((getf pane :activity) (values (mark :activity) (desktop-color id)))
+          ((getf pane :minimized) (values (mark :minimized) :faint))
+          (t (values (mark :idle) :faint)))))
 
-(defun menu-spans (items color)
-  (let* ((width 26) (base '(0 38 5 252 48 5 236))
-         (edge '(0 38 5 242 48 5 236))
-         (hover (list 0 38 5 16 48 5 color)))
-    (append
-      (list (list :x 0 :y 0 :text (concatenate 'string "┌" (make-string (- width 2) :initial-element #\─) "┐") :sgr edge))
-      (loop for (label action command arguments) in items for y from 1
-            for text = (fit-text label (- width 4))
-            collect (append
-              (list :x 0 :y y :text (concatenate 'string "│ " text
-                       (make-string (- width 3 (ekko/extensions:display-width text)) :initial-element #\Space) "│")
-                    :sgr base :hover-sgr hover)
-              (when action (list :action action))
-              (when command (list :command command :arguments arguments))))
-      (list (list :x 0 :y (1+ (length items))
-                  :text (concatenate 'string "└" (make-string (- width 2) :initial-element #\─) "┘") :sgr edge)))))
+(defun rule (left right width)
+  "A horizontal border WIDTH cells wide."
+  (concatenate 'string left
+               (make-string (max 0 (- width (ekko/extensions:display-width left) (ekko/extensions:display-width right)))
+                            :initial-element (theme :horizontal))
+               right))
+
+(defun panel (rows &key title hints (width 40) (accent :text) (frame :panel-border) (bg :panel-bg) enter overlay)
+  "Spans for a bordered panel at (0 0), and its height. Each row is a plist:
+:text, optional :lead and :right strings, :sgr, :key, and a control (:command
+with :arguments, or :action); (:separator t) draws a divider. TITLE sits in the
+top border and HINTS in the bottom one, both inset in their own colours. Only
+row content is a control, so the frame keeps its colour under the pointer."
+  (let* ((edge (sgr frame bg)) (hover (sgr :highlight-text (or (theme :highlight) accent) t))
+         (corners (theme :corners)) (y 0) (spans nil)
+         (common (append (when enter (list :enter enter)) (when overlay (list :overlay t)))))
+    (flet ((emit (x text style &rest more)
+             (push (append (list :x x :y y :text text :sgr style) more common) spans)))
+      (emit 0 (rule (first corners) (second corners) width) edge)
+      (when title (emit 2 (concatenate 'string " " (clip title (- width 6)) " ") (sgr :panel-text bg t)))
+      (incf y)
+      (dolist (row rows)
+        (if (getf row :separator)
+            (emit 0 (rule (first (theme :tees)) (second (theme :tees)) width) edge)
+            (let* ((lead (getf row :lead)) (right (or (getf row :right) ""))
+                   (inner (- width 4 (if lead (1+ (ekko/extensions:display-width lead)) 0)
+                             (ekko/extensions:display-width right)))
+                   (text (concatenate 'string " " (if lead (concatenate 'string lead " ") "")
+                                      (padded (getf row :text) inner) right " "))
+                   (control (loop for key in '(:command :arguments :action :key)
+                                  when (getf row key) append (list key (getf row key)))))
+              (emit 0 (theme :vertical) edge)
+              (apply #'emit 1 text (or (getf row :sgr) (sgr :panel-text bg))
+                     (when (or (getf row :command) (getf row :action)) (list* :hover-sgr hover control)))
+              (emit (1- width) (theme :vertical) edge)))
+        (incf y))
+      (emit 0 (rule (third corners) (fourth corners) width) edge)
+      (when hints (emit 2 (concatenate 'string " " (clip hints (- width 6)) " ") (sgr :panel-muted bg)))
+      (incf y)
+      ;; Panels float above windows, so they cast the theme's shadow too.
+      (let ((shadow (theme :shadow)))
+        (when shadow
+          (push (append (list :x width :y 1 :rows (1- y) :text " " :sgr (sgr shadow shadow)) common) spans)
+          (push (append (list :x 1 :y y :text (make-string width :initial-element #\Space) :sgr (sgr shadow shadow))
+                        common)
+                spans)))
+      (values (nreverse spans) (if (theme :shadow) (1+ y) y)))))
+
+(defun menu-spans (items color &optional title)
+  "ITEMS are (label action command arguments); the menu takes the owner's COLOR."
+  (let ((width (min 40 (max 24 (+ 6 (loop for item in items maximize (ekko/extensions:display-width (first item))))))))
+    (values (panel (loop for (label action command arguments) in items
+                         collect (append (list :text label)
+                                         (when action (list :action action))
+                                         (when command (list :command command :arguments arguments))))
+                   :title title :width width :accent color :enter (list "menu" 0 -1)))))
 
 (defun window-menu (pane focus zoom)
   (let ((id (getf pane :id)) (minimized (getf pane :minimized)))
@@ -9021,53 +9374,132 @@ Desktop-terminal styling profile (rounded borders, padding, shadows).
               (list "Split right" (list :split :pane id :axis :columns))
               (list "Split down" (list :split :pane id :axis :rows))
               (list "Close window" (list :close :pane id))))
-      (desktop-color id))))
+      (desktop-color id) (clip (pane-title pane) 24))))
 
 (defun clock-text (time)
   (multiple-value-bind (second minute hour) (decode-universal-time time)
     (declare (ignore second))
     (format nil "~2,'0D:~2,'0D" hour minute)))
 
+(defun unread (snapshot)
+  (remove-if (lambda (n) (getf n :read)) (ekko/extensions:value snapshot :notifications)))
+
 (defun window-list-menu (snapshot)
+  "Windows, most recently used first; 1-9 pick directly."
   (let* ((viewport (ekko/extensions:value snapshot :viewport))
+         (focus (ekko/extensions:value snapshot :focus)) (unread (unread snapshot))
          (panes (sort (copy-list (ekko/extensions:value snapshot :panes))
                       #'> :key (lambda (pane) (getf pane :activation-order))))
-         (items (loop for pane in panes collect
-                  (list (format nil "~A ~A" (cond ((getf pane :minimized) "_")
-                                                  ((getf pane :activity) "●") (t "·"))
-                                (pane-title pane))
-                        (list :focus :pane (getf pane :id))))))
-    (list (ekko/extensions:action :show-menu
-            ':x (max 0 (floor (- (getf viewport :cols) 26) 2))
-            :y (max 0 (floor (- (getf viewport :rows) (+ 2 (length items))) 2))
-            :spans (menu-spans items 154)))))
+         (width (min (getf viewport :cols) 64
+                     (max 36 (+ 14 (loop for pane in panes maximize (ekko/extensions:display-width (pane-title pane)))))))
+         (rows (loop for pane in panes for index from 1
+                     collect (multiple-value-bind (glyph tone) (status-mark pane focus unread)
+                               (declare (ignore tone))
+                               (append (list :lead (format nil "~A ~A" (if (<= index 9) index " ") glyph)
+                                             :text (pane-title pane)
+                                             :right (if (getf pane :minimized) "minimized" "")
+                                             :sgr (if (getf pane :minimized) (ink :panel-muted) (ink :panel-text))
+                                             :action (list (if (getf pane :minimized) :restore :focus) :pane (getf pane :id)))
+                                       (when (<= index 9) (list :key (princ-to-string index))))))))
+    (multiple-value-bind (spans height)
+        (panel rows :title "Windows" :hints "1-9 · ⏎ open · esc" :width width
+                    :accent (desktop-color (or focus 1)) :enter (list "switcher" 0 -1))
+      (list (ekko/extensions:action :show-menu
+              ':x (max 0 (floor (- (getf viewport :cols) width) 2))
+              :y (max 0 (floor (- (getf viewport :rows) height) 2))
+              :spans spans)))))
+
+(defun notification-window (n snapshot)
+  "The sending window's title: it says which session wants attention."
+  (let ((pane (find (getf n :pane) (ekko/extensions:value snapshot :panes) :key (lambda (p) (getf p :id)))))
+    (if pane (pane-title pane) "Closed window")))
+
+(defun notification-message (n)
+  (let ((title (getf n :title)) (body (getf n :body)))
+    (safe-text
+     (cond ((getf n :bell) (if (> (getf n :count) 1) (format nil "Bell ×~D" (getf n :count)) "Bell"))
+           ((and (plusp (length title)) (plusp (length body))) (format nil "~A: ~A" title body))
+           ((plusp (length body)) body)
+           (t title)))))
+
+(defun age-text (seconds)
+  (cond ((< seconds 60) "now") ((< seconds 3600) (format nil "~Dm" (floor seconds 60)))
+        ((< seconds 86400) (format nil "~Dh" (floor seconds 3600))) (t (format nil "~Dd" (floor seconds 86400)))))
+
+(defun toast (snapshot)
+  "The newest unread notification, briefly, sliding in above the taskbar's right end."
+  (let* ((n (first (unread snapshot)))
+         (viewport (ekko/extensions:value snapshot :viewport))
+         (cols (getf viewport :cols)) (rows (getf viewport :rows))
+         (width (min (theme :toast-width) cols)))
+    (when (and n (< (- (ekko/extensions:value snapshot :time) (getf n :time)) (theme :toast-seconds)) (>= rows 5))
+      (let ((open (list :command "desktop-notification-open" :arguments (list (write-to-string (getf n :id))))))
+        (multiple-value-bind (spans height)
+            (panel (list (append (list :text (notification-message n) :sgr (sgr :toast-text :toast-bg)) open))
+                   :title (concatenate 'string (theme :bell) " " (clip (notification-window n snapshot) (- width 12)))
+                   :width width :accent :attention :frame :toast-frame :bg :toast-bg :overlay t
+                   :enter (list (format nil "toast-~D" (getf n :id)) width 0))
+          ;; Sit on the taskbar, shadow included; the panel is one column wider with a shadow.
+          (let ((x (- cols width (if (theme :shadow) 1 0))) (y (- rows 1 height)))
+            (loop for span in spans
+                  collect (append (list :x (+ (getf span :x) x) :y (+ (getf span :y) y))
+                                  (loop for (key value) on span by #'cddr unless (member key '(:x :y)) append (list key value))
+                                  (unless (getf span :command) open)))))))))
+
+(defun notification-menu (snapshot)
+  "Newest first; clicking an entry opens its window. Opening the centre reads them all."
+  (let* ((viewport (ekko/extensions:value snapshot :viewport))
+         (now (ekko/extensions:value snapshot :time))
+         (notifications (ekko/extensions:value snapshot :notifications))
+         (width (min 52 (getf viewport :cols)))
+         (rows (if notifications
+                   (append
+                    (loop for n in notifications
+                          for open = (list :command "desktop-notification-open"
+                                           :arguments (list (write-to-string (getf n :id))))
+                          append (list (append (list :lead (if (getf n :read) " " (mark :activity))
+                                                     :text (notification-window n snapshot)
+                                                     :right (age-text (max 0 (- now (getf n :time))))
+                                                     :sgr (if (getf n :read) (ink :panel-muted) (ink :panel-text t)))
+                                               open)
+                                       (append (list :lead " " :text (notification-message n) :sgr (ink :panel-muted)) open)))
+                    (list (list :separator t)
+                          (list :lead " " :text "Clear all" :sgr (ink :panel-muted) :command "desktop-notifications-clear")))
+                   (list (list :text "No notifications" :sgr (ink :panel-muted))))))
+    (multiple-value-bind (spans height)
+        (panel rows :title "Notifications" :hints "⏎ open · esc" :width width :accent :attention
+                    :enter (list "notifications" 0 2))
+      (list (ekko/extensions:action :show-menu ':x (max 0 (- (getf viewport :cols) width))
+                                    :y (max 0 (- (getf viewport :rows) 1 height)) :spans spans)
+            (ekko/extensions:action :notifications ':op :read-all)))))
 
 (defun backdrop (snapshot)
   (let* ((viewport (ekko/extensions:value snapshot :viewport))
-         (cols (getf viewport :cols)) (rows (getf viewport :rows))
-         (session (fit-text (safe-text (ekko/extensions:value snapshot :session)) 22))
-         (items (list "EKKO desktop"
-                      (format nil "session ~A" session)
-                      (clock-text (ekko/extensions:value snapshot :time))
-                      ""
-                      "Ctrl-p n    new window"
-                      "Ctrl-p Tab  restore window"))
-         (width 32) (height (+ 2 (length items)))
-         (x (max 0 (floor (- cols width) 2)))
-         (y (max 0 (floor (- (max 1 (1- rows)) height) 2)))
-         (edge '(0 38 5 250 48 5 236)) (body '(0 38 5 245 48 5 236)))
-    (append
-      (list (list :x x :y y :text (concatenate 'string "┌" (make-string (- width 2) :initial-element #\─) "┐") :sgr edge))
-      (loop for item in items for row from (1+ y)
-            for text = (fit-text item (- width 4))
-            collect (list :x x :y row
-                          :text (concatenate 'string "│ " text
-                                             (make-string (max 0 (- width 3 (ekko/extensions:display-width text)))
-                                                          :initial-element #\Space)
-                                             "│")
-                          :sgr body))
-      (list (list :x x :y (+ y 1 (length items))
-                  :text (concatenate 'string "└" (make-string (- width 2) :initial-element #\─) "┘") :sgr edge)))))
+         (cols (getf viewport :cols)) (rows (getf viewport :rows)) (width (min cols 36)))
+    (multiple-value-bind (spans height)
+        (panel (list (list :text (clock-text (ekko/extensions:value snapshot :time)) :sgr (ink :panel-text t))
+                     (list :text (format nil "session ~A" (safe-text (ekko/extensions:value snapshot :session)))
+                           :sgr (ink :panel-muted))
+                     (list :separator t)
+                     (list :lead "Ctrl-p n  " :text "new window" :sgr (ink :panel-muted))
+                     (list :lead "Ctrl-p Tab" :text "restore window" :sgr (ink :panel-muted)))
+               :title "EKKO" :width width)
+      (let ((x (max 0 (floor (- cols width) 2))) (y (max 0 (floor (- (max 1 (1- rows)) height) 2))))
+        (loop for span in spans
+              do (incf (getf span :x) x) (incf (getf span :y) y)
+              collect span)))))
+
+(defun surface (snapshot)
+  "Shadows under floating windows, the things above the tiled plane. Decorations
+never cover application content, so these land only on the ground around them."
+  (let ((shadow (theme :shadow)))
+    (when shadow
+      (loop for pane in (ekko/extensions:value snapshot :panes)
+            when (and (getf pane :visible) (getf pane :floating))
+              append (destructuring-bind (x y width h) (getf pane :outer-rect)
+                       (list (list :x (+ x width) :y (1+ y) :rows h :text " " :sgr (sgr shadow shadow))
+                             (list :x (1+ x) :y (+ y h) :text (make-string width :initial-element #\Space)
+                                   :sgr (sgr shadow shadow))))))))
 
 (defun windows (snapshot event)
   (declare (ignore event))
@@ -9077,17 +9509,25 @@ Desktop-terminal styling profile (rounded borders, padding, shadows).
     (list (ekko/extensions:action :decorate ':spans
       (ekko/extensions:clip-decorations
        (append
+        (surface snapshot)
         (loop for pane in (ekko/extensions:value snapshot :panes)
               when (getf pane :visible)
               append
           (destructuring-bind (x y width height) (getf pane :outer-rect)
             (let* ((id (getf pane :id)) (controls (>= width 12))
-                   (attribute (if (eql id focus) 1 2))
-                   (frame-sgr (list 0 attribute 38 5 (desktop-color id) 49))
-                   (bar-sgr (list 0 attribute 38 5 (desktop-color id) 48 5 235))
-                   (title (fit-text
-                           (safe-text (pane-title pane))
-                           (max 0 (- width (if controls 20 2)))))
+                   (focused (eql id focus))
+                   ;; Only the focused window wears its accent; the rest recede.
+                   (frame (if focused (role :frame-active id) :frame-inactive))
+                   (frame-sgr (if (eq (theme :frame-style) :solid)
+                                  (sgr frame frame)
+                                  ;; No background: line borders sit on the ground.
+                                  (append (list 0) (when focused (list 1)) (layer 38 frame))))
+                   (filled (eq (theme :titlebar) :filled))
+                   (title-bg (if focused (role :title-active id) :title-inactive))
+                   (bar-sgr (cond (filled (sgr (if focused :title-text :title-inactive-text) title-bg t))
+                                  (focused (sgr (desktop-color id) :surface t))
+                                  (t (sgr :muted :surface))))
+                   (title (clip (pane-title pane) (max 0 (- width (if controls 20 2)))))
                    (spans (frame-spans
                            (list :rect (list x y width height) :title title
                                  :focus (eql id focus) :mode mode
@@ -9101,31 +9541,39 @@ Desktop-terminal styling profile (rounded borders, padding, shadows).
               (setf (getf (first spans) :action) (list :focus :pane id)
                     (getf (first spans) :sgr) bar-sgr
                     (getf (first spans) :hover-sgr)
-                    (list 0 1 38 5 16 48 5 237))
+                    (if filled bar-sgr (sgr (if focused (desktop-color id) :text) :raised t)))
               (let ((arguments (list (write-to-string id))))
                 (mapcar (lambda (span) (append span (list :pane id :context-command "desktop-window-menu" :arguments arguments)))
                   (append spans
                 (when (getf pane :floating)
-                  (list (list :x (1+ x) :y y :text "─" :sgr bar-sgr :drag :top)
-                        (list :x x :y (+ y height -1) :text "└" :sgr bar-sgr :drag :bottom-left)
-                        (list :x (+ x width -1) :y (+ y height -1) :text "┘" :sgr bar-sgr :drag :bottom-right)))
+                  (let ((solid (eq (theme :frame-style) :solid)))
+                    (list (list :x (1+ x) :y y :text (if (or solid filled) " " (string (theme :horizontal))) :sgr bar-sgr :drag :top)
+                          (list :x x :y (+ y height -1) :text (if solid " " (third (theme :corners))) :sgr frame-sgr
+                                :drag :bottom-left)
+                          (list :x (+ x width -1) :y (+ y height -1) :text (if solid " " (fourth (theme :corners)))
+                                :sgr frame-sgr :drag :bottom-right))))
                 (loop for edge in (remove-duplicates (list x (+ x width -1)))
-                      collect (list :x edge :y y :text "│"
-                                    :sgr bar-sgr
+                      collect (list :x edge :y y :text (border-glyph)
+                                    :sgr frame-sgr
                                     :drag (if (getf pane :floating)
                                               (if (= edge x) :top-left :top-right) :top)
                                     :action (list :focus :pane id)))
                 (when controls
-                  (loop for (glyph color action) in '((" _ " 221 :minimize)
-                                                      (" □ " 114 :zoom)
-                                                      (" × " 203 :close))
+                  (loop for (glyph tone action) in '((" _ " :attention :minimize)
+                                                     (" □ " :ok :zoom)
+                                                     (" × " :danger :close))
                         for offset from (- width 10) by 3
                         collect (list :x (+ x offset) :y y :text glyph
-                                      :sgr (list 0 1 38 5 color 48 5 235)
-                                      :hover-sgr (list 0 1 38 5 16 48 5 color)
+                                      :sgr (cond ((and focused filled)
+                                                  (sgr :title-text (or (theme (if (eq action :close) :close-bg :control-bg)) title-bg) t))
+                                                 (focused (sgr tone :surface t))
+                                                 (filled (sgr :title-inactive-text title-bg))
+                                                 (t (sgr :faint :surface)))
+                                      :hover-sgr (sgr :on-accent tone t)
                                       :action (list action :pane id))))))))))
         (unless (find-if (lambda (pane) (getf pane :visible)) (ekko/extensions:value snapshot :panes))
-          (backdrop snapshot)))
+          (backdrop snapshot))
+        (toast snapshot))
        (getf viewport :cols) (getf viewport :rows))))))
 
 (defun dock (snapshot event &optional (hints *hints*))
@@ -9136,16 +9584,26 @@ Desktop-terminal styling profile (rounded borders, padding, shadows).
          (focus (ekko/extensions:value snapshot :focus))
          (mode (or (ekko/extensions:value snapshot :mode) :normal))
          (session (ekko/extensions:value snapshot :session))
-         (base '(0 38 5 250 48 5 235))
-         (left (list (list " EKKO " '(0 1 38 5 154 48 5 235))
-                     (list (format nil "~A │ " (fit-text (safe-text session) 16)) base)))
-         (right (if (eq mode :normal)
+         (base (sgr :bar-text :bar-bg))
+         (start (theme :start))
+         (left (if start
+                   (destructuring-bind (text fg bg) start
+                     (list (list text (sgr fg bg t)
+                                 (list :command "desktop-start-menu" :hover-sgr (sgr fg bg t)))
+                           (list " " base)))
+                   (list (list " EKKO " (sgr (first (theme :accents)) :bar-bg t))
+                         (list (format nil "~A │ " (clip (safe-text session) 16)) base))))
+         (unread (unread snapshot))
+         (bell (list (if unread (format nil " ~A ~D " (theme :bell) (length unread)) (format nil " ~A " (theme :bell)))
+                     (if unread (sgr :on-accent :attention t) (sgr :tray-text :tray-bg))
+                     (list :command "desktop-notifications" :hover-sgr (sgr :on-accent :text t))))
+         (right (cons bell (if (eq mode :normal)
                     (list (list (format nil " ~A " (clock-text (ekko/extensions:value snapshot :time)))
-                                '(0 1 38 5 250 48 5 235)))
+                                (sgr :tray-text :tray-bg t)))
                     (cons (list (format nil "  ~A " (string-upcase (symbol-name mode)))
-                                '(0 1 38 5 221 48 5 235))
+                                (sgr :attention :bar-bg t))
                           (loop for (key label) in (rest (assoc mode hints))
-                                collect (list (format nil " ~A ~A " key label) base)))))
+                                collect (list (format nil " ~A ~A " key label) base))))))
          (left-used (loop for segment in left sum (ekko/extensions:display-width (first segment))))
          (right-used (loop for segment in right sum (ekko/extensions:display-width (first segment))))
          (space (max 0 (- width left-used right-used)))
@@ -9155,18 +9613,27 @@ Desktop-terminal styling profile (rounded borders, padding, shadows).
     (labels ((width-of (n) (+ (* n tile) (max 0 (1- n))))
              (entry (pane)
                (let* ((id (getf pane :id)) (minimized (getf pane :minimized))
-                      (marker (cond ((eql id focus) "▸") ((getf pane :activity) "●") (minimized "_") (t "·")))
-                      (title (fit-text (safe-text (pane-title pane)) (max 0 (- tile 3)))))
-                 (list :x 0 :y y :text (format nil " ~A~A " marker title)
-                       :sgr (if minimized (list 0 38 5 (desktop-color id) 48 5 239)
-                                (list 0 1 38 5 16 48 5 (desktop-color id)))
-                       :hover-sgr (if minimized (list 0 38 5 (desktop-color id) 48 5 245)
-                                      (list 0 1 38 5 16 48 5 238))
-                       :action (list (cond (minimized :restore) ((eql id focus) :minimize) (t :focus)) :pane id)
-                       :arguments (list (write-to-string id))
-                       :context-command "desktop-window-menu"
-                       :wheel-command "desktop-cycle"
-                       :middle-command "desktop-close"))))
+                      (title (clip (pane-title pane) (max 0 (- tile 4)))))
+                 ;; Only the focused entry is filled. The mark and the title are
+                 ;; separate spans so attention can colour either one.
+                 (multiple-value-bind (glyph tone) (status-mark pane focus unread)
+                   (let* ((attention (eq tone :attention))
+                          (body (cond ((eql id focus) (sgr :entry-active-text (role :entry-active id) t))
+                                      ((and attention (eq (theme :attention-style) :entry)) (sgr :attention :entry-bg t))
+                                      (minimized (sgr :entry-minimized-text :entry-minimized))
+                                      (t (sgr (role :entry-text id) :entry-bg))))
+                          (bg (cond ((eql id focus) (role :entry-active id)) (minimized :entry-minimized) (t :entry-bg)))
+                          (shared (list :hover-sgr (sgr :entry-active-text (role :entry-hover id) t)
+                                        :action (list (cond (minimized :restore) ((eql id focus) :minimize) (t :focus)) :pane id)
+                                        :arguments (list (write-to-string id))
+                                        :context-command "desktop-window-menu"
+                                        :wheel-command "desktop-cycle"
+                                        :middle-command "desktop-close")))
+                     (list (list* :x 0 :y y :text (format nil " ~A" glyph)
+                                  :sgr (if (and attention (eq (theme :attention-style) :mark) (not (eql id focus)))
+                                           (sgr :attention bg t) body)
+                                  shared)
+                           (list* :x 0 :y y :text (format nil " ~A " title) :sgr body shared)))))))
       (let ((fit (loop for n downfrom (length panes) to 0 when (<= (width-of n) space) return n)))
         (if (= fit (length panes))
             (setf entries (mapcar #'entry panes))
@@ -9191,18 +9658,18 @@ Desktop-terminal styling profile (rounded borders, padding, shadows).
             (place (list :x 0 :y y :text (first segment) :sgr (second segment)
                          :context-command "desktop-taskbar-menu")))
           (let ((first-entry t))
-            (dolist (span entries)
+            (dolist (entry entries)
               (when (and (not first-entry) (< (1+ x) width)) (incf x))
               (setf first-entry nil)
-              (place span))
+              (mapc #'place entry))
             (when overflow
-              (place (list :x 0 :y y :text overflow :sgr '(0 1 38 5 221 48 5 235)
-                           :hover-sgr '(0 1 38 5 16 48 5 221)
+              (place (list :x 0 :y y :text overflow :sgr (sgr :attention :bar-bg t)
+                           :hover-sgr (sgr :on-accent :attention t)
                            :command "desktop-window-list"))))
           (setf x (max x (- width right-used)))
           (dolist (segment right)
-            (place (list :x 0 :y y :text (first segment) :sgr (second segment)
-                         :context-command "desktop-taskbar-menu"))))
+            (place (append (list :x 0 :y y :text (first segment) :sgr (second segment))
+                           (or (third segment) (list :context-command "desktop-taskbar-menu"))))))
         (list (ekko/extensions:action :decorate ':spans (nreverse spans)))))))
 
 (defun hook (snapshot event)
@@ -9263,6 +9730,49 @@ Desktop-terminal styling profile (rounded borders, padding, shadows).
     :handler (lambda (snapshot event) (declare (ignore event))
                (window-list-menu snapshot)))
   (ekko/extensions:bind-key :component owner :map ':normal :key "M-Tab" :command "desktop-switcher")
+  (ekko/extensions:register-command :component owner :name "desktop-start-menu"
+    :handler (lambda (snapshot event) (declare (ignore event))
+               (let ((focus (ekko/extensions:value snapshot :focus))
+                     (viewport (ekko/extensions:value snapshot :viewport)))
+                 (multiple-value-bind (spans height)
+                     (panel (list (list :text "New window right" :action (list :split :pane focus :axis :columns))
+                                  (list :text "New window down" :action (list :split :pane focus :axis :rows))
+                                  (list :separator t)
+                                  (list :text "Windows…" :command "desktop-window-list")
+                                  (list :text "Notifications…" :command "desktop-notifications")
+                                  (list :separator t)
+                                  (list :text "Detach session" :command "session-detach"))
+                            :title (safe-text (ekko/extensions:value snapshot :session)) :width 28
+                            :accent (desktop-color (or focus 1)) :enter (list "start" 0 2))
+                   (list (ekko/extensions:action :show-menu ':x 0 :y (max 0 (- (getf viewport :rows) 1 height))
+                                                 :spans spans))))))
+  (ekko/extensions:register-command :component owner :name "desktop-notifications"
+    :handler (lambda (snapshot event) (declare (ignore event))
+               (append (notification-menu snapshot)
+                       (list (ekko/extensions:action :set-keymap ':name :normal)))))
+  (ekko/extensions:bind-key :component owner :map ':pane :key "b" :command "desktop-notifications")
+  (ekko/extensions:register-command :component owner :name "desktop-notifications-clear"
+    :handler (lambda (snapshot event) (declare (ignore snapshot event))
+               (list (ekko/extensions:action :notifications ':op :clear))))
+  (ekko/extensions:register-command :component owner :name "desktop-notification-open"
+    :handler (lambda (snapshot event)
+               (let* ((id (parse-integer (first (getf event :arguments))))
+                      (n (find id (ekko/extensions:value snapshot :notifications) :key (lambda (n) (getf n :id))))
+                      (pane (and n (find (getf n :pane) (ekko/extensions:value snapshot :panes)
+                                         :key (lambda (p) (getf p :id))))))
+                 (unless pane (error "That window has closed"))
+                 (list (ekko/extensions:action (if (getf pane :minimized) :restore :focus) ':pane (getf pane :id))
+                       (ekko/extensions:action :notifications ':op :read :id id)))))
+  (ekko/extensions:register-command :component owner :name "desktop-notification-latest"
+    :handler (lambda (snapshot event) (declare (ignore event))
+               (let* ((panes (ekko/extensions:value snapshot :panes))
+                      (n (find-if (lambda (n) (find (getf n :pane) panes :key (lambda (p) (getf p :id))))
+                                  (unread snapshot)))
+                      (pane (and n (find (getf n :pane) panes :key (lambda (p) (getf p :id))))))
+                 (when pane
+                   (list (ekko/extensions:action (if (getf pane :minimized) :restore :focus) ':pane (getf pane :id))
+                         (ekko/extensions:action :notifications ':op :read :id (getf n :id)))))))
+  (ekko/extensions:bind-key :component owner :map ':normal :key "M-`" :command "desktop-notification-latest")
   (ekko/extensions:register-command :component owner :name "desktop-cycle"
     :handler (lambda (snapshot event)
                (let* ((panes (ekko/extensions:value snapshot :panes))
@@ -9563,6 +10073,46 @@ A replaceable scrolling workspace: a camera over a strip of full-size terminals.
                       :handler (lambda (snapshot event) (declare (ignore snapshot event))
                                  (list (copy-tree operation))))
     (bind-key :component ':scrolling :key key :command name)))
+#+end_src
+
+** examples/themes/xp.lisp
+A complete theme as an ordinary config file: it prepends role overrides to
+~ekko/desktop:*theme*~ and sets the core ~:ground~ option. Nothing in it is
+privileged; any profile can do the same.
+
+#+begin_src lisp :tangle examples/themes/xp.lisp :mkdirp yes
+;; Windows XP (Luna blue) for the desktop. Load it after any other profile, or
+;; append it to init.lisp. Blue line frames and solid title bars, a blue
+;; taskbar with a green start button, white menus with blue selection, yellow
+;; balloon toasts, and a Bliss-like sky and hill as the ground, seen dimmed
+;; through every window.
+(in-package #:cl-user)
+
+(setf ekko/desktop:*theme*
+      (list* :accents '((0 84 227))
+             :titlebar :filled :title-align :left
+             :frame-inactive '(122 150 223) :title-inactive '(122 150 223)
+             :title-text '(255 255 255) :title-inactive-text '(216 228 248)
+             :control-bg '(38 110 245) :close-bg '(218 70 32)
+             :bar-bg '(36 94 220) :bar-text '(255 255 255)
+             :start '(" ❖ start " (255 255 255) (60 150 50))
+             :tray-bg '(17 144 232) :tray-text '(255 255 255)
+             :entry-bg '(60 129 243) :entry-text '(255 255 255)
+             :entry-active '(30 72 170) :entry-active-text '(255 255 255) :entry-hover '(90 150 250)
+             :entry-minimized '(60 129 243) :entry-minimized-text '(210 225 250)
+             :panel-bg '(255 255 255) :panel-text '(0 0 0) :panel-muted '(110 110 110)
+             :panel-border '(122 150 223) :highlight '(49 106 197) :highlight-text '(255 255 255)
+             :toast-bg '(255 255 225) :toast-text '(0 0 0) :toast-frame '(0 0 0)
+             :corners '("┌" "┐" "└" "┘") :attention-style :mark :shadow '(20 40 90)
+             ekko/desktop:*theme*))
+
+;; The ground: sky and hill bands, darkened inside windows like tinted glass.
+(ekko/extensions:register-component :id ':xp :reads '(:session)
+                                    :handler (lambda (snapshot event) (declare (ignore snapshot event)) nil))
+(ekko/extensions:set-option :component ':xp :name :ground
+                            :value '((5 (58 110 196)) (4 (86 139 222)) (3 (125 170 235))
+                                     (2 (111 164 64)) (3 (74 128 42))))
+(ekko/extensions:set-option :component ':xp :name :ground-dim :value 65)
 #+end_src
 
 * scripts/ -- build, oracle and measurement entry points

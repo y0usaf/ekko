@@ -12,7 +12,7 @@
   (work-turn 0) dispatch-cursors (recovery-budget 0) (service-failures 0)
   reload-peer initialization-queue candidate-views candidate-results candidate-contexts
   candidate-layouts candidate-stage candidate-members pending-splits
-  (clipboard "") (revision 0) (started (now))
+  (clipboard "") (revision 0) (started (now)) notifications (next-notification-id 1)
   creation stopping torn-down (retire-until 0) quit)
 (defstruct creation commands viewport peers (phase :load) initialization)
 (defstruct launch-request commands viewport directory environment config-path)
@@ -426,7 +426,7 @@ creation; on an existing workspace this is attach-only and never spawns."
 (defun workspace-deadline (daemon current)
   (let ((deadline (+ current 1)))
     (dolist (view (daemon-views daemon))
-      (when (view-transition view) (setf deadline (min deadline (+ current 1/50))))
+      (when (or (view-transition view) (motions-running-p view)) (setf deadline (min deadline (+ current 1/50))))
       (dolist (note (view-pane-notes view)) (setf deadline (min deadline (getf note :until))))
       (maphash (lambda (id state)
                  (declare (ignore id))
@@ -450,7 +450,7 @@ creation; on an existing workspace this is attach-only and never spawns."
   ;; owner in the same pass; the caller still bounds whole-service failures.
   (dolist (view (daemon-views daemon))
     (handler-case
-        (progn (tick-transition view) (expire-copy-flashes view) (expire-pane-notes view))
+        (progn (tick-transition view) (tick-motions view) (expire-copy-flashes view) (expire-pane-notes view))
       (error (condition) (note-error view condition))))
   (service-extensions daemon buffer)
   (dolist (pane (daemon-panes daemon))

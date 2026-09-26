@@ -53,6 +53,7 @@
        ;; deadline stays expired until the mode clears, so the next frame arms
        ;; a fresh one.
        (setf (pane-sync-until pane) (if value (+ (now) 1) nil)))
+      (:notify (record-notification pane value))
       (:reset (clear-screen graphics :main) (clear-screen graphics :alternate)))))
 (defun pane-mid-frame-p (pane)
   (let ((until (pane-sync-until pane)))
@@ -445,13 +446,13 @@
          (t (pane-input pane bytes))) nil))))
 (defun octets-from-list (items) (coerce items '(vector (unsigned-byte 8))))
 (defun decoration-at (view x y)
-  ;; Hit only reserved chrome, in the same component/span order as paint.
-  (unless (or (>= x (view-cols view)) (>= y (view-rows view))
-              (decoration-content-p view (window-at view x y) x y 1))
-    (let ((hit nil) (owner nil))
+  ;; Hit reserved chrome, or an opaque overlay painted over content, in the
+  ;; same component/span order as paint.
+  (unless (or (>= x (view-cols view)) (>= y (view-rows view)))
+    (let ((hit nil) (owner nil) (content (decoration-content-p view (window-at view x y) x y 1)))
       (dolist (component (getf (daemon-registry (view-daemon view)) :components))
         (dolist (span (rest (assoc (getf component :id) (view-decorations view) :test #'equal)))
-          (when (and (span-hit-p span x y)
+          (when (and (span-hit-p span x y) (or (not content) (getf span :overlay))
                      (or (not (getf span :pane))
                          (eql (getf span :pane) (let ((p (window-at view x y))) (and p (pane-id p))))))
             (setf hit span owner (getf component :id)))))
@@ -551,23 +552,36 @@
 (defun pane-lines (vt)
   (loop with cols = (terminal-cols vt) for y below (terminal-rows vt)
         collect (cell-runs (terminal-cells vt) nil nil (* y cols) (* (1+ y) cols))))
+(defvar *content-rects* nil "Pane content rectangles memoized for one scene build.")
+(defun pane-content-rect (view pane)
+  "PANE's visible application cells within the viewport, as half-open (x0 y0 x1 y1)."
+  (let ((memo (and *content-rects* (gethash pane *content-rects*))))
+    (or memo
+        (let ((rect (compute-content-rect view pane)))
+          (when *content-rects* (setf (gethash pane *content-rects*) rect))
+          rect))))
+(defun compute-content-rect (view pane)
+  (let ((state (pane-state view (pane-id pane))))
+    (multiple-value-bind (viewport insets gaps viewport-width viewport-height) (workspace-geometry view)
+      (declare (ignore insets gaps))
+      (multiple-value-bind (cols rows) (pane-display-size view pane)
+        (list (max (pane-view-x state) (fourth viewport)) (max (pane-view-y state) (first viewport))
+              (min (+ (pane-view-x state) cols) (+ (fourth viewport) viewport-width))
+              (min (+ (pane-view-y state) rows) (+ (first viewport) viewport-height)))))))
+(defun rect-hit-p (rect x y width)
+  (destructuring-bind (x0 y0 x1 y1) rect
+    (and (< x0 (+ x width)) (< x x1) (<= y0 y) (< y y1))))
 (defun decoration-content-p (view pane x y width)
-  (when pane
-    (let ((state (pane-state view (pane-id pane))))
-      (multiple-value-bind (viewport insets gaps viewport-width viewport-height) (workspace-geometry view)
-        (declare (ignore insets gaps))
-        (multiple-value-bind (cols rows) (pane-display-size view pane)
-          (and (< (pane-view-x state) (+ x width)) (< x (+ (pane-view-x state) cols))
-               (< (pane-view-y state) (1+ y)) (< y (+ (pane-view-y state) rows))
-               (< x (+ (fourth viewport) viewport-width)) (> (+ x width) (fourth viewport))
-               (<= (first viewport) y) (< y (+ (first viewport) viewport-height))))))))
-(defun decoration-cell-free-p (view panes x y width &optional occluders)
+  (when pane (rect-hit-p (pane-content-rect view pane) x y width)))
+(defun decoration-cell-free-p (view rects x y width &optional occluders)
+  "RECTS are the content rectangles clipping must avoid, computed once per span."
   (and (<= 0 x) (< x (view-cols view)) (<= 0 y) (< y (view-rows view))
        (<= (+ x width) (view-cols view))
-       (not (some (lambda (pane) (decoration-content-p view pane x y (max 1 width))) panes))
+       (not (some (lambda (rect) (rect-hit-p rect x y (max 1 width))) rects))
        (not (some (lambda (pane) (window-intersects-p view pane x y (max 1 width))) occluders))))
 (defun clip-decoration (view panes span &optional occluders)
   (let ((cursor (getf span :x)) (y (getf span :y)) (sgr (copy-list (getf span :sgr)))
+        (rects (mapcar (lambda (pane) (pane-content-rect view pane)) panes))
         (run-x nil) (run-width 0) (run nil) (out nil))
     (labels ((flush ()
                (when run
@@ -580,7 +594,7 @@
               ;; span cannot affect an unrelated cell.
               (cond
                 ((zerop width) (when run (push char run)))
-                ((decoration-cell-free-p view panes cursor y width occluders)
+                ((decoration-cell-free-p view rects cursor y width occluders)
                  (unless (and run-x (= cursor (+ run-x run-width))) (flush))
                  (unless run-x (setf run-x cursor))
                  (push char run) (incf run-width width))
@@ -589,7 +603,8 @@
       (flush))
     (nreverse out)))
 (defun scene-decorations (view &optional overlay)
-  (let* ((panes (visible-panes view))
+  (let* ((*content-rects* (make-hash-table :test 'eq))
+         (panes (visible-panes view))
          (declared (mapcar (lambda (c) (getf c :id)) (getf (daemon-registry (view-daemon view)) :components)))
          (owners (append declared (loop for entry in (view-decorations view)
                                        unless (member (first entry) declared :test #'equal) collect (first entry)))))
@@ -597,10 +612,11 @@
           append (loop for span in (rest (assoc owner (view-decorations view) :test #'equal))
             for pane = (pane-by-id (view-daemon view) (getf span :pane))
             when (and (eq (getf span :overlay) overlay) (or (not (getf span :pane)) (member pane panes)))
-            append (loop for row from (getf span :y) below (+ (getf span :y) (getf span :rows 1))
-              append (clip-decoration view (unless overlay (if pane (list pane) panes))
-                        (list :x (getf span :x) :y row :text (getf span :text) :sgr (getf span :sgr))
-                        (unless overlay (and pane (rest (member pane panes))))))))))
+            append (multiple-value-bind (dx dy) (motion-offset view span)
+                     (loop for row from (+ (getf span :y) dy) below (+ (getf span :y) dy (getf span :rows 1))
+                           append (clip-decoration view (unless overlay (if pane (list pane) panes))
+                                    (list :x (+ (getf span :x) dx) :y row :text (getf span :text) :sgr (getf span :sgr))
+                                    (unless overlay (and pane (rest (member pane panes)))))))))))
 (defun pane-display-size (view pane)
   (let ((state (pane-state view (pane-id pane))) (vt (pane-vt pane)))
     (if (pane-view-copy-lines state)
@@ -620,7 +636,7 @@
                       (pane-label pane))
                   (pane-status pane) (min (1- cols) (terminal-x vt)) (terminal-y vt)
                   (and (not (pane-view-copy-lines state)) (terminal-visible vt))
-                  (if (pane-view-copy-lines state) (copy-display-lines view pane) (pane-lines vt))
+                  (ground-lines view pane (if (pane-view-copy-lines state) (copy-display-lines view pane) (pane-lines vt)))
                   (loop for image being the hash-values of (store-images (pane-graphics pane))
                         when (and (not (pane-view-copy-lines state)) (image-visible image)
                                   (eq (image-screen image) (terminal-screen vt))) collect
@@ -632,9 +648,11 @@
           (declare (ignore pane width height))
           (list :view-id (view-id view) :status (status-text view)
                 :style (option (view-daemon view) :status-style '(0 30 47))
-                :viewport-insets viewport :split-gaps gaps :decorations (scene-decorations view)
-                :overlays (append (scene-decorations view t) (transition-overlays view)
-                                  (window-hover-overlays view) (window-drag-overlays view) (popup-overlays view))
+                :viewport-insets viewport :split-gaps gaps
+                :decorations (ground-fragments view (append (ground-fill view) (scene-decorations view)))
+                :overlays (ground-fragments view
+                            (append (scene-decorations view t) (transition-overlays view)
+                                    (window-hover-overlays view) (window-drag-overlays view) (popup-overlays view)))
                 :exit-text (option (view-daemon view) :viewer-exit-text nil)))))
 (defun checked-startup-viewport (viewport)
   (when viewport
@@ -805,3 +823,84 @@ application's screen, so it is not held."
       (3 (unless (equalp data (text-bytes "inspect")) (error "Unknown view control command"))
          (send-packet wire 20 (text-bytes (inspect-json view))))
       (otherwise (error "Unknown IPC message")))))
+;; The ground is Ekko's default background: the :ground option shows wherever
+;; neither an application nor a decoration chose a background, so the desktop
+;; runs through every window. Bands are sampled at each cell's screen row.
+(defun ground-at (view row)
+  (let ((ground (option (view-daemon view) :ground)))
+    (if (or (null ground) (integerp ground) (every #'integerp ground))
+        ground
+        (let* ((height (max 1 (- (view-rows view) (min 1 (third (workspace-geometry view))))))
+               (total (reduce #'+ ground :key #'first)) (top 0))
+          (loop for (band . more) on ground
+                do (incf top (if more (round (* height (first band)) total) height))
+                   (when (or (< row top) (null more)) (return (second band))))))))
+(defun sgr-background-p (codes)
+  (loop while codes for code = (pop codes)
+        do (cond ((member code '(38 58)) (pop codes) (pop codes))
+                 ((eql code 48) (return t))
+                 ((or (<= 40 code 47) (<= 100 code 107)) (return t)))))
+(defun grounded (sgr colour)
+  "SGR with COLOUR as its background, unless it already has one."
+  (if (or (null colour) (sgr-background-p sgr))
+      sgr
+      (append sgr (if (integerp colour) (list 48 5 colour) (list* 48 2 colour)))))
+(defun window-rects (view)
+  "Visible windows' outer rectangles as half-open (x0 y0 x1 y1)."
+  (loop for pane in (visible-panes view) for state = (pane-state view (pane-id pane))
+        collect (list (pane-view-outer-x state) (pane-view-outer-y state)
+                      (+ (pane-view-outer-x state) (pane-view-outer-cols state))
+                      (+ (pane-view-outer-y state) (pane-view-outer-rows state)))))
+(defun ground-fragments (view fragments)
+  "Ground every fragment without a background: dimmed like the window's glass
+inside a window, full outside. Rows' colours are computed once per frame."
+  (if (option (view-daemon view) :ground)
+      (let ((rects (window-rects view)) (dim (option (view-daemon view) :ground-dim 0))
+            (rows (make-hash-table)))
+        (loop for (x y text sgr . more) in fragments
+              for (full . glass) = (or (gethash y rows)
+                                       (setf (gethash y rows)
+                                             (let ((colour (ground-at view y))) (cons colour (dimmed colour dim)))))
+              collect (list* x y text (grounded sgr (if (some (lambda (r) (rect-hit-p r x y 1)) rects) glass full))
+                             more)))
+      fragments))
+(defun dimmed (colour percent)
+  "COLOUR darkened by PERCENT; palette indices have no known RGB and stay as they are."
+  (if (or (integerp colour) (zerop percent))
+      colour
+      (mapcar (lambda (c) (round (* c (- 100 percent)) 100)) colour)))
+(defun ground-lines (view pane lines)
+  "Pane rows on the ground, darkened by :ground-dim percent so text stays legible."
+  (if (option (view-daemon view) :ground)
+      ;; Cells share a few style objects, so each row colour caches its grounded styles.
+      (loop with dim = (option (view-daemon view) :ground-dim 0) with styles = (make-hash-table :test 'equal)
+            for runs in lines for row from (pane-view-y (pane-state view (pane-id pane)))
+            for colour = (dimmed (ground-at view row) dim)
+            for cache = (or (gethash colour styles) (setf (gethash colour styles) (make-hash-table :test 'eq)))
+            collect (loop for (start text attr) in runs
+                          collect (list start text (or (gethash attr cache)
+                                                       (setf (gethash attr cache) (grounded attr colour))))))
+      lines))
+(defun ground-fill (view)
+  "Blank ground runs under every decoration: each row minus application content,
+split at window edges so window chrome takes the dimmed ground and the desktop
+the full one."
+  (when (option (view-daemon view) :ground)
+    (let ((rects (mapcar (lambda (pane) (compute-content-rect view pane)) (visible-panes view)))
+          (edges (loop for rect in (window-rects view) collect (first rect) collect (third rect)))
+          (cols (view-cols view)))
+      (flet ((blank (x0 x1 row)
+               ;; Cut at window edges so each piece is wholly inside or outside a window.
+               (loop with cuts = (sort (remove-duplicates (remove-if-not (lambda (e) (< x0 e x1)) edges)) #'<)
+                     for start = x0 then end for end in (append cuts (list x1))
+                     collect (list start row (make-string (- end start) :initial-element #\Space) (list 0)))))
+        (loop for row below (view-rows view)
+              append (let ((x 0) (out nil))
+                       (dolist (rect (sort (remove-if-not (lambda (r) (and (<= (second r) row) (< row (fourth r))
+                                                                           (< (first r) (third r))))
+                                                          rects)
+                                           #'< :key #'first))
+                         (when (< x (first rect)) (push (blank x (first rect) row) out))
+                         (setf x (max x (third rect))))
+                       (when (< x cols) (push (blank x cols row) out))
+                       (reduce #'append (nreverse out))))))))

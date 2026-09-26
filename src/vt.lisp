@@ -310,7 +310,16 @@ MATERIALIZED-ROWS carries that distinction."
                (let ((title (coerce (remove-if (lambda (c) (< (char-code c) 32)) body)
                                    'string)))
                  (setf (terminal-title vt) title)
-                 (incf (terminal-revision vt)))))))))
+                 (incf (terminal-revision vt))))
+              ;; OSC 9 is iTerm2's notification unless it is a numbered ConEmu
+              ;; command such as 9;4 progress. OSC 777 is notify;title;body.
+              ((eql code 9)
+               (unless (let ((end (position #\; body))) (and end (plusp end) (every #'digit-char-p (subseq body 0 end))))
+                 (funcall emit :notify (list nil body))))
+              ((and (eql code 777) (> (length body) 7) (string= "notify;" body :end2 7))
+               (let* ((rest (subseq body 7)) (semi (position #\; rest)))
+                 (funcall emit :notify (if semi (list (subseq rest 0 semi) (subseq rest (1+ semi)))
+                                           (list rest ""))))))))))
 (defun feed (vt bytes emit)
   (declare (optimize (speed 3) (safety 2))
            (type (vector (unsigned-byte 8)) bytes))
@@ -328,6 +337,7 @@ MATERIALIZED-ROWS carries that distinction."
          (case byte
            (27 (setf (terminal-parser vt) :escape))
            ((10 11 12) (newline vt emit))
+           (7 (funcall emit :notify nil))
            (13 (setf (terminal-x vt) 0))
            (8 (setf (terminal-x vt) (max 0 (1- (terminal-x vt)))))
            (9 (setf (terminal-x vt) (min (1- (terminal-cols vt)) (* 8 (1+ (floor (terminal-x vt) 8))))))
