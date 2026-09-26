@@ -11131,8 +11131,8 @@ def benchmark(binary, mode, seconds, direct=False, width=512, height=512, fps=5,
         os.set_blocking(master, False)
         receiver = Receiver()
 
-        def pump(timeout):
-            readable, _, _ = select.select([master], [], [], max(0, timeout))
+        def pump(timeout, writing=False):
+            readable, _, _ = select.select([master], [master] if writing else [], [], max(0, timeout))
             if readable:
                 receiver.feed(os.read(master, 65536))
                 if receiver.replies:
@@ -11180,7 +11180,7 @@ def benchmark(binary, mode, seconds, direct=False, width=512, height=512, fps=5,
                         pending = pending[os.write(master, pending):]
                     except BlockingIOError:
                         pass
-                pump(.005)
+                pump(.005, bool(pending))
             elapsed = time.monotonic() - started
             after = {name: process_stats(pid) for name, pid in pids.items()}
             output_bytes = receiver.bytes - byte_start
