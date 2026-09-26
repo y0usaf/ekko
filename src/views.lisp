@@ -5,7 +5,7 @@
 ;; One daemon owns one workspace: every pane, view and component lives there.
 (defstruct pane id daemon pid io vt (graphics (make-store)) argv label status floating
   (launch-kind :command) (creation-position 0) name pty-size sync-until
-  (output-bytes 0) (application-focused nil))
+  (output-bytes 0) (application-focused nil) row-cache)
 (defstruct store-state entries)
 (defstruct pane-view pane-id (x 0) (y 0) (cols 0) (rows 0)
   (outer-x 0) (outer-y 0) (outer-cols 0) (outer-rows 0)
