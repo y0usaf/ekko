@@ -727,7 +727,7 @@ same view and only the final exit prints the exit text."
       (unless (member fd '(-2 -111)) (checked fd "connect"))
       (let ((log (concatenate 'string path ".log")) (deadline (+ (now) 10)))
         ;; A losing starter may exit before the lock winner listens.
-        (sb-ext:run-program "/proc/self/exe" (list "--instance" *instance* "--serve")
+        (sb-ext:run-program "/proc/self/exe" (append (when *bare* '("--bare")) (list "--instance" *instance* "--serve"))
                             :wait nil :input nil :output log :error ':output :if-output-exists ':append)
         (loop while (and (minusp fd) (< (now) deadline)) do
           (poll-fds nil 30)

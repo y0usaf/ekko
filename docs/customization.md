@@ -290,7 +290,7 @@ change that workspace state; removing their component does not undo past user ac
 `inspect` reports the active `:mode`, the `:zoom` state as a JSON boolean,
 registered keymaps (including each map's owner and unbound policy), bindings,
 contributions, disabled hooks, and the last error. Builtins use the same API in
-`ekko/builtins`; `ekko-bare` is packaged without builtins and can load external
+`ekko/builtins`; `ekko-bare` (a link to `ekko`, or `ekko --bare`) starts without builtins and can load external
 commands and layout providers.
 
 Public extension API version 1 remains distinct from wire version **16**.

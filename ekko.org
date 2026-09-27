@@ -144,13 +144,13 @@ and the dev shell.
               ./ekko.asd
               (pkgs.lib.fileset.fileFilter (file: file.hasExt "lisp") ./examples/profiles)
               (pkgs.lib.fileset.fileFilter (file: file.hasExt "lisp" || file.hasExt "c") ./src)
-              ./scripts/build.sh ./scripts/build.lisp ./scripts/build-demo.lisp
+              ./scripts/build.sh ./scripts/build.lisp
               ./scripts/smoke.sh
               ./scripts/generate-text-width.py ./scripts/text-width-oracle.rs
             ];
           };
           nativeBuildInputs = [ pkgs.sbcl ];
-          buildInputs = [ pkgs.zlib ];
+          buildInputs = [ pkgs.zlib pkgs.zstd ];
           dontConfigure = true;
           # A saved SBCL core is appended to the ELF runtime. Stripping loses it.
           dontStrip = true;
@@ -160,20 +160,36 @@ and the dev shell.
             export XDG_CACHE_HOME=$TMPDIR/ekko-build-cache
             export EKKO_SOURCE_DIR=$PWD
             export EKKO_OUTPUT=$PWD/ekko
-            export EKKO_PLATFORM_LIBRARY=$out/lib/libekko-platform.so
-            mkdir -p $out/lib
-            cc -O2 -Wall -Wextra -Werror -fPIC -shared src/platform.c -o $out/lib/libekko-platform.so -lutil -lz
             sh scripts/build.sh
-            EKKO_BUILD_SYSTEM=ekko/core EKKO_OUTPUT=$PWD/ekko-bare sh scripts/build.sh
-            EKKO_OUTPUT=$PWD/ekko-graphics-demo sbcl --no-userinit --no-sysinit \
-              --non-interactive --load scripts/build-demo.lisp
           '';
           checkPhase = ''
             sh scripts/smoke.sh "$PWD/ekko"
           '';
           installPhase = ''
             install -Dm755 ekko $out/bin/ekko
-            install -Dm755 ekko-bare $out/bin/ekko-bare
+            ln -s ekko $out/bin/ekko-bare
+          '';
+        };
+        graphics-demo = pkgs.stdenv.mkDerivation {
+          pname = "ekko-graphics-demo";
+          version = "0.1.0";
+          src = pkgs.lib.fileset.toSource {
+            root = ./.;
+            fileset = pkgs.lib.fileset.unions [
+              ./ekko.asd ./scripts/build-demo.lisp
+              (pkgs.lib.fileset.fileFilter (file: file.hasExt "lisp") ./src)
+            ];
+          };
+          nativeBuildInputs = [ pkgs.sbcl ];
+          dontConfigure = true;
+          dontStrip = true;
+          dontPatchELF = true;
+          buildPhase = ''
+            export XDG_CACHE_HOME=$TMPDIR/ekko-build-cache
+            EKKO_SOURCE_DIR=$PWD EKKO_OUTPUT=$PWD/ekko-graphics-demo sbcl --no-userinit --no-sysinit \
+              --non-interactive --load scripts/build-demo.lisp
+          '';
+          installPhase = ''
             install -Dm755 ekko-graphics-demo $out/bin/ekko-graphics-demo
           '';
         };
@@ -197,7 +213,7 @@ and the dev shell.
         demo-graphics = {
           type = "app";
           meta.description = "Write the synthetic two-pane graphics fixture to a file";
-          program = "${self.packages.${pkgs.system}.default}/bin/ekko-graphics-demo";
+          program = "${self.packages.${pkgs.system}.graphics-demo}/bin/ekko-graphics-demo";
         };
         test-kitty = {
           type = "app";
@@ -273,6 +289,7 @@ and the dev shell.
           printf 'exhaustive Unicode scalar widths match unicode-width 0.1.10\n' > $out
         '';
         build = self.packages.${pkgs.system}.default;
+        graphics-demo = self.packages.${pkgs.system}.graphics-demo;
         packaged-smoke = pkgs.runCommand "ekko-packaged-smoke" {} ''
           sh ${./scripts/smoke.sh} ${self.packages.${pkgs.system}.default}/bin/ekko
           touch $out
@@ -299,7 +316,9 @@ The `ekko` package: the only exported entry points.
 #+end_src
 
 ** src/platform.lisp
-Foreign-function layer over the C platform shim (spawn, poll, pty, signals).
+Foreign-function layer over the C platform shim (spawn, poll, pty, signals). The shim is
+linked into the SBCL runtime that carries the image, so its symbols resolve like libc's
+and there is no library to find at startup.
 
 #+begin_src lisp :tangle src/platform.lisp :mkdirp yes
 (defpackage #:ekko/platform
@@ -310,12 +329,7 @@ Foreign-function layer over the C platform shim (spawn, poll, pty, signals).
            #:decompress-bytes #:octets #:text-bytes #:bytes-text #:now #:checked #:*asset-bytes* #:nonblock))
 (in-package #:ekko/platform)
 
-(defparameter *library* (or (uiop:getenv "EKKO_PLATFORM_LIBRARY")
-                            (namestring (merge-pathnames "libekko-platform.so"
-                                         (asdf:system-source-directory "ekko")))) )
-(defvar *loaded* nil)
 (defun initialize ()
-  (unless *loaded* (load-shared-object *library*) (setf *loaded* t))
   (%ignore-pipe))
 (defun checked (value &optional (operation "OS operation"))
   (when (minusp value) (error "~A failed (errno ~D)" operation (- value))) value)
@@ -1455,7 +1469,7 @@ The `ekko/runtime` package and its protocol vocabulary.
 #+begin_src lisp :tangle src/wire.lisp :mkdirp yes
 (defpackage #:ekko/runtime
   (:use #:cl #:ekko/platform #:ekko/vt #:ekko/graphics)
-  (:export #:run #:serve #:attach #:control #:restore-terminal #:extension-worker-main #:initialize #:config-path #:load-worker #:config-source #:install-registry #:make-daemon #:extension-worker-registry #:stop-worker #:*instance* #:checked-name #:note-client-error #:version-mismatch-p #:emergency-restore))
+  (:export #:run #:serve #:attach #:control #:restore-terminal #:extension-worker-main #:initialize #:config-path #:load-worker #:config-source #:install-registry #:make-daemon #:extension-worker-registry #:stop-worker #:*instance* #:*bare* #:checked-name #:note-client-error #:version-mismatch-p #:emergency-restore))
 (in-package #:ekko/runtime)
 
 ;; Version 16 removes session routing: one daemon hosts one workspace and every
@@ -1463,6 +1477,7 @@ The `ekko/runtime` package and its protocol vocabulary.
 ;; and pane identities remain daemon-global.
 (defconstant +wire-version+ 17)
 (defvar *instance* "default")
+(defvar *bare* nil)
 (defconstant +queue-limit+ (* 8 1024 1024))
 (define-condition wire-protocol-error (simple-error) ())
 (defun reject-protocol (message)
@@ -1780,7 +1795,7 @@ The single extension worker process and its bounded packet protocol.
   ;; The workspace may supply another cwd and PATH. Launch the running host image,
   ;; not argv[0], which can be only the relative command used to start it, unless
   ;; a reload named another ekko binary to supply the extension code.
-  (let* ((process (sb-ext:run-program executable '("--extension-worker")
+  (let* ((process (sb-ext:run-program executable (append (when *bare* '("--bare")) '("--extension-worker"))
                                     :directory directory :environment environment
                                     :wait nil :input ':stream :output ':stream :error log :if-error-exists ':append))
          (in (make-wire :fd (sb-sys:fd-stream-fd (sb-ext:process-output process)) :packet-limit (1+ +extension-packet-limit+)))
@@ -1851,7 +1866,7 @@ The single extension worker process and its bounded packet protocol.
                   (:load
                    (setf ekko/extensions:*components* nil)
                    (let ((package (find-package :ekko/builtins)))
-                     (when package (funcall (find-symbol "INSTALL" package))))
+                     (when (and package (not *bare*)) (funcall (find-symbol "INSTALL" package))))
                    (let* ((path (pathname (third request)))
                           (*default-pathname-defaults* (uiop:pathname-directory-pathname path)))
                      (load (make-string-input-stream (second request)) :verbose nil :print nil))
@@ -7212,7 +7227,7 @@ same view and only the final exit prints the exit text."
       (unless (member fd '(-2 -111)) (checked fd "connect"))
       (let ((log (concatenate 'string path ".log")) (deadline (+ (now) 10)))
         ;; A losing starter may exit before the lock winner listens.
-        (sb-ext:run-program "/proc/self/exe" (list "--instance" *instance* "--serve")
+        (sb-ext:run-program "/proc/self/exe" (append (when *bare* '("--bare")) (list "--instance" *instance* "--serve"))
                             :wait nil :input nil :output log :error ':output :if-output-exists ':append)
         (loop while (and (minusp fd) (< (now) deadline)) do
           (poll-fds nil 30)
@@ -7318,7 +7333,10 @@ Argument parsing, --help, --version and the executable-main entry point.
 (defun version () *version*)
 
 (defun usage (&optional (stream *standard-output*))
-  (format stream "Ekko ~A~%~%Usage: ekko [--instance NAME]   (attach to the session)~%       ekko [--instance NAME] run [--detached] [COMMAND [ARGS...] [::: COMMAND ...]]~%       ekko attach|status|inspect|buffer [--view ID]~%       ekko list~%       ekko stop [--force]~%       ekko config check|reload~%       ekko command [--view ID] COMMAND [ARGS...]~%       ekko split [--view ID] columns|rows [COMMAND ARGS...]~%       ekko rename [--view ID] LABEL~%       ekko doctor --restore-terminal~%~%One daemon owns one workspace; attaching takes over its session view.~%EKKO_INSTANCE selects explicit isolation.~%Config: $EKKO_CONFIG or $XDG_CONFIG_HOME/ekko/init.lisp.~%Options: -h, --help; --version.~%" *version*))
+  (format stream "Ekko ~A~%~%Usage: ekko [--instance NAME]   (attach to the session)~%       ekko [--instance NAME] run [--detached] [COMMAND [ARGS...] [::: COMMAND ...]]~%       ekko attach|status|inspect|buffer [--view ID]~%       ekko list~%       ekko stop [--force]~%       ekko config check|reload~%       ekko command [--view ID] COMMAND [ARGS...]~%       ekko split [--view ID] columns|rows [COMMAND ARGS...]~%       ekko rename [--view ID] LABEL~%       ekko doctor --restore-terminal~%~%One daemon owns one workspace; attaching takes over its session view.~%EKKO_INSTANCE selects explicit isolation.~%Config: $EKKO_CONFIG or $XDG_CONFIG_HOME/ekko/init.lisp.~%Options: -h, --help; --version; --bare, or run as ekko-bare: no built-in extensions.~%" *version*))
+
+(defun bare-name-p (program)
+  (string= "ekko-bare" program :start2 (1+ (or (position #\/ program :from-end t) -1))))
 
 (defun pane-commands (args)
   (when (null args) (return-from pane-commands nil))
@@ -7413,7 +7431,11 @@ Argument parsing, --help, --version and the executable-main entry point.
 
 (defun main (&optional (arguments (rest sb-ext:*posix-argv*)))
   (handler-case
-      (let ((ekko/runtime:*instance* (or (uiop:getenv "EKKO_INSTANCE") "default")))
+      (let ((ekko/runtime:*instance* (or (uiop:getenv "EKKO_INSTANCE") "default"))
+            (ekko/runtime:*bare* (bare-name-p (first sb-ext:*posix-argv*))))
+        (when (equal (first arguments) "--bare")
+          (pop arguments)
+          (setf ekko/runtime:*bare* t))
         (when (equal (first arguments) "--instance")
           (pop arguments)
           (setf ekko/runtime:*instance* (ekko/runtime:checked-name (or (pop arguments) (error "Missing instance name")) "Instance")))
@@ -10747,8 +10769,10 @@ privileged; any profile can do the same.
 The build steps the flake drives, plus the oracles that justify the generated tables.
 
 ** scripts/build.sh
-The build recipe the flake's buildPhase inlines: compile the shim and the system, then
-load the compiled system into a fresh process and save that image. Compiling enlarges
+The build recipe the flake's buildPhase runs: link the C shim into SBCL's linkable
+runtime (=sbcl.o=, with the flags =sbcl.mk= records), compile the system on that runtime,
+then load the compiled system into a fresh process and save that image, runtime and all,
+as one executable. Compiling enlarges
 SBCL's internal type tables, and save-lisp-and-die leaves them where they grew, far above
 the live data; every page below them is saved and later dirtied by allocation.
 
@@ -10757,14 +10781,20 @@ the live data; every page below them is saved and later dirtied by allocation.
 set -eu
 export EKKO_SOURCE_DIR="${EKKO_SOURCE_DIR:-$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)}"
 export EKKO_OUTPUT="${EKKO_OUTPUT:-$EKKO_SOURCE_DIR/ekko}"
-if [ -z "${EKKO_PLATFORM_LIBRARY:-}" ]; then
-  export EKKO_PLATFORM_LIBRARY="$EKKO_SOURCE_DIR/libekko-platform.so"
-  cc -O2 -Wall -Wextra -Werror -fPIC -shared "$EKKO_SOURCE_DIR/src/platform.c" -o "$EKKO_PLATFORM_LIBRARY" -lutil -lz
-fi
-sbcl --no-userinit --no-sysinit --non-interactive --eval '(require "asdf")' \
+work=$(mktemp -d)
+trap 'rm -rf "$work"' EXIT
+home=$(sbcl --noinform --no-userinit --no-sysinit --non-interactive \
+  --eval '(write-string (sb-ext:native-namestring (sb-int:sbcl-homedir-pathname)))')
+cc -O2 -Wall -Wextra -Werror -c "$EKKO_SOURCE_DIR/src/platform.c" -o "$work/platform.o"
+cc -o "$work/ekko-runtime" "$home/sbcl.o" "$work/platform.o" \
+  $(sed -n 's/^LINKFLAGS=//p' "$home/sbcl.mk") $(sed -n 's/^LIBS=//p' "$home/sbcl.mk") -lutil -lz
+lisp() {
+  SBCL_HOME=$home "$work/ekko-runtime" --core "$home/sbcl.core" --noinform \
+    --no-userinit --no-sysinit --non-interactive "$@"
+}
+lisp --eval '(require "asdf")' \
   --eval '(let ((asdf:*central-registry* (list (truename (uiop:getenv "EKKO_SOURCE_DIR"))))) (asdf:compile-system (or (uiop:getenv "EKKO_BUILD_SYSTEM") "ekko")))'
-exec sbcl --no-userinit --no-sysinit --non-interactive \
-  --load "$EKKO_SOURCE_DIR/scripts/build.lisp"
+lisp --load "$EKKO_SOURCE_DIR/scripts/build.lisp"
 #+end_src
 
 ** scripts/build.lisp

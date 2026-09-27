@@ -6,12 +6,7 @@
            #:decompress-bytes #:octets #:text-bytes #:bytes-text #:now #:checked #:*asset-bytes* #:nonblock))
 (in-package #:ekko/platform)
 
-(defparameter *library* (or (uiop:getenv "EKKO_PLATFORM_LIBRARY")
-                            (namestring (merge-pathnames "libekko-platform.so"
-                                         (asdf:system-source-directory "ekko")))) )
-(defvar *loaded* nil)
 (defun initialize ()
-  (unless *loaded* (load-shared-object *library*) (setf *loaded* t))
   (%ignore-pipe))
 (defun checked (value &optional (operation "OS operation"))
   (when (minusp value) (error "~A failed (errno ~D)" operation (- value))) value)

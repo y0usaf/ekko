@@ -1,6 +1,6 @@
 (defpackage #:ekko/runtime
   (:use #:cl #:ekko/platform #:ekko/vt #:ekko/graphics)
-  (:export #:run #:serve #:attach #:control #:restore-terminal #:extension-worker-main #:initialize #:config-path #:load-worker #:config-source #:install-registry #:make-daemon #:extension-worker-registry #:stop-worker #:*instance* #:checked-name #:note-client-error #:version-mismatch-p #:emergency-restore))
+  (:export #:run #:serve #:attach #:control #:restore-terminal #:extension-worker-main #:initialize #:config-path #:load-worker #:config-source #:install-registry #:make-daemon #:extension-worker-registry #:stop-worker #:*instance* #:*bare* #:checked-name #:note-client-error #:version-mismatch-p #:emergency-restore))
 (in-package #:ekko/runtime)
 
 ;; Version 16 removes session routing: one daemon hosts one workspace and every
@@ -8,6 +8,7 @@
 ;; and pane identities remain daemon-global.
 (defconstant +wire-version+ 17)
 (defvar *instance* "default")
+(defvar *bare* nil)
 (defconstant +queue-limit+ (* 8 1024 1024))
 (define-condition wire-protocol-error (simple-error) ())
 (defun reject-protocol (message)

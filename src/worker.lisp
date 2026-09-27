@@ -49,7 +49,7 @@
   ;; The workspace may supply another cwd and PATH. Launch the running host image,
   ;; not argv[0], which can be only the relative command used to start it, unless
   ;; a reload named another ekko binary to supply the extension code.
-  (let* ((process (sb-ext:run-program executable '("--extension-worker")
+  (let* ((process (sb-ext:run-program executable (append (when *bare* '("--bare")) '("--extension-worker"))
                                     :directory directory :environment environment
                                     :wait nil :input ':stream :output ':stream :error log :if-error-exists ':append))
          (in (make-wire :fd (sb-sys:fd-stream-fd (sb-ext:process-output process)) :packet-limit (1+ +extension-packet-limit+)))
@@ -120,7 +120,7 @@
                   (:load
                    (setf ekko/extensions:*components* nil)
                    (let ((package (find-package :ekko/builtins)))
-                     (when package (funcall (find-symbol "INSTALL" package))))
+                     (when (and package (not *bare*)) (funcall (find-symbol "INSTALL" package))))
                    (let* ((path (pathname (third request)))
                           (*default-pathname-defaults* (uiop:pathname-directory-pathname path)))
                      (load (make-string-input-stream (second request)) :verbose nil :print nil))

@@ -4,7 +4,10 @@
 (defun version () *version*)
 
 (defun usage (&optional (stream *standard-output*))
-  (format stream "Ekko ~A~%~%Usage: ekko [--instance NAME]   (attach to the session)~%       ekko [--instance NAME] run [--detached] [COMMAND [ARGS...] [::: COMMAND ...]]~%       ekko attach|status|inspect|buffer [--view ID]~%       ekko list~%       ekko stop [--force]~%       ekko config check|reload~%       ekko command [--view ID] COMMAND [ARGS...]~%       ekko split [--view ID] columns|rows [COMMAND ARGS...]~%       ekko rename [--view ID] LABEL~%       ekko doctor --restore-terminal~%~%One daemon owns one workspace; attaching takes over its session view.~%EKKO_INSTANCE selects explicit isolation.~%Config: $EKKO_CONFIG or $XDG_CONFIG_HOME/ekko/init.lisp.~%Options: -h, --help; --version.~%" *version*))
+  (format stream "Ekko ~A~%~%Usage: ekko [--instance NAME]   (attach to the session)~%       ekko [--instance NAME] run [--detached] [COMMAND [ARGS...] [::: COMMAND ...]]~%       ekko attach|status|inspect|buffer [--view ID]~%       ekko list~%       ekko stop [--force]~%       ekko config check|reload~%       ekko command [--view ID] COMMAND [ARGS...]~%       ekko split [--view ID] columns|rows [COMMAND ARGS...]~%       ekko rename [--view ID] LABEL~%       ekko doctor --restore-terminal~%~%One daemon owns one workspace; attaching takes over its session view.~%EKKO_INSTANCE selects explicit isolation.~%Config: $EKKO_CONFIG or $XDG_CONFIG_HOME/ekko/init.lisp.~%Options: -h, --help; --version; --bare, or run as ekko-bare: no built-in extensions.~%" *version*))
+
+(defun bare-name-p (program)
+  (string= "ekko-bare" program :start2 (1+ (or (position #\/ program :from-end t) -1))))
 
 (defun pane-commands (args)
   (when (null args) (return-from pane-commands nil))
@@ -99,7 +102,11 @@
 
 (defun main (&optional (arguments (rest sb-ext:*posix-argv*)))
   (handler-case
-      (let ((ekko/runtime:*instance* (or (uiop:getenv "EKKO_INSTANCE") "default")))
+      (let ((ekko/runtime:*instance* (or (uiop:getenv "EKKO_INSTANCE") "default"))
+            (ekko/runtime:*bare* (bare-name-p (first sb-ext:*posix-argv*))))
+        (when (equal (first arguments) "--bare")
+          (pop arguments)
+          (setf ekko/runtime:*bare* t))
         (when (equal (first arguments) "--instance")
           (pop arguments)
           (setf ekko/runtime:*instance* (ekko/runtime:checked-name (or (pop arguments) (error "Missing instance name")) "Instance")))
