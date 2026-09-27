@@ -54,7 +54,7 @@
             ];
           };
           nativeBuildInputs = [ pkgs.sbcl ];
-          buildInputs = [ pkgs.zlib pkgs.zstd ];
+          buildInputs = [ pkgs.zlib (pkgs.zstd.override { static = true; }) ];
           dontConfigure = true;
           # A saved SBCL core is appended to the ELF runtime. Stripping loses it.
           dontStrip = true;

@@ -1,7 +1,7 @@
 (defpackage #:ekko/platform
   (:use #:cl #:sb-alien)
   (:export #:initialize #:spawn #:read-fd #:write-fd #:poll-fds #:terminal-size
-           #:resize #:raw #:restore #:close-fd #:reap #:signal-group #:server-signals
+           #:resize #:raw #:restore #:sane #:close-fd #:reap #:signal-group #:server-signals
            #:listen-local #:connect-local #:accept-local #:lock-file #:compress-bytes
            #:decompress-bytes #:octets #:text-bytes #:bytes-text #:now #:checked #:*asset-bytes* #:nonblock))
 (in-package #:ekko/platform)
@@ -19,6 +19,7 @@
 (define-alien-routine ("ek_nonblock" nonblock) int (fd int))
 (define-alien-routine ("ek_raw" raw) int (fd int))
 (define-alien-routine ("ek_restore" restore) int)
+(define-alien-routine ("ek_sane" sane) int (fd int))
 (define-alien-routine ("ek_reap" reap) int (pid int))
 (define-alien-routine ("ek_signal_group" signal-group) int (pid int) (sig int))
 (define-alien-routine ("ek_server_signals" server-signals) void)

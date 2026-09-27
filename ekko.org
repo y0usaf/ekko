@@ -150,7 +150,7 @@ and the dev shell.
             ];
           };
           nativeBuildInputs = [ pkgs.sbcl ];
-          buildInputs = [ pkgs.zlib pkgs.zstd ];
+          buildInputs = [ pkgs.zlib (pkgs.zstd.override { static = true; }) ];
           dontConfigure = true;
           # A saved SBCL core is appended to the ELF runtime. Stripping loses it.
           dontStrip = true;
@@ -324,7 +324,7 @@ and there is no library to find at startup.
 (defpackage #:ekko/platform
   (:use #:cl #:sb-alien)
   (:export #:initialize #:spawn #:read-fd #:write-fd #:poll-fds #:terminal-size
-           #:resize #:raw #:restore #:close-fd #:reap #:signal-group #:server-signals
+           #:resize #:raw #:restore #:sane #:close-fd #:reap #:signal-group #:server-signals
            #:listen-local #:connect-local #:accept-local #:lock-file #:compress-bytes
            #:decompress-bytes #:octets #:text-bytes #:bytes-text #:now #:checked #:*asset-bytes* #:nonblock))
 (in-package #:ekko/platform)
@@ -342,6 +342,7 @@ and there is no library to find at startup.
 (define-alien-routine ("ek_nonblock" nonblock) int (fd int))
 (define-alien-routine ("ek_raw" raw) int (fd int))
 (define-alien-routine ("ek_restore" restore) int)
+(define-alien-routine ("ek_sane" sane) int (fd int))
 (define-alien-routine ("ek_reap" reap) int (pid int))
 (define-alien-routine ("ek_signal_group" signal-group) int (pid int) (sig int))
 (define-alien-routine ("ek_server_signals" server-signals) void)
@@ -518,6 +519,24 @@ int ek_restore(void) {
     fcntl(STDOUT_FILENO, F_SETFL, saved_output_flags);
     saved_fd = -1;
     return result(n);
+}
+int ek_sane(int fd) {
+    struct termios t;
+    if (tcgetattr(fd, &t) < 0) return -errno;
+    t.c_cflag |= CREAD;
+    t.c_iflag &= ~(IGNBRK | INLCR | IGNCR | IXOFF | IUCLC | IXANY);
+    t.c_iflag |= BRKINT | ICRNL | IMAXBEL;
+    t.c_oflag &= ~(OLCUC | OCRNL | ONOCR | ONLRET | OFILL | OFDEL | NLDLY | CRDLY | TABDLY | BSDLY | VTDLY | FFDLY);
+    t.c_oflag |= OPOST | ONLCR;
+    t.c_lflag &= ~(ECHONL | NOFLSH | XCASE | TOSTOP | ECHOPRT | FLUSHO | EXTPROC);
+    t.c_lflag |= ISIG | ICANON | IEXTEN | ECHO | ECHOE | ECHOK | ECHOCTL | ECHOKE;
+    static const struct { int index; cc_t value; } chars[] = {
+        {VINTR, CINTR}, {VQUIT, CQUIT}, {VERASE, CERASE}, {VKILL, CKILL}, {VEOF, CEOF},
+        {VEOL, _POSIX_VDISABLE}, {VEOL2, _POSIX_VDISABLE}, {VSWTC, _POSIX_VDISABLE},
+        {VSTART, CSTART}, {VSTOP, CSTOP}, {VSUSP, CSUSP}, {VREPRINT, CREPRINT},
+        {VWERASE, CWERASE}, {VLNEXT, CLNEXT}, {VDISCARD, CDISCARD}, {VMIN, 1}, {VTIME, 0}};
+    for (size_t i = 0; i < sizeof chars / sizeof *chars; i++) t.c_cc[chars[i].index] = chars[i].value;
+    return result(tcsetattr(fd, TCSANOW, &t));
 }
 int ek_spawn(char **argv, int cols, int rows, int x, int y,
              const char *directory, char **environment, int *pid_out) {
@@ -7050,7 +7069,7 @@ Terminal attachment: raw mode, alternate screen, input and paint loops.
 (defun restore-terminal ()
   (initialize)
   (write-fd 1 (text-bytes *terminal-leave*))
-  (uiop:run-program '("stty" "sane") :input ':interactive :output ':interactive :error-output ':interactive)
+  (checked (sane 0) "restore terminal")
   0)
 (defun disconnected-p (condition)
   "The peer vanished mid-handshake: a draining daemon accepted, then quit."
@@ -10775,6 +10794,9 @@ then load the compiled system into a fresh process and save that image, runtime 
 as one executable. Compiling enlarges
 SBCL's internal type tables, and save-lisp-and-die leaves them where they grew, far above
 the live data; every page below them is saved and later dirtied by allocation.
+The linker's wrapper records every library directory it searched in the runtime's
+RUNPATH; the saved executable can't be patched afterwards without losing its core, so
+the runtime is shrunk to the directories it loads from before the image is saved onto it.
 
 #+begin_src sh :tangle scripts/build.sh :mkdirp yes
 #!/bin/sh
@@ -10788,6 +10810,7 @@ home=$(sbcl --noinform --no-userinit --no-sysinit --non-interactive \
 cc -O2 -Wall -Wextra -Werror -c "$EKKO_SOURCE_DIR/src/platform.c" -o "$work/platform.o"
 cc -o "$work/ekko-runtime" "$home/sbcl.o" "$work/platform.o" \
   $(sed -n 's/^LINKFLAGS=//p' "$home/sbcl.mk") $(sed -n 's/^LIBS=//p' "$home/sbcl.mk") -lutil -lz
+if command -v patchelf >/dev/null; then patchelf --shrink-rpath "$work/ekko-runtime"; fi
 lisp() {
   SBCL_HOME=$home "$work/ekko-runtime" --core "$home/sbcl.core" --noinform \
     --no-userinit --no-sysinit --non-interactive "$@"

@@ -550,7 +550,7 @@
 (defun restore-terminal ()
   (initialize)
   (write-fd 1 (text-bytes *terminal-leave*))
-  (uiop:run-program '("stty" "sane") :input ':interactive :output ':interactive :error-output ':interactive)
+  (checked (sane 0) "restore terminal")
   0)
 (defun disconnected-p (condition)
   "The peer vanished mid-handshake: a draining daemon accepted, then quit."

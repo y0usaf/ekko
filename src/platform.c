@@ -75,6 +75,24 @@ int ek_restore(void) {
     saved_fd = -1;
     return result(n);
 }
+int ek_sane(int fd) {
+    struct termios t;
+    if (tcgetattr(fd, &t) < 0) return -errno;
+    t.c_cflag |= CREAD;
+    t.c_iflag &= ~(IGNBRK | INLCR | IGNCR | IXOFF | IUCLC | IXANY);
+    t.c_iflag |= BRKINT | ICRNL | IMAXBEL;
+    t.c_oflag &= ~(OLCUC | OCRNL | ONOCR | ONLRET | OFILL | OFDEL | NLDLY | CRDLY | TABDLY | BSDLY | VTDLY | FFDLY);
+    t.c_oflag |= OPOST | ONLCR;
+    t.c_lflag &= ~(ECHONL | NOFLSH | XCASE | TOSTOP | ECHOPRT | FLUSHO | EXTPROC);
+    t.c_lflag |= ISIG | ICANON | IEXTEN | ECHO | ECHOE | ECHOK | ECHOCTL | ECHOKE;
+    static const struct { int index; cc_t value; } chars[] = {
+        {VINTR, CINTR}, {VQUIT, CQUIT}, {VERASE, CERASE}, {VKILL, CKILL}, {VEOF, CEOF},
+        {VEOL, _POSIX_VDISABLE}, {VEOL2, _POSIX_VDISABLE}, {VSWTC, _POSIX_VDISABLE},
+        {VSTART, CSTART}, {VSTOP, CSTOP}, {VSUSP, CSUSP}, {VREPRINT, CREPRINT},
+        {VWERASE, CWERASE}, {VLNEXT, CLNEXT}, {VDISCARD, CDISCARD}, {VMIN, 1}, {VTIME, 0}};
+    for (size_t i = 0; i < sizeof chars / sizeof *chars; i++) t.c_cc[chars[i].index] = chars[i].value;
+    return result(tcsetattr(fd, TCSANOW, &t));
+}
 int ek_spawn(char **argv, int cols, int rows, int x, int y,
              const char *directory, char **environment, int *pid_out) {
     if (!argv || !argv[0] || !pid_out) return -EINVAL;

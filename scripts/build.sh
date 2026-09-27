@@ -9,6 +9,7 @@ home=$(sbcl --noinform --no-userinit --no-sysinit --non-interactive \
 cc -O2 -Wall -Wextra -Werror -c "$EKKO_SOURCE_DIR/src/platform.c" -o "$work/platform.o"
 cc -o "$work/ekko-runtime" "$home/sbcl.o" "$work/platform.o" \
   $(sed -n 's/^LINKFLAGS=//p' "$home/sbcl.mk") $(sed -n 's/^LIBS=//p' "$home/sbcl.mk") -lutil -lz
+if command -v patchelf >/dev/null; then patchelf --shrink-rpath "$work/ekko-runtime"; fi
 lisp() {
   SBCL_HOME=$home "$work/ekko-runtime" --core "$home/sbcl.core" --noinform \
     --no-userinit --no-sysinit --non-interactive "$@"
