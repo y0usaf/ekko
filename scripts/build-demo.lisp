@@ -1,7 +1,9 @@
-(require "asdf")
+(let ((sb-c::*source-namestring* "SYS:CONTRIB;ASDF.FASL")) (require "asdf"))
 (let ((root (truename (or (uiop:getenv "EKKO_SOURCE_DIR") "."))))
   (setf asdf:*central-registry* (list root))
   (asdf:load-system "ekko/graphics-demo")
+  (asdf:clear-configuration)
+  (mapc #'asdf:clear-system (asdf:registered-systems))
   (sb-ext:save-lisp-and-die
    (or (uiop:getenv "EKKO_OUTPUT") "ekko-graphics-demo")
    :toplevel (symbol-function (find-symbol "EXECUTABLE-MAIN" "EKKO/GRAPHICS-DEMO"))

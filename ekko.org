@@ -10768,14 +10768,20 @@ exec sbcl --no-userinit --no-sysinit --non-interactive \
 #+end_src
 
 ** scripts/build.lisp
-ASDF load plus save-lisp-and-die: the SBCL core build step.
+ASDF load plus save-lisp-and-die: the SBCL core build step. The saved image must not
+name SBCL's store path, or the package's closure carries all of SBCL. Two things would:
+functions PCL compiles while ASDF loads are named after the file they load from, as
+SBCL names its own warm-loaded files, and ASDF's configuration and system registry
+hold the contrib directory it searched.
 
 #+begin_src lisp :tangle scripts/build.lisp :mkdirp yes
-(require "asdf")
+(let ((sb-c::*source-namestring* "SYS:CONTRIB;ASDF.FASL")) (require "asdf"))
 (let* ((root (truename (or (uiop:getenv "EKKO_SOURCE_DIR") ".")))
        (asdf:*central-registry* nil))
   (push root asdf:*central-registry*)
   (asdf:load-system (or (uiop:getenv "EKKO_BUILD_SYSTEM") "ekko"))
+  (asdf:clear-configuration)
+  (mapc #'asdf:clear-system (asdf:registered-systems))
   (sb-ext:save-lisp-and-die
    (or (uiop:getenv "EKKO_OUTPUT") "ekko")
    :toplevel (symbol-function (find-symbol "EXECUTABLE-MAIN" "EKKO"))
@@ -10787,10 +10793,12 @@ ASDF load plus save-lisp-and-die: the SBCL core build step.
 Build step for the graphics-demo experiment binary.
 
 #+begin_src lisp :tangle scripts/build-demo.lisp :mkdirp yes
-(require "asdf")
+(let ((sb-c::*source-namestring* "SYS:CONTRIB;ASDF.FASL")) (require "asdf"))
 (let ((root (truename (or (uiop:getenv "EKKO_SOURCE_DIR") "."))))
   (setf asdf:*central-registry* (list root))
   (asdf:load-system "ekko/graphics-demo")
+  (asdf:clear-configuration)
+  (mapc #'asdf:clear-system (asdf:registered-systems))
   (sb-ext:save-lisp-and-die
    (or (uiop:getenv "EKKO_OUTPUT") "ekko-graphics-demo")
    :toplevel (symbol-function (find-symbol "EXECUTABLE-MAIN" "EKKO/GRAPHICS-DEMO"))
