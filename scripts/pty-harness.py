@@ -181,6 +181,26 @@ def pane_osc52(binary):
         return {"forwarded": payload in term.osc52()}
 
 
+def mouse_flood(binary):
+    with Instance(binary, "flood") as ekko:
+        log = f"{ekko.root}/app.log"
+        ekko.ekko("run", "--detached", "sh", "-c", f"stty raw -echo; printf '\\033[?1003h\\033[?1006h'; exec cat > {log}")
+        term = ekko.attach()
+        term.run_for(2.0)
+        x, y = 20 * CW + 3, 20 * CH + 5
+        term.mouse(x, y, 0)
+        for i in range(1, 600):
+            term.mouse(x + i, y, 32)
+            term.pump(0.001)
+        term.mouse(x + 599, y, 0, release=True)
+        term.run_for(1.0)
+        term.close()
+        with open(log, "rb") as f:
+            motion = re.findall(rb"\x1b\[<32;\d+;\d+M", f.read())
+        return {"host_motion": 599, "app_motion": len(motion), "cells": len(set(motion)),
+                "repeats": sum(a == b for a, b in zip(motion, motion[1:]))}
+
+
 def advanced(pair):
     return None not in pair and pair[1] > pair[0]
 
@@ -190,6 +210,7 @@ CHECKS = {
     "click": (click, lambda r: advanced(r["ticks_after_click"])),
     "copy": (copy, lambda r: advanced(r["ticks_after_copy"]) and r["copied"] != []),
     "pane-osc52": (pane_osc52, lambda r: r["forwarded"]),
+    "mouse-flood": (mouse_flood, lambda r: r["repeats"] == 0 and r["app_motion"] == r["cells"] >= 60),
 }
 
 failed = []

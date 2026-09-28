@@ -117,7 +117,8 @@ The mouse wheel scrolls frozen history. Scroll down to the bottom, press Escape,
 or type to return to live output. Typing resumes the application without losing
 the first key; Escape only dismisses the pointer selection. Pane applications
 continue running during selection. Applications requesting mouse tracking keep
-their mouse events instead of starting Ekko selection.
+their mouse events instead of starting Ekko selection, and receive motion only
+when the reported cell or buttons change.
 
 Selection retains the original terminal colours and formatting, trims trailing
 blanks, and separates physical rows with newlines. Word/rectangle selection, drag
