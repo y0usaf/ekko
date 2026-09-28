@@ -198,6 +198,34 @@
           sh ${./scripts/smoke.sh} ${self.packages.${pkgs.system}.default}/bin/ekko
           touch $out
         '';
+        bare-core = self.packages.${pkgs.system}.default.overrideAttrs (old: {
+          pname = "ekko-bare-core";
+          buildPhase = "export EKKO_BUILD_SYSTEM=ekko/core\n" + old.buildPhase;
+          checkPhase = old.checkPhase + ''
+            export HOME=$TMPDIR/bare XDG_CONFIG_HOME=$TMPDIR/bare/config XDG_RUNTIME_DIR=$TMPDIR/bare/run
+            export EKKO_INSTANCE=bare-core SHELL=/bin/sh
+            mkdir -p $XDG_CONFIG_HOME
+            mkdir -m 700 $XDG_RUNTIME_DIR
+            ./ekko run --detached sh -c 'exec sleep 600' || { cat $XDG_RUNTIME_DIR/ekko/*log >&2; exit 1; }
+            ./ekko list > list.json
+            pids=$(grep -o '"[a-z_]*pid":[0-9]*' list.json | cut -d: -f2)
+            test $(echo $pids | wc -w) -eq 3
+            ./ekko stop --force
+            for pid in $pids; do
+              for i in $(seq 50); do kill -0 $pid 2>/dev/null || break; sleep 0.1; done
+              if kill -0 $pid 2>/dev/null; then echo "process $pid outlived ekko stop" >&2; exit 1; fi
+            done
+            for log in $XDG_RUNTIME_DIR/ekko/*log; do
+              if test -s $log; then cat $log >&2; exit 1; fi
+            done
+          '';
+        });
+        pty-harness = pkgs.runCommand "ekko-pty-harness" {
+          nativeBuildInputs = [ (pkgs.python3.withPackages (p: [ p.pyte ])) ];
+        } ''
+          python ${./scripts/pty-harness.py} ${self.packages.${pkgs.system}.default}/bin/ekko
+          touch $out
+        '';
       });
       devShells = forEachSystem (pkgs: {
         default = pkgs.mkShell { packages = [ pkgs.sbcl pkgs.zlib pkgs.python3 ]; };
