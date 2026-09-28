@@ -21,7 +21,7 @@
       (if (uiop:getenv "EKKO_CONFIG") (error "Configuration does not exist: ~A" path) "")))
 (defun extension-data (bytes)
   (when (> (length bytes) +extension-packet-limit+) (error "Extension message too large"))
-  (let ((data (decode-scene bytes)) (budget 8192))
+  (let ((data (decode-scene bytes)) (budget +extension-packet-limit+))
     (labels ((check (value depth)
                (when (or (minusp (decf budget)) (> depth 40)) (error "Extension data too complex"))
                (typecase value
