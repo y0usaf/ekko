@@ -591,7 +591,9 @@ same view and only the final exit prints the exit text."
          (buffer (octets 65536)) (last-size 0))
     (dolist (sig (list sb-posix:sigterm sb-posix:sighup))
       (sb-sys:enable-interrupt sig (lambda (&rest arguments) (declare (ignore arguments)) (setf (viewer-done viewer) t))))
-    (sb-sys:enable-interrupt sb-posix:sigwinch (lambda (&rest arguments) (declare (ignore arguments)) (setf last-size 0)))
+    ;; NOW counts from process start, so 0 is not yet a second ago in a young
+    ;; client; the terminal that spawned us resizes within that second.
+    (sb-sys:enable-interrupt sb-posix:sigwinch (lambda (&rest arguments) (declare (ignore arguments)) (setf last-size -1)))
     (unwind-protect
          (progn
            ;; Ensure the workspace exists, then attach. A cold daemon creates it

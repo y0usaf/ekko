@@ -7,12 +7,21 @@
           (pane-view-copy-pointer state) nil (pane-view-copy-anchor state) nil
           (pane-view-copy-end state) nil)))
 
+(defun copy-live-p (view pane)
+  "True when the frozen copy rows are the pane's live rows, not scrolled history."
+  (let ((state (pane-state view (pane-id pane))))
+    (>= (pane-view-copy-top state)
+        (- (length (pane-view-copy-lines state)) (pane-view-rows state)))))
+
 (defun expire-copy-flashes (view &optional (current (now)))
   (dolist (pane (view-panes view))
     (let ((state (pane-state view (pane-id pane))))
       (when (and (pane-view-copy-flash-until state) (>= current (pane-view-copy-flash-until state)))
         (setf (pane-view-copy-flash-until state) nil)
-        (unless (pane-view-copy-pointer state) (leave-copy view pane))
+        ;; A pointer copy made in scrolled-back history stays there; one made
+        ;; on the live rows lets the pane run again, as a keyboard copy does.
+        (when (or (not (pane-view-copy-pointer state)) (copy-live-p view pane))
+          (leave-copy view pane))
         (incf (view-revision view))))))
 
 (defun publish-copy (view text)
@@ -27,6 +36,15 @@
           (view-notice view) (if writer
                                  "Copied to Ekko buffer; terminal clipboard requested"
                                  "Copied to Ekko buffer"))))
+
+(defun pane-clipboard (pane data)
+  "Copy an application's OSC 52 write, base64 DATA, as the attached viewer's selection."
+  (let ((views (daemon-views (pane-daemon pane)))
+        (text (handler-case (bytes-text (base64-decode data)) (error () nil))))
+    (when (and text views)
+      (let ((view (or (find-if #'view-wire views) (first views))))
+        (publish-copy view text)
+        (incf (view-revision view))))))
 
 (defun point-copy (view pane x y start)
   (let ((state (pane-state view (pane-id pane))))
@@ -132,7 +150,11 @@
        (when (or (not up) (pane-view-copy-anchor state))
          (apply-actions view :pointer (list (list :copy-point :pane (pane-id pane)
                                                 :x cx :y cy :start (and (not up) (not motion)))) nil nil)
-         (when (and up (not (equal (pane-view-copy-anchor state) (pane-view-copy-end state))))
-           (apply-actions view :pointer (list (list :copy-selection :pane (pane-id pane))) nil nil))))
+         (when up
+           (cond ((not (equal (pane-view-copy-anchor state) (pane-view-copy-end state)))
+                  (apply-actions view :pointer (list (list :copy-selection :pane (pane-id pane))) nil nil))
+                 ;; A click selects nothing; it must not leave a live pane frozen.
+                 ((copy-live-p view pane)
+                  (apply-actions view :pointer (list (list :copy-exit :pane (pane-id pane))) nil nil))))))
       (t nil))
     t))

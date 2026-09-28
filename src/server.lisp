@@ -54,6 +54,7 @@
        ;; a fresh one.
        (setf (pane-sync-until pane) (if value (+ (now) 1) nil)))
       (:notify (record-notification pane value))
+      (:clipboard (pane-clipboard pane value))
       (:reset (clear-screen graphics :main) (clear-screen graphics :alternate)))))
 (defun pane-mid-frame-p (pane)
   (let ((until (pane-sync-until pane)))

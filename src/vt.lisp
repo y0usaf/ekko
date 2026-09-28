@@ -362,7 +362,12 @@ MATERIALIZED-ROWS carries that distinction."
               ((and (eql code 777) (> (length body) 7) (string= "notify;" body :end2 7))
                (let* ((rest (subseq body 7)) (semi (position #\; rest)))
                  (funcall emit :notify (if semi (list (subseq rest 0 semi) (subseq rest (1+ semi)))
-                                           (list rest ""))))))))))
+                                           (list rest "")))))
+              ;; OSC 52 is targets;base64. A clipboard write passes on as its
+              ;; base64 text; a ? query is never answered.
+              ((eql code 52)
+               (let ((data (subseq body (1+ (or (position #\; body) -1)))))
+                 (unless (string= data "?") (funcall emit :clipboard data)))))))))
 (defun feed (vt bytes emit)
   (declare (optimize (speed 3) (safety 2))
            (type (vector (unsigned-byte 8)) bytes))
