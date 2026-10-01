@@ -791,7 +791,7 @@ The VT parser and screen model, plus its public accessors.
            #:terminal-parser #:terminal-buffer #:terminal-visible #:terminal-title
            #:terminal-history #:history-count #:history-text
            #:terminal-materialized-rows #:terminal-erase-display-history
-           #:parameters #:row-text #:character-width #:update-rendition))
+           #:parameters #:row-text #:character-width #:update-rendition #:colour-report))
 (in-package #:ekko/vt)
 (declaim (inline ensure-materialized-rows))
 
@@ -1124,16 +1124,33 @@ MATERIALIZED-ROWS carries that distinction."
               (14 (reply emit "~C[4;~D;~Dt" esc (* rows (terminal-ch vt)) (* cols (terminal-cw vt))))
               (16 (reply emit "~C[6;~D;~Dt" esc (terminal-ch vt) (terminal-cw vt)))
               (18 (reply emit "~C[8;~D;~Dt" esc rows cols)))))))
+(defun colour-report (text)
+  (let* ((semi (position #\; text :from-end t))
+         (target (subseq text 0 (or semi 0)))
+         (spec (subseq text (if semi (1+ semi) 0)))
+         (index (and (< 2 (length target) 6) (string= "4;" target :end2 2)
+                     (every (lambda (c) (find c "0123456789")) (subseq target 2))
+                     (parse-integer target :start 2)))
+         (channels (and (< 4 (length spec)) (string= "rgb:" spec :end2 4)
+                        (loop for start = 4 then (1+ end) for end = (position #\/ spec :start start)
+                              collect (subseq spec start end) while end))))
+    (when (and (or (member target '("10" "11") :test #'string=) (and index (<= index 255)))
+               (= (length channels) 3)
+               (every (lambda (channel)
+                        (and (<= 1 (length channel) 4)
+                             (every (lambda (c) (find c "0123456789abcdefABCDEF")) channel)))
+                      channels))
+      (values (if index (format nil "4;~D" index) target) spec))))
 (defun osc (vt bytes emit)
   (let* ((text (handler-case (ekko/platform:bytes-text bytes) (error () "")))
          (semi (position #\; text)))
     (when semi
-      (let ((code (parse-integer text :end semi :junk-allowed t)) (body (subseq text (1+ semi))) (esc (code-char 27)))
+      (let ((code (parse-integer text :end semi :junk-allowed t)) (body (subseq text (1+ semi))))
         (cond ((and (member code '(10 11)) (string= body "?"))
-               (reply emit "~C]~D;rgb:~A~C\\" esc code (if (= code 10) "dddd/dddd/dddd" "1111/1515/1b1b") esc))
+               (funcall emit :colour (format nil "~D" code)))
               ((and (eql code 4) (search ";?" body))
                (let ((index (parse-integer body :junk-allowed t)))
-                 (when (and index (<= 0 index 255)) (reply emit "~C]4;~D;rgb:8888/8888/8888~C\\" esc index esc))))
+                 (when (and index (<= 0 index 255)) (funcall emit :colour (format nil "4;~D" index)))))
               ((member code '(0 2))
                (let ((title (coerce (remove-if (lambda (c) (< (char-code c) 32)) body)
                                    'string)))
@@ -1529,7 +1546,7 @@ The `ekko/runtime` package and its protocol vocabulary.
 ;; Version 16 removes session routing: one daemon hosts one workspace and every
 ;; peer attaches to it. Input transactions stay bound to connection generations
 ;; and pane identities remain daemon-global.
-(defconstant +wire-version+ 17)
+(defconstant +wire-version+ 18)
 (defvar *instance* "default")
 (defvar *bare* nil)
 (defconstant +queue-limit+ (* 8 1024 1024))
@@ -2484,6 +2501,8 @@ The daemon's single-workspace server core and PTY sizing.
   (let ((vt (pane-vt pane)) (graphics (pane-graphics pane)))
     (case kind
       (:reply (pane-input pane (text-bytes value)))
+      (:colour (let ((spec (gethash value (daemon-colours (pane-daemon pane)))))
+                 (when spec (pane-input pane (text-bytes (format nil "~C]~A;~A~C\\" #\Esc value spec #\Esc))))))
       (:graphics (accept-command graphics value vt (lambda (k v) (pane-event pane k v))))
       (:scroll (destructuring-bind (top bottom amount) value
                  (scroll-images graphics (terminal-screen vt) top bottom amount (terminal-cw vt) (terminal-ch vt))))
@@ -3279,6 +3298,10 @@ application's screen, so it is not held."
          (unless (and (<= 1 cw 128) (<= 1 ch 256)) (error "Invalid reported cell size"))
          (setf (view-reported-cw view) cw (view-reported-ch view) ch)
          (incf (view-revision view))))
+      (18
+       (multiple-value-bind (target spec) (colour-report (bytes-text data))
+         (unless target (error "Invalid colour report"))
+         (setf (gethash target (daemon-colours daemon)) spec)))
       (2 (input-key view data))
       (4 (setf (view-input-read-bytes view) nil) (input-mouse view (bytes-text data)))
       (16
@@ -5946,7 +5969,7 @@ The daemon: one workspace, its registry, PTYs and worker lifecycle.
   (work-turn 0) dispatch-cursors (recovery-budget 0) (service-failures 0)
   reload-peer initialization-queue candidate-views candidate-results candidate-contexts
   candidate-layouts candidate-stage candidate-members pending-splits
-  (clipboard "") (revision 0) (started (now)) notifications (next-notification-id 1)
+  (clipboard "") (colours (make-hash-table :test 'equal)) (revision 0) (started (now)) notifications (next-notification-id 1)
   creation stopping torn-down (retire-until 0) quit)
 (defstruct creation commands viewport peers (phase :load) initialization)
 (defstruct launch-request commands viewport directory environment config-path)
@@ -6142,7 +6165,7 @@ The daemon: one workspace, its registry, PTYs and worker lifecycle.
        (apply #'resize-view (wire-view wire)
               (checked-viewport (loop for offset from 0 below 16 by 4 collect (u32 data offset)))))
       (otherwise
-       (when (and (member kind '(2 4 5 6 15 16)) (not (wire-view wire)))
+       (when (and (member kind '(2 4 5 6 15 16 18)) (not (wire-view wire)))
          (error "Input requires an attached view"))
        (let ((view (or (wire-view wire)
                        (control-view daemon wire
@@ -6600,6 +6623,10 @@ Terminal attachment: raw mode, alternate screen, input and paint loops.
 (defparameter *terminal-leave*
   (format nil "~C[?2026l~C[<u~C[?1003l~C[?1006l~C[?1016l~C[?1004l~C[?2004l~C[0m~C[?25h~C[?1049l"
           #1=(code-char 27) #1# #1# #1# #1# #1# #1# #1# #1# #1#))
+(defparameter *colour-query*
+  (format nil "~{~C]~A;?~C\\~}"
+          (loop for target in (list* "10" "11" (loop for index below 16 collect (format nil "4;~D" index)))
+                append (list #\Esc target #\Esc))))
 (defstruct viewer io connection scene exit-text (assets (make-hash-table :test 'equal))
   (pending-assets (make-hash-table :test 'equal))
   (transport :unknown) probe-deadline awaiting-scene
@@ -6687,6 +6714,12 @@ Terminal attachment: raw mode, alternate screen, input and paint loops.
         (setf (viewer-transport viewer) :probing (viewer-probe-deadline viewer) (+ (now) 1))
         t))))
 
+(defun host-colour-reply (viewer bytes)
+  (let* ((n (length bytes))
+         (text (map 'string #'code-char
+                    (subseq bytes 2 (- n (if (and (= (aref bytes (1- n)) 92) (= (aref bytes (- n 2)) 27)) 2 1))))))
+    (when (colour-report text)
+      (send-packet (viewer-connection viewer) 18 (text-bytes text)))))
 (defun host-graphics-reply (viewer bytes)
   ;; Replies terminate here, never in a child PTY. Only outstanding IDs can
   ;; advance a probe or release a presentation lease.
@@ -7115,7 +7148,8 @@ Terminal attachment: raw mode, alternate screen, input and paint loops.
            (case byte
              (91 (setf (viewer-input-state viewer) :csi))
              (95 (setf (viewer-input-state viewer) :apc))
-             ((93 80) (setf (viewer-input-state viewer) :discard))
+             (93 (setf (viewer-input-state viewer) :osc))
+             (80 (setf (viewer-input-state viewer) :discard))
              (79 (setf (viewer-input-state viewer) :ss3))
              (otherwise (input-complete viewer))))
           (:ss3
@@ -7133,6 +7167,13 @@ Terminal attachment: raw mode, alternate screen, input and paint loops.
                       (= (aref (viewer-input viewer) (- (length (viewer-input viewer)) 2)) 27))
              (unless (paste-input-p viewer)
                (host-graphics-reply viewer (viewer-input viewer)))
+             (finish-client-input viewer)))
+          (:osc
+           (vector-push-extend byte (viewer-input viewer))
+           (incf index)
+           (when (or (= byte 7) (= byte 92))
+             (unless (paste-input-p viewer)
+               (host-colour-reply viewer (viewer-input viewer)))
              (finish-client-input viewer)))
           (:discard
            (when (or (= byte 7) (= byte 92))
@@ -7200,7 +7241,7 @@ same view and only the final exit prints the exit text."
            (send-packet (viewer-connection viewer) 1 (integers (cons +wire-version+ viewport)))
            (checked (raw 0) "enter terminal raw mode")
            (setf *raw-terminal* t)
-           (terminal-write viewer *terminal-enter*) (send-size viewer)
+           (terminal-write viewer *terminal-enter*) (terminal-write viewer *colour-query*) (send-size viewer)
            (loop until (viewer-done viewer) do
              (let ((current (now)))
                (when (>= (- current last-size) 1) (send-size viewer) (setf last-size (now)))
@@ -11004,6 +11045,8 @@ CW, CH = 10, 24
 END = b"\x1b[?2026l"
 TICKS = "i=0; while :; do i=$((i+1)); printf 'tick %d lorem ipsum dolor sit amet\\n' $i; sleep 0.1; done"
 FILL = "i=0; while [ $i -lt 60 ]; do printf '\\033[1;34mline %03d\\033[0m lorem ipsum dolor sit amet\\n' $i; i=$((i+1)); done; exec sleep 600"
+COLOURS = {b"10": b"rgb:fefe/fafa/f1f1", b"11": b"rgb:2020/1f1f/2626",
+           **{b"4;%d" % i: b"rgb:%04x/0000/ffff" % i for i in range(16)}}
 
 
 class Term:
@@ -11045,6 +11088,8 @@ class Term:
         seen = self.tail + data
         if b"\x1b[16t" in seen:
             os.write(self.master, f"\x1b[6;{CH};{CW}t".encode())
+        for target in re.findall(rb"\x1b\]((?:10|11|4;\d+));\?", seen):
+            os.write(self.master, b"\x1b]%s;%s\x1b\\" % (target, COLOURS[target]))
         self.stream.feed(data)
         if END in seen:
             self.frames.append((self.now(), self.extent()))
@@ -11166,6 +11211,21 @@ def pane_osc52(binary):
         return {"forwarded": payload in term.osc52()}
 
 
+def pane_colours(binary):
+    asked = [b"10", b"11", b"4;9"]
+    with Instance(binary, "colours") as ekko:
+        log = f"{ekko.root}/replies"
+        queries = "".join(f"\\033]{t.decode()};?\\a" for t in asked)
+        ekko.ekko("run", "--detached", "sh", "-c", f"stty raw -echo; sleep 2; printf '{queries}'; exec cat > {log}")
+        term = ekko.attach()
+        term.run_for(4.0)
+        term.close()
+        with open(log, "rb") as f:
+            replies = f.read()
+        return {"answered": replies == b"".join(b"\x1b]%s;%s\x1b\\" % (t, COLOURS[t]) for t in asked),
+                "replies": replies.decode(errors="replace")}
+
+
 def mouse_flood(binary):
     with Instance(binary, "flood") as ekko:
         log = f"{ekko.root}/app.log"
@@ -11195,6 +11255,7 @@ CHECKS = {
     "click": (click, lambda r: advanced(r["ticks_after_click"])),
     "copy": (copy, lambda r: advanced(r["ticks_after_copy"]) and r["copied"] != []),
     "pane-osc52": (pane_osc52, lambda r: r["forwarded"]),
+    "pane-colours": (pane_colours, lambda r: r["answered"]),
     "mouse-flood": (mouse_flood, lambda r: r["repeats"] == 0 and r["app_motion"] == r["cells"] >= 60),
 }
 

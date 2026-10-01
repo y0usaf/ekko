@@ -12,7 +12,7 @@
   (work-turn 0) dispatch-cursors (recovery-budget 0) (service-failures 0)
   reload-peer initialization-queue candidate-views candidate-results candidate-contexts
   candidate-layouts candidate-stage candidate-members pending-splits
-  (clipboard "") (revision 0) (started (now)) notifications (next-notification-id 1)
+  (clipboard "") (colours (make-hash-table :test 'equal)) (revision 0) (started (now)) notifications (next-notification-id 1)
   creation stopping torn-down (retire-until 0) quit)
 (defstruct creation commands viewport peers (phase :load) initialization)
 (defstruct launch-request commands viewport directory environment config-path)
@@ -208,7 +208,7 @@
        (apply #'resize-view (wire-view wire)
               (checked-viewport (loop for offset from 0 below 16 by 4 collect (u32 data offset)))))
       (otherwise
-       (when (and (member kind '(2 4 5 6 15 16)) (not (wire-view wire)))
+       (when (and (member kind '(2 4 5 6 15 16 18)) (not (wire-view wire)))
          (error "Input requires an attached view"))
        (let ((view (or (wire-view wire)
                        (control-view daemon wire

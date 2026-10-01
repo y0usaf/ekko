@@ -6,6 +6,10 @@
 (defparameter *terminal-leave*
   (format nil "~C[?2026l~C[<u~C[?1003l~C[?1006l~C[?1016l~C[?1004l~C[?2004l~C[0m~C[?25h~C[?1049l"
           #1=(code-char 27) #1# #1# #1# #1# #1# #1# #1# #1# #1#))
+(defparameter *colour-query*
+  (format nil "~{~C]~A;?~C\\~}"
+          (loop for target in (list* "10" "11" (loop for index below 16 collect (format nil "4;~D" index)))
+                append (list #\Esc target #\Esc))))
 (defstruct viewer io connection scene exit-text (assets (make-hash-table :test 'equal))
   (pending-assets (make-hash-table :test 'equal))
   (transport :unknown) probe-deadline awaiting-scene
@@ -93,6 +97,12 @@
         (setf (viewer-transport viewer) :probing (viewer-probe-deadline viewer) (+ (now) 1))
         t))))
 
+(defun host-colour-reply (viewer bytes)
+  (let* ((n (length bytes))
+         (text (map 'string #'code-char
+                    (subseq bytes 2 (- n (if (and (= (aref bytes (1- n)) 92) (= (aref bytes (- n 2)) 27)) 2 1))))))
+    (when (colour-report text)
+      (send-packet (viewer-connection viewer) 18 (text-bytes text)))))
 (defun host-graphics-reply (viewer bytes)
   ;; Replies terminate here, never in a child PTY. Only outstanding IDs can
   ;; advance a probe or release a presentation lease.
@@ -521,7 +531,8 @@
            (case byte
              (91 (setf (viewer-input-state viewer) :csi))
              (95 (setf (viewer-input-state viewer) :apc))
-             ((93 80) (setf (viewer-input-state viewer) :discard))
+             (93 (setf (viewer-input-state viewer) :osc))
+             (80 (setf (viewer-input-state viewer) :discard))
              (79 (setf (viewer-input-state viewer) :ss3))
              (otherwise (input-complete viewer))))
           (:ss3
@@ -539,6 +550,13 @@
                       (= (aref (viewer-input viewer) (- (length (viewer-input viewer)) 2)) 27))
              (unless (paste-input-p viewer)
                (host-graphics-reply viewer (viewer-input viewer)))
+             (finish-client-input viewer)))
+          (:osc
+           (vector-push-extend byte (viewer-input viewer))
+           (incf index)
+           (when (or (= byte 7) (= byte 92))
+             (unless (paste-input-p viewer)
+               (host-colour-reply viewer (viewer-input viewer)))
              (finish-client-input viewer)))
           (:discard
            (when (or (= byte 7) (= byte 92))
@@ -606,7 +624,7 @@ same view and only the final exit prints the exit text."
            (send-packet (viewer-connection viewer) 1 (integers (cons +wire-version+ viewport)))
            (checked (raw 0) "enter terminal raw mode")
            (setf *raw-terminal* t)
-           (terminal-write viewer *terminal-enter*) (send-size viewer)
+           (terminal-write viewer *terminal-enter*) (terminal-write viewer *colour-query*) (send-size viewer)
            (loop until (viewer-done viewer) do
              (let ((current (now)))
                (when (>= (- current last-size) 1) (send-size viewer) (setf last-size (now)))

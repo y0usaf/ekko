@@ -100,6 +100,13 @@ EKKO_CONFIG="$PWD/examples/themes/xp.lisp" nix run . -- run "$SHELL" -i
 
 See [themes and the ground](docs/customization.md#context-menus-and-motion).
 
+## Terminal colours
+
+Applications that ask for the terminal's colours (OSC 10, 11 and 4) get the outer
+terminal's own answers. A client asks its terminal for the foreground, the background and
+the 16 ANSI colours when it attaches, and panes are answered from the latest report. A colour
+no client has reported goes unanswered, so applications fall back to their defaults.
+
 ## Text selection and scrollback
 
 Drag the left mouse button over shell text to highlight a character range.
@@ -218,7 +225,7 @@ owned files and negotiates file delivery with the outer terminal; hosts without
 local-file access receive inline frames. No frame-rate or resolution cap is imposed.
 Set `TERMINAL_BROWSER_FRAMES=inline` to compare the older transport.
 
-IPC is now **version 17** for viewers and controls. Older versions are rejected
+IPC is now **version 18** for viewers and controls. Older versions are rejected
 explicitly. Existing daemons keep their executable: a new instance name does not
 upgrade a shared daemon. To upgrade, run `stop` — it identifies the running
 daemon by its socket pidfile or `/proc` and ends it with SIGTERM even when the

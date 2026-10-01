@@ -19,6 +19,8 @@ CW, CH = 10, 24
 END = b"\x1b[?2026l"
 TICKS = "i=0; while :; do i=$((i+1)); printf 'tick %d lorem ipsum dolor sit amet\\n' $i; sleep 0.1; done"
 FILL = "i=0; while [ $i -lt 60 ]; do printf '\\033[1;34mline %03d\\033[0m lorem ipsum dolor sit amet\\n' $i; i=$((i+1)); done; exec sleep 600"
+COLOURS = {b"10": b"rgb:fefe/fafa/f1f1", b"11": b"rgb:2020/1f1f/2626",
+           **{b"4;%d" % i: b"rgb:%04x/0000/ffff" % i for i in range(16)}}
 
 
 class Term:
@@ -60,6 +62,8 @@ class Term:
         seen = self.tail + data
         if b"\x1b[16t" in seen:
             os.write(self.master, f"\x1b[6;{CH};{CW}t".encode())
+        for target in re.findall(rb"\x1b\]((?:10|11|4;\d+));\?", seen):
+            os.write(self.master, b"\x1b]%s;%s\x1b\\" % (target, COLOURS[target]))
         self.stream.feed(data)
         if END in seen:
             self.frames.append((self.now(), self.extent()))
@@ -181,6 +185,21 @@ def pane_osc52(binary):
         return {"forwarded": payload in term.osc52()}
 
 
+def pane_colours(binary):
+    asked = [b"10", b"11", b"4;9"]
+    with Instance(binary, "colours") as ekko:
+        log = f"{ekko.root}/replies"
+        queries = "".join(f"\\033]{t.decode()};?\\a" for t in asked)
+        ekko.ekko("run", "--detached", "sh", "-c", f"stty raw -echo; sleep 2; printf '{queries}'; exec cat > {log}")
+        term = ekko.attach()
+        term.run_for(4.0)
+        term.close()
+        with open(log, "rb") as f:
+            replies = f.read()
+        return {"answered": replies == b"".join(b"\x1b]%s;%s\x1b\\" % (t, COLOURS[t]) for t in asked),
+                "replies": replies.decode(errors="replace")}
+
+
 def mouse_flood(binary):
     with Instance(binary, "flood") as ekko:
         log = f"{ekko.root}/app.log"
@@ -210,6 +229,7 @@ CHECKS = {
     "click": (click, lambda r: advanced(r["ticks_after_click"])),
     "copy": (copy, lambda r: advanced(r["ticks_after_copy"]) and r["copied"] != []),
     "pane-osc52": (pane_osc52, lambda r: r["forwarded"]),
+    "pane-colours": (pane_colours, lambda r: r["answered"]),
     "mouse-flood": (mouse_flood, lambda r: r["repeats"] == 0 and r["app_motion"] == r["cells"] >= 60),
 }
 

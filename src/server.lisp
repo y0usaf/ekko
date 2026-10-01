@@ -43,6 +43,8 @@
   (let ((vt (pane-vt pane)) (graphics (pane-graphics pane)))
     (case kind
       (:reply (pane-input pane (text-bytes value)))
+      (:colour (let ((spec (gethash value (daemon-colours (pane-daemon pane)))))
+                 (when spec (pane-input pane (text-bytes (format nil "~C]~A;~A~C\\" #\Esc value spec #\Esc))))))
       (:graphics (accept-command graphics value vt (lambda (k v) (pane-event pane k v))))
       (:scroll (destructuring-bind (top bottom amount) value
                  (scroll-images graphics (terminal-screen vt) top bottom amount (terminal-cw vt) (terminal-ch vt))))
@@ -838,6 +840,10 @@ application's screen, so it is not held."
          (unless (and (<= 1 cw 128) (<= 1 ch 256)) (error "Invalid reported cell size"))
          (setf (view-reported-cw view) cw (view-reported-ch view) ch)
          (incf (view-revision view))))
+      (18
+       (multiple-value-bind (target spec) (colour-report (bytes-text data))
+         (unless target (error "Invalid colour report"))
+         (setf (gethash target (daemon-colours daemon)) spec)))
       (2 (input-key view data))
       (4 (setf (view-input-read-bytes view) nil) (input-mouse view (bytes-text data)))
       (16
