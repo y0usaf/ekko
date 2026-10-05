@@ -3369,16 +3369,29 @@ application's screen, so it is not held."
           (loop for (band . more) on ground
                 do (incf top (if more (round (* height (first band)) total) height))
                    (when (or (< row top) (null more)) (return (second band))))))))
-(defun sgr-background-p (codes)
+(defun sgr-background (codes)
   (loop while codes for code = (pop codes)
-        do (cond ((member code '(38 58)) (pop codes) (pop codes))
-                 ((eql code 48) (return t))
-                 ((or (<= 40 code 47) (<= 100 code 107)) (return t)))))
-(defun grounded (sgr colour)
-  "SGR with COLOUR as its background, unless it already has one."
-  (if (or (null colour) (sgr-background-p sgr))
-      sgr
-      (append sgr (if (integerp colour) (list 48 5 colour) (list* 48 2 colour)))))
+        do (cond ((member code '(38 58))
+                  (loop repeat (case (pop codes) (2 3) (5 1) (t 0)) do (pop codes)))
+                 ((eql code 48)
+                  (return (case (pop codes) (2 (list (pop codes) (pop codes) (pop codes))) (5 (pop codes)) (t t))))
+                 ((<= 40 code 47) (return (- code 40)))
+                 ((<= 100 code 107) (return (- code 92))))))
+(defun host-colour (daemon target)
+  (let ((spec (gethash target (daemon-colours daemon))))
+    (when spec
+      (loop for start = 4 then (1+ end) for end = (position #\/ spec :start start)
+            for hex = (subseq spec start end)
+            collect (round (* 255 (parse-integer hex :radix 16)) (1- (expt 16 (length hex)))) while end))))
+(defun grounded (sgr colour daemon)
+  (let ((bg (sgr-background sgr)))
+    (if (or (null colour)
+            (and bg (not (let ((default (host-colour daemon "11")))
+                           (and default (equal default (if (integerp bg)
+                                                           (host-colour daemon (format nil "4;~D" bg))
+                                                           bg)))))))
+        sgr
+        (append sgr (if (integerp colour) (list 48 5 colour) (list* 48 2 colour))))))
 (defun window-rects (view)
   "Visible windows' outer rectangles as half-open (x0 y0 x1 y1)."
   (loop for (id x y cols rows) in (outer-places view)
@@ -3395,7 +3408,7 @@ inside a window, full outside. Rows' colours are computed once per frame."
                                              (let ((colour (ground-at view y))) (cons colour (dimmed colour dim)))))
               for colour = (if (some (lambda (r) (rect-hit-p r x y 1)) rects) glass full)
               ;; A fading fragment is seen through: it blends toward what it covers.
-              collect (list x y text (grounded (if alpha (faded-sgr sgr alpha colour) sgr) colour))))
+              collect (list x y text (grounded (if alpha (faded-sgr sgr alpha colour) sgr) colour (view-daemon view)))))
       ;; Without a ground there is nothing to blend toward; a fading fragment
       ;; shows while it is mostly opaque.
       (loop for (x y text sgr alpha) in fragments
@@ -3416,7 +3429,7 @@ inside a window, full outside. Rows' colours are computed once per frame."
             for cache = (or (gethash colour styles) (setf (gethash colour styles) (make-hash-table :test 'eq)))
             collect (loop for (start text attr) in runs
                           collect (list start text (or (gethash attr cache)
-                                                       (setf (gethash attr cache) (grounded attr colour))))))
+                                                       (setf (gethash attr cache) (grounded attr colour (view-daemon view)))))))
       lines))
 (defun ground-fill (view)
   "Blank ground runs under every decoration: each row minus application content,

@@ -822,7 +822,9 @@ With `:start` set, the taskbar's left end is a button that opens a start menu.
 The `:ground` option is Ekko's default background: nil (the terminal's own),
 one colour (an index or `(r g b)`), or up to 16 bands of `(weight colour)`
 from top to bottom. It shows wherever neither an application nor a decoration
-chose a background: the empty desktop, around windows, under line borders, and
+chose a background, or chose the outer terminal's own default background (as
+its colour reports name it, the colour a terminal like foot's `alpha-mode=matching`
+makes transparent): the empty desktop, around windows, under line borders, and
 inside every pane, so the desktop runs through the windows as one surface.
 Bands are sampled at each cell's screen row. `:ground-dim` (0–90) darkens it
 inside windows by that percentage, like tinted glass, so text stays legible;
