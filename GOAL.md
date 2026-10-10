@@ -273,7 +273,9 @@ and the target applications, including:
 - Cursor movement/addressing, wrap-pending state, origin mode, scroll margins,
   insertion/deletion, erase operations, tabs, save/restore, and reset.
 - Main and alternate screen transitions, independent state where required,
-  history ownership, resize rules, and a documented initial no-reflow policy.
+  history ownership, resize rules, and main-screen reflow: rows that ended in an
+  automatic wrap rejoin and rewrap at the new width, the cursor keeps its
+  character, and the alternate screen is left to the application to redraw.
 - Indexed and true color, rendition reset, hyperlinks, cursor visibility/style,
   title updates, bracketed paste, mouse/focus modes, and synchronized updates.
 - Child terminal/device queries answered from virtual state, including cursor

@@ -521,7 +521,7 @@ through actual PTYs and an independent restricted Kitty receiver. Final build
 and check results are recorded in docs/evidence/runtime.json.
 
 Limitations: one attached writer, incomplete VT/terminfo compatibility, line-only
-copy selection, no history reflow or host clipboard, and a bounded initial extension API.
+copy selection, no host clipboard, and a bounded initial extension API.
 Graphics support is deliberately limited to the benchmark's native direct
 RGB/RGBA subset. Full PNG, placeholders, remaining transfer adapters, scaled placement,
 animation, compositor layers, and the remaining GOAL.md gates remain open.

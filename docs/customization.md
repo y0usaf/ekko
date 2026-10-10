@@ -425,7 +425,7 @@ boundary are dropped; combining marks stay with an accepted base glyph.
 Reload clears accepted contributions and schedules the new hooks. The default
 titles, split dividers, and status line use this same API in `ekko/builtins`.
 `:history-rows` is the bounded main-screen history count (zero on alternate
-screen); it does not expose a scroll position or history reflow.
+screen); it does not expose a scroll position.
 
 When `run` creates the workspace from a terminal, its initial cell and pixel size
 is handed to the daemon before applications spawn. The loaded geometry options
@@ -608,7 +608,11 @@ scrolls the copy cursor. Graphics are hidden during copy mode and restored on ex
 
 History retains main-screen full-width scrolling rows, bounded by 10,000 rows
 and an 8 MiB cell-accounting budget per pane. Alternate-screen output is not
-added to history. Copy snapshots contain text only; they do not reflow on resize.
+added to history. On resize the main screen and its history reflow: rows that ended
+in an automatic wrap rejoin into their line and rewrap at the new width, wide
+glyphs are never split, the cursor stays on its character, and rows that no
+longer fit move into history. The alternate screen does not reflow; applications
+redraw it. Copy snapshots contain text only; they do not reflow on resize.
 The daemon buffer holds up to 1 MiB and survives client replacement. Pasting
 honors the application's bracketed-paste mode and currently accepts up to 60,000
 UTF-8 bytes, within the pane's bounded input queue. Export larger selections with
