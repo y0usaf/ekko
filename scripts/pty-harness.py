@@ -220,6 +220,30 @@ def mouse_flood(binary):
                 "repeats": sum(a == b for a, b in zip(motion, motion[1:]))}
 
 
+LONG_LINE = "https://claude.ai/oauth/authorize?code=true&client_id=9d1c250a-e61b-47e5-9d4f-8b6c2f1a7e03&response_type=code&redirect_uri=https%3A%2F%2Fconsole.anthropic.com%2Foauth%2Fcode%2Fcallback&scope=org%3Acreate_api_key+user%3Aprofile+user%3Ainference&code_challenge=abcdefghijklmnopqrstuvwxyz0123456789ABCD&state=gzuwBfMt"
+
+
+def pane_text(term, cols, rows):
+    return "".join(line[:cols].strip("\u2502 ") for line in term.screen.display[1:rows - 2])
+
+
+def reflow(binary):
+    with Instance(binary, "reflow") as ekko:
+        path = f"{ekko.root}/long-line.txt"
+        with open(path, "w") as f:
+            f.write(LONG_LINE + "\n")
+        ekko.ekko("run", "--detached", "sh", "-c", f"cat {path}; exec sleep 600")
+        term = ekko.attach(160, 30)
+        intact = []
+        for cols, rows, required in [(160, 30, True), (60, 30, True), (40, 12, False), (160, 30, True)]:
+            term.resize(cols, rows)
+            term.run_for(2.0)
+            if required:
+                intact.append(LONG_LINE in pane_text(term, cols, rows))
+        term.close()
+        return {"intact": intact}
+
+
 def advanced(pair):
     return None not in pair and pair[1] > pair[0]
 
@@ -231,6 +255,7 @@ CHECKS = {
     "pane-osc52": (pane_osc52, lambda r: r["forwarded"]),
     "pane-colours": (pane_colours, lambda r: r["answered"]),
     "mouse-flood": (mouse_flood, lambda r: r["repeats"] == 0 and r["app_motion"] == r["cells"] >= 60),
+    "reflow": (reflow, lambda r: all(r["intact"])),
 }
 
 failed = []

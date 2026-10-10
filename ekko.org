@@ -839,25 +839,120 @@ The VT parser and screen model, plus its public accessors.
     (setf (terminal-materialized-rows vt)
           (min (terminal-rows vt)
                (max (terminal-materialized-rows vt) count)))))
+(defparameter *blank-cell* (list " " (list 0)))
+(defun blank-cell-p (cell)
+  (and (equal (first cell) " ") (equal (second cell) '(0))))
+(defun wrap-mark (row mark)
+  (let* ((tail (1- (length row))) (cell (svref row tail)))
+    (setf (svref row tail)
+          (if (eq mark :pad)
+              (list " " (second cell) :pad)
+              (list (first cell) (second cell) :wrap)))))
+(defun wrap-line (line end cols offsets)
+  (let ((rows nil) (count 0) (col 0) (found (make-list (length offsets)))
+        (row (make-array cols :initial-element *blank-cell*)))
+    (flet ((close-row (mark)
+             (wrap-mark row mark)
+             (push row rows)
+             (incf count)
+             (setf row (make-array cols :initial-element *blank-cell*) col 0)))
+      (let ((i 0))
+        (loop while (< i end) do
+          (let ((width 1))
+            (loop while (and (< (+ i width) end) (equal (first (aref line (+ i width))) ""))
+                  do (incf width))
+            (unless (> width cols)
+              (when (> (+ col width) cols)
+                (close-row (if (= col cols) :wrap :pad)))
+              (loop for offset in offsets for slot on found
+                    when (and (null (car slot)) (<= i offset (+ i width -1)))
+                      do (setf (car slot) (cons count (+ col (- offset i)))))
+              (replace row line :start1 col :start2 i :end2 (+ i width))
+              (incf col width))
+            (incf i width))))
+      (push row rows)
+      (incf count)
+      (loop for slot on found
+            unless (car slot) do (setf (car slot) (cons (1- count) (min col (1- cols)))))
+      (values (nreverse rows) found))))
+(defun reflow-rows (rows cursor-row cursor-x top-row cols)
+  (let ((line (make-array 0 :adjustable t :fill-pointer 0))
+        (out nil) (count 0) (cursor nil) (top nil) (cursor-offset nil) (top-offset nil) (more nil))
+    (flet ((flush ()
+             (let ((end (fill-pointer line)) (keep (if cursor-offset (1+ cursor-offset) 0)))
+               (loop while (and (> end keep) (blank-cell-p (aref line (1- end)))) do (decf end))
+               (multiple-value-bind (wrapped found)
+                   (wrap-line line end cols (remove nil (list cursor-offset top-offset)))
+                 (flet ((absolute (position) (cons (+ count (car position)) (cdr position))))
+                   (when cursor-offset (setf cursor (absolute (pop found))))
+                   (when top-offset (setf top (absolute (pop found)))))
+                 (incf count (length wrapped))
+                 (dolist (row wrapped) (push row out))))
+             (setf (fill-pointer line) 0 cursor-offset nil top-offset nil more nil)))
+      (dotimes (i (length rows))
+        (let* ((row (svref rows i)) (tail (1- (length row))) (mark (third (svref row tail))))
+          (when (= i cursor-row) (setf cursor-offset (+ (fill-pointer line) (min cursor-x tail))))
+          (when (= i top-row) (setf top-offset (fill-pointer line)))
+          (dotimes (x (if (eq mark :pad) tail (1+ tail)))
+            (let ((cell (svref row x)))
+              (vector-push-extend (if (third cell) (list (first cell) (second cell)) cell) line)))
+          (if mark (setf more t) (flush))))
+      (when more (flush)))
+    (values (coerce (nreverse out) 'simple-vector) cursor top)))
+(defun reflow-main (vt cells x y cols rows)
+  (let* ((old-cols (length (svref cells 0)))
+         (content (position-if-not (lambda (row) (every #'blank-cell-p row)) cells :from-end t))
+         (above (coerce (history-above vt) 'simple-vector))
+         (joined (concatenate 'simple-vector above (subseq cells 0 (1+ (max y (or content 0)))))))
+    (multiple-value-bind (laid cursor top)
+        (reflow-rows joined (+ (length above) y) x (length above) cols)
+      (let* ((cursor-row (car cursor))
+             (origin (if (or (= y (1- (length cells))) (>= (- cursor-row (car top)) rows))
+                         (max 0 (- cursor-row (1- rows)))
+                         (car top)))
+             (screen (make-array rows)))
+        (dotimes (k rows)
+          (setf (svref screen k)
+                (if (< (+ origin k) (length laid))
+                    (svref laid (+ origin k))
+                    (make-array cols :initial-element *blank-cell*))))
+        (setf (terminal-history vt) nil)
+        (dotimes (k origin) (remember-row vt (svref laid k)))
+        (values screen (+ (cdr cursor) (if (>= x old-cols) 1 0)) (- cursor-row origin)
+                (max 1 (min rows (- (length laid) origin))))))))
+(defun truncate-cells (old old-cols old-rows cols rows)
+  (let ((cells (blank-cells cols rows)))
+    (loop for y below (min rows old-rows) do
+      (loop for x below (min cols old-cols) do
+        (let ((cell (svref (svref old y) x)))
+          (unless (and (= x (1- cols)) (plusp (length (first cell)))
+                       (= 2 (character-width (char (first cell) 0))))
+            (setf (svref (svref cells y) x) cell)))))
+    cells))
 (defun resize-terminal (vt cols rows cw ch)
-  (labels ((resized (old)
-             (when old
-               (let ((cells (blank-cells cols rows)))
-                 (loop for y below (min rows (terminal-rows vt)) do
-                   (loop for x below (min cols (terminal-cols vt)) do
-                     (let ((cell (svref (svref old y) x)))
-                       ;; Do not leave half a wide glyph at the new right edge.
-                       (unless (and (= x (1- cols)) (plusp (length (first cell)))
-                                    (= 2 (character-width (char (first cell) 0))))
-                         (setf (svref (svref cells y) x) cell))))) cells))))
-    (setf (terminal-cells vt) (resized (terminal-cells vt))
-          (terminal-main-cells vt) (resized (terminal-main-cells vt))
-          (terminal-cols vt) cols (terminal-rows vt) rows (terminal-cw vt) cw (terminal-ch vt) ch
-          (terminal-materialized-rows vt) (min rows (terminal-materialized-rows vt))
-          (terminal-main-materialized-rows vt) (min rows (terminal-main-materialized-rows vt))
-          (terminal-top vt) 0 (terminal-bottom vt) (1- rows)
-          (terminal-x vt) (min (terminal-x vt) (1- cols))
-          (terminal-y vt) (min (terminal-y vt) (1- rows)))
+  (let ((old-cols (terminal-cols vt)) (old-rows (terminal-rows vt)))
+    (unless (and (= cols old-cols) (= rows old-rows))
+      (let* ((alternate (eq (terminal-screen vt) :alternate))
+             (main (if alternate (terminal-main-cells vt) (terminal-cells vt)))
+             (x (if alternate (first (terminal-saved vt)) (terminal-x vt)))
+             (y (if alternate (second (terminal-saved vt)) (terminal-y vt))))
+        (multiple-value-bind (cells x y used)
+            (if main (reflow-main vt main x y cols rows) (values nil 0 0 1))
+          (cond (alternate
+                 (setf (terminal-cells vt) (truncate-cells (terminal-cells vt) old-cols old-rows cols rows)
+                       (terminal-main-cells vt) cells
+                       (terminal-saved vt) (list x y)
+                       (terminal-main-materialized-rows vt) used
+                       (terminal-materialized-rows vt) (min rows (terminal-materialized-rows vt))
+                       (terminal-x vt) (min (terminal-x vt) (1- cols))
+                       (terminal-y vt) (min (terminal-y vt) (1- rows))))
+                (t
+                 (setf (terminal-cells vt) cells
+                       (terminal-materialized-rows vt) used
+                       (terminal-x vt) x
+                       (terminal-y vt) y))))))
+    (setf (terminal-cols vt) cols (terminal-rows vt) rows (terminal-cw vt) cw (terminal-ch vt) ch
+          (terminal-top vt) 0 (terminal-bottom vt) (1- rows))
     (incf (terminal-revision vt))))
 (defun parameters (text &optional (separator #\;))
   (loop for start = 0 then (1+ end) for end = (position separator text :start start)
@@ -960,6 +1055,7 @@ MATERIALIZED-ROWS carries that distinction."
           (incf (terminal-revision vt))))
       (return-from put-character))
     (when (> (+ (terminal-x vt) width) cols)
+      (wrap-mark (svref (terminal-cells vt) (terminal-y vt)) (if (< (terminal-x vt) cols) :pad :wrap))
       (setf (terminal-x vt) 0) (newline vt emit))
     (when (<= width cols)
       (ensure-materialized-rows vt (1+ (terminal-y vt)))
@@ -1282,17 +1378,19 @@ Bounded main-screen scrollback rows.
           (history-start (terminal-history vt)) 0
           (history-count (terminal-history vt)) 0
           (history-bytes (terminal-history vt)) 0)))
+(defun history-above (vt)
+  (let ((history (terminal-history vt)))
+    (when history
+      (loop for i below (history-count history)
+            collect (aref (history-rows history) (mod (+ (history-start history) i) +history-rows+))))))
 (defun history-cells (vt)
   "Frozen rows retain the VT's immutable text/rendition cells."
-  (let ((history (terminal-history vt)))
-    (coerce
-      (append
-        (when (and history (eq (terminal-screen vt) :main))
-          (loop for i below (history-count history)
-                collect (aref (history-rows history) (mod (+ (history-start history) i) +history-rows+))))
-        (loop for y below (terminal-rows vt)
-              collect (copy-seq (svref (terminal-cells vt) y))))
-      'vector)))
+  (coerce
+    (append
+      (when (eq (terminal-screen vt) :main) (history-above vt))
+      (loop for y below (terminal-rows vt)
+            collect (copy-seq (svref (terminal-cells vt) y))))
+    'vector))
 (defun history-text (vt)
   (map 'vector #'row-text (history-cells vt)))
 (defun row-text (row)
@@ -11033,8 +11131,10 @@ every byte to pyte. Each scenario runs on its own private instance with no
 config and asserts what a user would see: the first attach fills the resized
 terminal promptly, a click that selects nothing leaves a printing pane live, a
 drag-select copies and the pane runs again, a pane application's OSC 52
-write reaches the host terminal, and a drag across a mouse-tracking pane reaches
-its application once per cell crossed rather than once per host pixel.
+write reaches the host terminal, a drag across a mouse-tracking pane reaches
+its application once per cell crossed rather than once per host pixel, and a long
+wrapped line printed before the terminal is narrowed is whole again once it is
+widened.
 
 #+begin_src python :tangle scripts/pty-harness.py :mkdirp yes
 import base64
@@ -11259,6 +11359,30 @@ def mouse_flood(binary):
                 "repeats": sum(a == b for a, b in zip(motion, motion[1:]))}
 
 
+LONG_LINE = "https://claude.ai/oauth/authorize?code=true&client_id=9d1c250a-e61b-47e5-9d4f-8b6c2f1a7e03&response_type=code&redirect_uri=https%3A%2F%2Fconsole.anthropic.com%2Foauth%2Fcode%2Fcallback&scope=org%3Acreate_api_key+user%3Aprofile+user%3Ainference&code_challenge=abcdefghijklmnopqrstuvwxyz0123456789ABCD&state=gzuwBfMt"
+
+
+def pane_text(term, cols, rows):
+    return "".join(line[:cols].strip("\u2502 ") for line in term.screen.display[1:rows - 2])
+
+
+def reflow(binary):
+    with Instance(binary, "reflow") as ekko:
+        path = f"{ekko.root}/long-line.txt"
+        with open(path, "w") as f:
+            f.write(LONG_LINE + "\n")
+        ekko.ekko("run", "--detached", "sh", "-c", f"cat {path}; exec sleep 600")
+        term = ekko.attach(160, 30)
+        intact = []
+        for cols, rows, required in [(160, 30, True), (60, 30, True), (40, 12, False), (160, 30, True)]:
+            term.resize(cols, rows)
+            term.run_for(2.0)
+            if required:
+                intact.append(LONG_LINE in pane_text(term, cols, rows))
+        term.close()
+        return {"intact": intact}
+
+
 def advanced(pair):
     return None not in pair and pair[1] > pair[0]
 
@@ -11270,6 +11394,7 @@ CHECKS = {
     "pane-osc52": (pane_osc52, lambda r: r["forwarded"]),
     "pane-colours": (pane_colours, lambda r: r["answered"]),
     "mouse-flood": (mouse_flood, lambda r: r["repeats"] == 0 and r["app_motion"] == r["cells"] >= 60),
+    "reflow": (reflow, lambda r: all(r["intact"])),
 }
 
 failed = []

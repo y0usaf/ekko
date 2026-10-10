@@ -32,17 +32,19 @@
           (history-start (terminal-history vt)) 0
           (history-count (terminal-history vt)) 0
           (history-bytes (terminal-history vt)) 0)))
+(defun history-above (vt)
+  (let ((history (terminal-history vt)))
+    (when history
+      (loop for i below (history-count history)
+            collect (aref (history-rows history) (mod (+ (history-start history) i) +history-rows+))))))
 (defun history-cells (vt)
   "Frozen rows retain the VT's immutable text/rendition cells."
-  (let ((history (terminal-history vt)))
-    (coerce
-      (append
-        (when (and history (eq (terminal-screen vt) :main))
-          (loop for i below (history-count history)
-                collect (aref (history-rows history) (mod (+ (history-start history) i) +history-rows+))))
-        (loop for y below (terminal-rows vt)
-              collect (copy-seq (svref (terminal-cells vt) y))))
-      'vector)))
+  (coerce
+    (append
+      (when (eq (terminal-screen vt) :main) (history-above vt))
+      (loop for y below (terminal-rows vt)
+            collect (copy-seq (svref (terminal-cells vt) y))))
+    'vector))
 (defun history-text (vt)
   (map 'vector #'row-text (history-cells vt)))
 (defun row-text (row)
