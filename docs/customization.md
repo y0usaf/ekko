@@ -219,9 +219,12 @@ can coalesce while a handler runs. Hook results are discarded when a declared
 dependency changes before completion; unrelated snapshot changes do not discard
 them. Hooks with no declared reads run once after installation. Hooks may
 only return `:status` or `:decorate` contributions, preventing reactive action loops. Each answer
-clears the owner's timeout count; a hook that misses three consecutive deadlines
-is disabled until explicit reload, so one scheduling delay cannot permanently
-remove an owner's chrome. An answer the daemon refuses, such as data nested
+clears the owner's timeout count. A hook that misses three consecutive deadlines
+pauses for 1 s and then runs again; each further miss doubles the pause, up to
+60 s, so a load spike costs a few seconds of chrome rather than all of it. From
+the third miss until an answer, the daemon itself draws a notice on the bottom
+row naming the hook, since the hook that failed may be the one drawing the
+chrome. An explicit reload clears the counts. An answer the daemon refuses, such as data nested
 deeper than 40 levels, fails like a handler error: the owner keeps its last
 chrome, the view shows the error, and the next change runs the hook again.
 After worker failure, Ekko reconstructs
@@ -292,7 +295,8 @@ PTYs, labels, layout, history, copy selections, and buffer. User-invoked command
 change that workspace state; removing their component does not undo past user actions.
 `inspect` reports the active `:mode`, the `:zoom` state as a JSON boolean,
 registered keymaps (including each map's owner and unbound policy), bindings,
-contributions, disabled hooks, and the last error. Builtins use the same API in
+contributions, `hook-failures` (each owner's consecutive misses and whether it is
+paused), and the last error. Builtins use the same API in
 `ekko/builtins`; `ekko-bare` (a link to `ekko`, or `ekko --bare`) starts without builtins and can load external
 commands and layout providers.
 

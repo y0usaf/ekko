@@ -270,7 +270,7 @@ def full_desktop(binary):
         state = json.loads(ekko.ekko("inspect").stdout)
         term.close()
         return {"windows": len(state["panes"]), "chrome_spans": len(spans(state, "defaults")),
-                "disabled_hooks": state["disabled-hooks"]}
+                "hook_failures": state.get("hook-failures")}
 
 
 def refused_answer(binary):
@@ -287,7 +287,49 @@ def refused_answer(binary):
         term.run_for(1.0)
         state = json.loads(ekko.ekko("inspect").stdout)
         term.close()
-        return {"probe": [s["text"] for s in spans(state, "probe")], "disabled_hooks": state["disabled-hooks"]}
+        return {"probe": [s["text"] for s in spans(state, "probe")], "hook_failures": state.get("hook-failures")}
+
+
+SLOW = """(ekko/extensions:register-component :id ':slow :reads '(:panes)
+  :handler (lambda (snapshot event)
+             (declare (ignore event))
+             (when (probe-file "{flag}") (sleep 2))
+             (list (ekko/extensions:action :decorate ':spans
+                     (list (list :x 0 :y 0 :text (format nil "slow ~D" (length (ekko/extensions:value snapshot :panes)))))))))
+"""
+
+
+def slow_hook(binary):
+    with Instance(binary, "slow") as ekko:
+        flag = f"{ekko.root}/slow"
+        os.makedirs(f"{ekko.root}/config/ekko")
+        with open(f"{ekko.root}/config/ekko/init.lisp", "w") as f:
+            f.write(SLOW.replace("{flag}", flag))
+        ekko.ekko("run", "--detached", "sh", "-c", "exec sleep 600")
+        term = ekko.attach()
+        term.run_for(1.0)
+        open(flag, "w").close()
+        ekko.ekko("split", "columns", "sh", "-c", "exec sleep 600")
+        paused = banner = False
+        for _ in range(30):
+            term.run_for(0.5)
+            failures = json.loads(ekko.ekko("inspect").stdout).get("hook-failures") or []
+            paused = any(f["paused"] and f["misses"] >= 3 for f in failures)
+            banner = "missed" in "\n".join(term.screen.display)
+            if paused and banner:
+                break
+        os.remove(flag)
+        for _ in range(30):
+            term.run_for(0.5)
+            state = json.loads(ekko.ekko("inspect").stdout)
+            if [s["text"] for s in spans(state, "slow")] == ["slow 2"]:
+                break
+        term.run_for(0.5)
+        state = json.loads(ekko.ekko("inspect").stdout)
+        after = "missed" in "\n".join(term.screen.display)
+        term.close()
+        return {"paused": paused, "banner": banner, "probe": [s["text"] for s in spans(state, "slow")],
+                "hook_failures": state.get("hook-failures"), "banner_after": after}
 
 
 def advanced(pair):
@@ -302,8 +344,10 @@ CHECKS = {
     "pane-colours": (pane_colours, lambda r: r["answered"]),
     "mouse-flood": (mouse_flood, lambda r: r["repeats"] == 0 and r["app_motion"] == r["cells"] >= 60),
     "reflow": (reflow, lambda r: all(r["intact"])),
-    "full-desktop": (full_desktop, lambda r: r["windows"] == 16 and r["chrome_spans"] > 0 and not r["disabled_hooks"]),
-    "refused-answer": (refused_answer, lambda r: r["probe"] == ["probe 3"] and not r["disabled_hooks"]),
+    "full-desktop": (full_desktop, lambda r: r["windows"] == 16 and r["chrome_spans"] > 0 and not r["hook_failures"]),
+    "refused-answer": (refused_answer, lambda r: r["probe"] == ["probe 3"] and not r["hook_failures"]),
+    "slow-hook": (slow_hook, lambda r: r["paused"] and r["banner"] and r["probe"] == ["slow 2"]
+                  and not r["hook_failures"] and not r["banner_after"]),
 }
 
 failed = []

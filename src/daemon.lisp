@@ -8,7 +8,7 @@
   (next-pane-id 1) (next-view-id 1)
   panes tree views home-view launch-directory launch-environment config-path
   retired worker candidate registry
-  (config-generation 0) config-error command-queue disabled-hooks hook-failures
+  (config-generation 0) config-error command-queue hook-failures
   (work-turn 0) dispatch-cursors (recovery-budget 0) (service-failures 0)
   reload-peer initialization-queue candidate-views candidate-results candidate-contexts
   candidate-layouts candidate-stage candidate-members pending-splits

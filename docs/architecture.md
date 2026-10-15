@@ -80,9 +80,10 @@ replacement reconstructs owned contributions while preserving workspace state.
 Hooks react only to declared context changes and may contribute status. Candidate
 loads run alongside the reactor; failed loads leave the active worker in place.
 A callback deadline kills the worker and reconstructs it from the accepted init
-text; a change hook has a longer deadline than a command, and only a hook that
-misses three consecutive deadlines is disabled, so one late chrome repaint does
-not take the decorations down. Details and current restrictions are in
+text; a change hook has a longer deadline than a command, and a hook that
+misses three consecutive deadlines is retried after a pause that doubles from
+1 s to 60 s, under a notice the daemon draws itself, so neither one late chrome
+repaint nor a load spike takes the decorations down for good. Details and current restrictions are in
 [customization](customization.md).
 
 Command dispatch captures the origin view, epoch, config generation and default

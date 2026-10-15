@@ -718,7 +718,8 @@ window clips it, a growing one shows the ground around it."
                 :decorations (ground-fragments view (append (ground-fill view) (scene-decorations view)))
                 :overlays (ground-fragments view
                             (append (scene-decorations view t) (transition-overlays view)
-                                    (window-hover-overlays view) (window-drag-overlays view) (popup-overlays view)))
+                                    (window-hover-overlays view) (window-drag-overlays view) (popup-overlays view)
+                                    (hook-failure-overlays view)))
                 :exit-text (option (view-daemon view) :viewer-exit-text nil)))))
 (defun checked-startup-viewport (viewport)
   (when viewport
