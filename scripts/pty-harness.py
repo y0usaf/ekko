@@ -244,6 +244,52 @@ def reflow(binary):
         return {"intact": intact}
 
 
+REFUSED = """(ekko/extensions:register-component :id ':probe :reads '(:panes)
+  :handler (lambda (snapshot event)
+             (declare (ignore event))
+             (let* ((count (length (ekko/extensions:value snapshot :panes))) (sgr (list 1)))
+               (when (= count 2)
+                 (dotimes (i 48) (setf sgr (list sgr))))
+               (list (ekko/extensions:action :decorate ':spans
+                       (list (list :x 0 :y 0 :text (format nil "probe ~D" count) :sgr sgr)))))))
+"""
+
+
+def spans(state, owner):
+    return [s for d in state["decorations"] or [] if d["owner"] == owner for s in d["spans"] or []]
+
+
+def full_desktop(binary):
+    with Instance(binary, "desktop") as ekko:
+        ekko.ekko("run", "--detached", "sh", "-c", "exec sleep 600")
+        term = ekko.attach()
+        for _ in range(15):
+            ekko.ekko("split", "columns", "sh", "-c", "exec sleep 600")
+            term.run_for(0.4)
+        term.run_for(1.0)
+        state = json.loads(ekko.ekko("inspect").stdout)
+        term.close()
+        return {"windows": len(state["panes"]), "chrome_spans": len(spans(state, "defaults")),
+                "disabled_hooks": state["disabled-hooks"]}
+
+
+def refused_answer(binary):
+    with Instance(binary, "refused") as ekko:
+        os.makedirs(f"{ekko.root}/config/ekko")
+        with open(f"{ekko.root}/config/ekko/init.lisp", "w") as f:
+            f.write(REFUSED)
+        ekko.ekko("run", "--detached", "sh", "-c", "exec sleep 600")
+        term = ekko.attach()
+        term.run_for(1.0)
+        ekko.ekko("split", "columns", "sh", "-c", "exec sleep 600")
+        term.run_for(2.0)
+        ekko.ekko("split", "columns", "sh", "-c", "exec sleep 600")
+        term.run_for(1.0)
+        state = json.loads(ekko.ekko("inspect").stdout)
+        term.close()
+        return {"probe": [s["text"] for s in spans(state, "probe")], "disabled_hooks": state["disabled-hooks"]}
+
+
 def advanced(pair):
     return None not in pair and pair[1] > pair[0]
 
@@ -256,6 +302,8 @@ CHECKS = {
     "pane-colours": (pane_colours, lambda r: r["answered"]),
     "mouse-flood": (mouse_flood, lambda r: r["repeats"] == 0 and r["app_motion"] == r["cells"] >= 60),
     "reflow": (reflow, lambda r: all(r["intact"])),
+    "full-desktop": (full_desktop, lambda r: r["windows"] == 16 and r["chrome_spans"] > 0 and not r["disabled_hooks"]),
+    "refused-answer": (refused_answer, lambda r: r["probe"] == ["probe 3"] and not r["disabled_hooks"]),
 }
 
 failed = []

@@ -221,7 +221,10 @@ them. Hooks with no declared reads run once after installation. Hooks may
 only return `:status` or `:decorate` contributions, preventing reactive action loops. Each answer
 clears the owner's timeout count; a hook that misses three consecutive deadlines
 is disabled until explicit reload, so one scheduling delay cannot permanently
-remove an owner's chrome. After worker failure, Ekko reconstructs
+remove an owner's chrome. An answer the daemon refuses, such as data nested
+deeper than 40 levels, fails like a handler error: the owner keeps its last
+chrome, the view shows the error, and the next change runs the hook again.
+After worker failure, Ekko reconstructs
 registrations from the accepted init source; worker-local variables reset.
 
 A component may also supply `:initialize`, a `(snapshot event)` function returning

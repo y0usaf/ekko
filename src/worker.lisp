@@ -78,7 +78,8 @@
     (cond
       (packets
        (unless (= (aref (first packets) 0) 30) (error "Invalid extension packet"))
-       (extension-data (subseq (first packets) 1)))
+       (handler-case (extension-data (subseq (first packets) 1))
+         (error (e) (list :error (princ-to-string e)))))
       ;; The reactor may have been descheduled past the deadline while the
       ;; worker completed normally. Consume a ready response before timing out.
       ((and (extension-worker-request worker) (> (now) (extension-worker-deadline worker)))
