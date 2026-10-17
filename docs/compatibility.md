@@ -28,13 +28,13 @@ This is not complete Kitty or xterm compatibility. Source pins are in
 
 Unsupported or invalid graphics operations with a usable image ID receive an
 error unless quiet mode suppresses it. Unknown control sequences are consumed,
-not executed by the host. Malformed-input property coverage, all ID edges,
-exhaustive cleanup and all GOAL.md release gates remain open.
+not executed by the host. Malformed-input property coverage, all ID edges
+and exhaustive cleanup remain open.
 
 The original M01 synthetic acceptances covered rational clipping, checkerboard
 source transforms, offsets, overlay subtraction, attachment IDs, short writes,
 and decoded presentation reply ownership. They do not establish the unimplemented
-runtime operations above. Original evidence remains in docs/evidence/m01.json.
+runtime operations above.
 
 ## Actual applications
 

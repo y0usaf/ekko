@@ -1,7 +1,7 @@
 ;; Zellij 0.43.1 compatibility profile, under development.
 ;; The implemented Pane slice covers mode control, directional/row-major
 ;; focus, new panes Down/Right/NoPreference, close, and fullscreen. Other Pane
-;; actions remain intentionally unregistered. See docs/zellij/README.md.
+;; actions remain intentionally unregistered.
 (in-package #:cl-user)
 
 ;; The extension worker may load this source from a stream, so *LOAD-TRUENAME*

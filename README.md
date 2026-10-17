@@ -137,7 +137,7 @@ text terminals, and a limited Kitty graphics implementation. Each pane can run
 an ordinary shell, a terminal application, or terminal-browser. Ekko manages the
 panes; the Kitty graphics protocol draws images inside them.
 
-An optional [Zellij 0.43.1 Lisp profile](docs/zellij/README.md) is under development.
+An optional [Zellij 0.43.1 Lisp profile](examples/profiles/zellij.lisp) is under development.
 It currently demonstrates Normal/Locked input routing through public keymaps;
 full functional and visual parity remains open. The differential runner records
 known differences and exposes a strict, currently failing acceptance gate.
@@ -271,12 +271,10 @@ The JSON records per-process CPU, sampled RSS, voluntary context switches,
 terminal bytes, input latency, graphics transfer latency, and daemon allocation/GC
 counters. `--direct` runs the same fixture directly in a PTY. These synthetic
 measurements exclude Kitty rendering and physical display latency; the live
-browser/Slack launcher remains `.#benchmark`. See [performance](docs/performance.md)
-for workload details and recorded comparisons.
+browser/Slack launcher remains `.#benchmark`.
 
-See [PROGRESS.md](PROGRESS.md), [architecture](docs/architecture.md), and the
-[compatibility ledger](docs/compatibility.md). The destination specification is
-[GOAL.md](GOAL.md). Sibling Ekko implementation code was not used.
+See [architecture](docs/architecture.md) and the
+[compatibility ledger](docs/compatibility.md). Sibling Ekko implementation code was not used.
 
 The optional `examples/profiles/desktop.lisp` installs the same desktop through
 the public extension API in `ekko-bare`. Regular Ekko includes it by default.
