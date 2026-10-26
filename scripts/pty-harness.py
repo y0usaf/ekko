@@ -244,6 +244,20 @@ def reflow(binary):
         return {"intact": intact}
 
 
+def no_autowrap(binary):
+    with Instance(binary, "no-autowrap") as ekko:
+        line = "".join(chr(65 + i % 26) for i in range(300))
+        ekko.ekko("run", "--detached", "sh", "-c",
+                  f"sleep 1.5; printf '\\033[?1049h\\033[H\\033[?7l{line}\\033[?7h\\r\\nnext'; exec sleep 600")
+        term = ekko.attach(120, 30)
+        term.run_for(3.0)
+        pane = json.loads(ekko.ekko("status").stdout)["panes"][0]
+        x, y, cols = pane["x"], pane["y"], pane["cols"]
+        rows = [term.screen.display[y + i][x:x + cols] for i in range(2)]
+        term.close()
+        return {"rows": rows, "expected": [line[:cols - 1] + line[-1], "next"]}
+
+
 REFUSED = """(ekko/extensions:register-component :id ':probe :reads '(:panes)
   :handler (lambda (snapshot event)
              (declare (ignore event))
@@ -344,6 +358,7 @@ CHECKS = {
     "pane-colours": (pane_colours, lambda r: r["answered"]),
     "mouse-flood": (mouse_flood, lambda r: r["repeats"] == 0 and r["app_motion"] == r["cells"] >= 60),
     "reflow": (reflow, lambda r: all(r["intact"])),
+    "no-autowrap": (no_autowrap, lambda r: r["rows"][0] == r["expected"][0] and r["rows"][1].rstrip() == r["expected"][1]),
     "full-desktop": (full_desktop, lambda r: r["windows"] == 16 and r["chrome_spans"] > 0 and not r["hook_failures"]),
     "refused-answer": (refused_answer, lambda r: r["probe"] == ["probe 3"] and not r["hook_failures"]),
     "slow-hook": (slow_hook, lambda r: r["paused"] and r["banner"] and r["probe"] == ["slow 2"]
