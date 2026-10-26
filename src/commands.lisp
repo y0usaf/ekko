@@ -751,6 +751,8 @@ extension code; otherwise the active worker's binary does, so recovery keeps it.
 (defun views-after (views previous)
   (let ((tail (member previous views)))
     (if tail (append (rest tail) (ldiff views (rest tail))) views)))
+(defvar *fresh-contexts* nil
+  "View contexts SCHEDULE-HOOKS just built, for the work it schedules before anything changes them.")
 (defun schedule-view-work (daemon worker kind)
   (let ((registry (daemon-registry daemon)))
     (dolist (view (views-after (daemon-views daemon)
@@ -763,8 +765,9 @@ extension code; otherwise the active worker's binary does, so recovery keeps it.
         (let ((layoutp (member kind '(:initialize :layout)))
               (id (when (eq kind :hook) (pop (view-hooks view)))))
           (handler-case
-              (let ((context (context-data view)) (state (view-layout-state view))
-                    (token (layout-token view)))
+              (let ((context (or (and *fresh-contexts* (gethash view *fresh-contexts*)) (context-data view)))
+                    (state (view-layout-state view)) (token (layout-token view)))
+                (when (and *fresh-contexts* (eq kind :initialize)) (remhash view *fresh-contexts*))
                 (case kind
                   (:initialize
                    ;; Retry a failed initializer only after its declared reads
@@ -833,6 +836,7 @@ extension code; otherwise the active worker's binary does, so recovery keeps it.
                 (let ((origin (command-request-origin request)))
                   (handler-case (dispatch-command-request request)
                     (error (e)
+                      (when *fresh-contexts* (clrhash *fresh-contexts*))
                       (fail-command request e)
                       (when (origin-current-p origin)
                         (handler-case (replay-input (command-origin-view origin))
@@ -845,23 +849,25 @@ extension code; otherwise the active worker's binary does, so recovery keeps it.
   ;; Collect detached snapshots even while another callback owns the worker.
   ;; Pending owners remain FIFO when dependencies change again before dispatch.
   (resume-hooks daemon)
-  (dolist (view (daemon-views daemon))
-    (when (and (view-extension-initialized view) (not (view-quarantined view)))
-      (handler-case
-          (let ((context (context-data view)) (previous (view-hook-context view)))
-            (unless (equal context previous)
-              (let ((changed (loop for key in ekko/extensions:*context-keys*
-                                   unless (and previous (equal (getf context key) (getf previous key))) collect key)))
-                (dolist (component (getf (daemon-registry daemon) :components))
-                  (let ((id (getf component :id)))
-                    (when (and (getf component :hook)
-                               (not (hook-paused-p daemon id))
-                               (or (null previous) (intersection changed (getf component :reads)))
-                               (not (member id (view-hooks view) :test #'equal)))
-                      (setf (view-hooks view) (append (view-hooks view) (list id)))))))
-              (setf (view-hook-context view) context)))
-        (error (e) (note-error view e)))))
-  (schedule-work daemon))
+  (let ((*fresh-contexts* (make-hash-table :test 'eq)))
+    (dolist (view (daemon-views daemon))
+      (when (and (view-extension-initialized view) (not (view-quarantined view)))
+        (handler-case
+            (let ((context (context-data view)) (previous (view-hook-context view)))
+              (setf (gethash view *fresh-contexts*) context)
+              (unless (equal context previous)
+                (let ((changed (loop for key in ekko/extensions:*context-keys*
+                                     unless (and previous (equal (getf context key) (getf previous key))) collect key)))
+                  (dolist (component (getf (daemon-registry daemon) :components))
+                    (let ((id (getf component :id)))
+                      (when (and (getf component :hook)
+                                 (not (hook-paused-p daemon id))
+                                 (or (null previous) (intersection changed (getf component :reads)))
+                                 (not (member id (view-hooks view) :test #'equal)))
+                        (setf (view-hooks view) (append (view-hooks view) (list id)))))))
+                (setf (view-hook-context view) context)))
+          (error (e) (note-error view e)))))
+    (schedule-work daemon)))
 
 (defun valid-decoration-text-p (text)
   (and (stringp text)

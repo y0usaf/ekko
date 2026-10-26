@@ -18,7 +18,7 @@ during its life.
 | `worker.lisp`, `commands.lisp` | Worker transport and deadlines, atomic config replacement, validated actions, copy mode |
 | `graphics.lisp` | Pane-owned RGB/RGBA uploads, validation, compressed assets, native placements, deletion, quotas |
 | `assets.lisp` | Daemon-owned raw frame snapshots, byte quota, reference ownership and crash reclamation |
-| `wire.lisp` | Version-16 routed IPC, input binding generations, bounded peer queues, scene acknowledgements, private daemon directory |
+| `wire.lisp` | Version-19 routed IPC, input binding generations, bounded peer queues, scene acknowledgements, private daemon directory |
 | `daemon.lisp` | The workspace: pane/view registries, reactor, startup pipeline, and shutdown |
 | `views.lisp` | Real per-view focus, interaction, geometry, selection state and captured command origins |
 | `layout-policy.lisp` | Owned layout-provider requests, detached dependencies, validated placements and stale-result rejection |
@@ -26,8 +26,11 @@ during its life.
 | `client.lisp` | Host input decoding, dimensions, text/Kitty rendering, per-client image IDs, terminal restoration |
 | `geometry.lisp`, `presentation.lisp` | Rational clipping and attachment identity/transaction contracts, also exercised by synthetic experiments |
 
-The IPC sends binary inline assets or local snapshot filenames followed by a complete scene snapshot. The client
-stages assets until the associated snapshot arrives. Only one scene is in flight per client. A visible pane inside an application-synchronized update
+The IPC sends binary inline assets or local snapshot filenames followed by a scene. A scene names only
+what the client does not already hold: pane rows it was sent last time, in place or scrolled, travel as
+`(:rows START COUNT)` references to its previous rows, and unchanged decorations or overlays as `:same`.
+The daemon rebuilds decorations and overlays only when the workspace or view revision, or a pane's label,
+status or size, changes. The client stages assets until the associated scene arrives. Only one scene is in flight per client. A visible pane inside an application-synchronized update
 frame (DECSET 2026) holds publication until the application closes the frame or a one-second deadline expires, so a batched
 repaint presents once instead of frame by frame. The client acknowledges after its output
 drains and all local-file uploads receive host read acknowledgements. Later scene
@@ -46,8 +49,10 @@ The oldest participating view supplies canonical cell metrics. Images retain
 native pixels, not arbitrary scaling; each client clips them using its host metrics.
 
 The renderer serializes complete Kitty uploads and uses synchronized updates.
-It caches complete text rows and writes only changed rows, resetting rendition
-before clearing each changed row. It avoids an outer clear-screen command,
+It composes each scene into a cell grid and writes only the cells that differ
+from what the host shows, tracking the host's cursor and rendition so a
+one-cell change costs a cursor move, a rendition and the cell. A frame with no
+changed cell writes nothing. It never clears the screen,
 because Kitty's clear screen also deletes graphics belonging to unchanged panes.
 Unchanged image generations reuse their host image and placement IDs when their
 crop, position, or cell dimensions change; only new generations upload pixels.

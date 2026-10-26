@@ -300,9 +300,9 @@ paused), and the last error. Builtins use the same API in
 `ekko/builtins`; `ekko-bare` (a link to `ekko`, or `ekko --bare`) starts without builtins and can load external
 commands and layout providers.
 
-Public extension API version 1 remains distinct from wire version **16**.
+Public extension API version 1 remains distinct from wire version **19**.
 All clients, including controls, must first send packet 0 with bounded data
-`(16 VIEW-ID-OR-NIL)`. Older versions and unversioned traffic are
+`(19 VIEW-ID-OR-NIL)`. Older versions and unversioned traffic are
 rejected; there is no legacy tiled-only attachment path.
 
 Packet 1 attaches once with five big-endian u32 values: version, columns, rows,

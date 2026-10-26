@@ -6,7 +6,7 @@
 ;; Version 16 removes session routing: one daemon hosts one workspace and every
 ;; peer attaches to it. Input transactions stay bound to connection generations
 ;; and pane identities remain daemon-global.
-(defconstant +wire-version+ 18)
+(defconstant +wire-version+ 19)
 (defvar *instance* "default")
 (defvar *bare* nil)
 (defconstant +queue-limit+ (* 8 1024 1024))
@@ -17,7 +17,8 @@
   (prefix-used 0) body (body-used 0) (known (make-hash-table :test 'equal))
   greeted selected-view-id view closing
   (binding-generation 0) binding-accepted
-  attached revision awaiting-scene (frame-due 0) deferred (leases nil) (at (now)))
+  attached revision awaiting-scene (frame-due 0) deferred (leases nil) (at (now))
+  (sent-rows (make-hash-table)) sent-chrome)
 (defun u32 (bytes offset)
   (+ (ash (aref bytes offset) 24) (ash (aref bytes (+ offset 1)) 16)
      (ash (aref bytes (+ offset 2)) 8) (aref bytes (+ offset 3))))

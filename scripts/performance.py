@@ -34,9 +34,17 @@ def fixture(mode, log_path, width=512, height=512, fps=5, frame_path=None):
         log.write("ready\n")
         while True:
             now = time.monotonic()
-            if mode in ("text", "graphics") and now >= next_frame:
+            if mode in ("text", "graphics", "spinner", "redraw") and now >= next_frame:
                 if mode == "text":
                     os.write(1, (f"line {frame:08d} " + "text workload " * 5 + "\r\n").encode())
+                elif mode == "spinner":
+                    os.write(1, ESC + b"[1;1H" + b"|/-\\"[frame % 4:frame % 4 + 1])
+                elif mode == "redraw":
+                    cols, rows = os.get_terminal_size(0)
+                    lines = [(f"{y:3d} " + "full redraw workload " * 8)[:cols] for y in range(rows)]
+                    lines[rows // 2] = f"frame {frame:08d}".ljust(cols)
+                    os.write(1, ESC + b"[?2026h" + b"".join(ESC + f"[{y + 1};1H{line}".encode()
+                                                          for y, line in enumerate(lines)) + ESC + b"[?2026l")
                 else:
                     raw = struct.pack(">Q", time.monotonic_ns()) + pixels[8:]
                     if os.environ.get("EKKO_PERF_TRANSPORT") == "shared":
@@ -54,7 +62,7 @@ def fixture(mode, log_path, width=512, height=512, fps=5, frame_path=None):
                         os.write(1, ESC + b"_G" + header + f"m={more};".encode()
                                  + payload[offset:offset + 4096] + ESC + b"\\")
                 frame += 1
-                next_frame = now + (0.05 if mode == "text" else 1 / fps)
+                next_frame = now + {"text": 0.05, "graphics": 1 / fps}.get(mode, 1 / 30)
             ready, _, _ = select.select([0], [], [], 0.005)
             if ready:
                 pending += os.read(0, 65536)
@@ -116,9 +124,11 @@ class Receiver:
 def process_stats(pid):
     stat = Path(f"/proc/{pid}/stat").read_text().rsplit(")", 1)[1].split()
     status = dict(line.split(":", 1) for line in Path(f"/proc/{pid}/status").read_text().splitlines())
+    io = dict(line.split(": ", 1) for line in Path(f"/proc/{pid}/io").read_text().splitlines())
     return {"cpu_seconds": (int(stat[11]) + int(stat[12])) / os.sysconf("SC_CLK_TCK"),
             "voluntary_context_switches": int(status["voluntary_ctxt_switches"]),
-            "rss_bytes": int(stat[21]) * os.sysconf("SC_PAGE_SIZE")}
+            "rss_bytes": int(stat[21]) * os.sysconf("SC_PAGE_SIZE"),
+            "written_bytes": int(io["wchar"])}
 
 
 def distribution(samples):
@@ -149,11 +159,13 @@ def stop_private_daemon(binary, env):
         os.close(fd)
 
 
-def benchmark(binary, mode, seconds, direct=False, width=512, height=512, fps=5, frame_path=None):
+def benchmark(binary, mode, seconds, direct=False, width=512, height=512, fps=5, frame_path=None, config=None):
     with tempfile.TemporaryDirectory(prefix="ekko-perf-") as directory:
         log = Path(directory) / "input.log"
         env = dict(os.environ, XDG_RUNTIME_DIR=directory, XDG_CONFIG_HOME=directory, EKKO_INSTANCE="perf")
         env.pop("EKKO_CONFIG", None)
+        if config:
+            env["EKKO_CONFIG"] = str(config)
         master, slave = pty.openpty()
         fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", 40, 120, 960, 640))
         command = [sys.executable, str(Path(__file__).resolve()), "--fixture", mode, str(log),
@@ -205,7 +217,7 @@ def benchmark(binary, mode, seconds, direct=False, width=512, height=512, fps=5,
                 now = time.monotonic()
                 if now - started > seconds + 15:
                     raise RuntimeError("Input did not drain")
-                if mode != "idle" and now >= next_probe and now - started < seconds and not pending:
+                if mode not in ("idle", "spinner", "redraw") and now >= next_probe and now - started < seconds and not pending:
                     filler = b"x" * 16384 if mode == "paste" else b""
                     pending = str(time.monotonic_ns()).encode() + b":" + filler + b"\n"
                     if mode == "paste" and not direct:
@@ -235,6 +247,7 @@ def benchmark(binary, mode, seconds, direct=False, width=512, height=512, fps=5,
                       "frame_to_terminal_receipt": distribution(receiver.frames),
                       "processes": {name: {"cpu_percent_one_core": 100 * (after[name]["cpu_seconds"] - values["cpu_seconds"]) / elapsed,
                                             "voluntary_context_switches": after[name]["voluntary_context_switches"] - values["voluntary_context_switches"],
+                                            "written_bytes_per_second": (after[name]["written_bytes"] - values["written_bytes"]) / elapsed,
                                             "rss_bytes_start": values["rss_bytes"], "rss_bytes_end": after[name]["rss_bytes"]}
                                     for name, values in before.items()}}
             for key in ("allocated_bytes", "gc_seconds"):
@@ -260,8 +273,9 @@ def main():
     parser = argparse.ArgumentParser(prog="ekko-performance", description=__doc__)
     parser.add_argument("binary", help=argparse.SUPPRESS)
     parser.add_argument("--seconds", type=float, default=3)
-    parser.add_argument("--workload", choices=["idle", "text", "graphics", "paste"],
-                        help="Measure one workload instead of all four")
+    parser.add_argument("--workload", choices=["idle", "text", "graphics", "paste", "spinner", "redraw"],
+                        help="Measure one workload instead of idle, text, graphics and paste")
+    parser.add_argument("--config", type=Path, help="Ekko init.lisp for the private daemon; default: none")
     parser.add_argument("--transport", choices=["inline", "shared"], default="inline",
                         help="Graphics producer transport; shared uses local raw snapshots")
     parser.add_argument("--direct", action="store_true", help="Run fixture directly in a PTY as transport baseline")
@@ -288,7 +302,8 @@ def main():
                                    "frame_file": str(args.graphics_frame) if args.graphics_frame else None},
                       "notes": "Synthetic PTY receiver; excludes Kitty rendering/display. RSS is sampled, not peak. CPU window excludes final drain. Allocation/GC are daemon-only when available.",
                       "workloads": [benchmark(args.binary, mode, args.seconds, args.direct, width, height,
-                                               args.graphics_fps, args.graphics_frame)
+                                               args.graphics_fps, args.graphics_frame,
+                                               args.config.resolve() if args.config else None)
                                     for mode in ([args.workload] if args.workload else ["idle", "text", "graphics", "paste"])]}, indent=2))
 
 

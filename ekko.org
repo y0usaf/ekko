@@ -1649,7 +1649,7 @@ The `ekko/runtime` package and its protocol vocabulary.
 ;; Version 16 removes session routing: one daemon hosts one workspace and every
 ;; peer attaches to it. Input transactions stay bound to connection generations
 ;; and pane identities remain daemon-global.
-(defconstant +wire-version+ 18)
+(defconstant +wire-version+ 19)
 (defvar *instance* "default")
 (defvar *bare* nil)
 (defconstant +queue-limit+ (* 8 1024 1024))
@@ -1660,7 +1660,8 @@ The `ekko/runtime` package and its protocol vocabulary.
   (prefix-used 0) body (body-used 0) (known (make-hash-table :test 'equal))
   greeted selected-view-id view closing
   (binding-generation 0) binding-accepted
-  attached revision awaiting-scene (frame-due 0) deferred (leases nil) (at (now)))
+  attached revision awaiting-scene (frame-due 0) deferred (leases nil) (at (now))
+  (sent-rows (make-hash-table)) sent-chrome)
 (defun u32 (bytes offset)
   (+ (ash (aref bytes offset) 24) (ash (aref bytes (+ offset 1)) 16)
      (ash (aref bytes (+ offset 2)) 8) (aref bytes (+ offset 3))))
@@ -2377,7 +2378,7 @@ Views over panes: mode, geometry and ownership, with no aliasing.
 ;; One daemon owns one workspace: every pane, view and component lives there.
 (defstruct pane id daemon pid io vt (graphics (make-store)) argv label status floating
   (launch-kind :command) (creation-position 0) name pty-size sync-until
-  (output-bytes 0) (application-focused nil) row-cache mouse-report)
+  (output-bytes 0) (application-focused nil) row-cache lines-memo mouse-report)
 (defstruct store-state entries)
 (defstruct pane-view pane-id (x 0) (y 0) (cols 0) (rows 0)
   (outer-x 0) (outer-y 0) (outer-cols 0) (outer-rows 0)
@@ -2395,6 +2396,7 @@ Views over panes: mode, geometry and ownership, with no aliasing.
   (notice "") error geometry-contributions contributions decorations pane-notes
   component-state hook-context hooks (layout-state (make-layout-state))
   layout-placements (camera-x 0) (camera-y 0) motions tweens glows ghosts slides redecorated popup-ghost animating
+  chrome-memo
   initialized extension-initialized initialization-failure quarantined)
 (defstruct command-origin daemon view epoch target-pane-id peer config-generation layout)
 (defstruct command-request origin name event snapshot)
@@ -3127,16 +3129,22 @@ The daemon's single-workspace server core and PTY sizing.
     (when attr (push (list start (get-output-stream-string chars) attr) runs))
     (nreverse runs)))
 (defun pane-lines (pane)
-  "PANE's rows as styled runs, reusing a row's runs while its cells are unchanged."
-  (let* ((vt (pane-vt pane)) (cells (terminal-cells vt)) (cols (terminal-cols vt)) (rows (terminal-rows vt))
-         (cache (pane-row-cache pane)))
-    (unless (and cache (= (length cache) rows))
-      (setf cache (make-array rows :initial-element nil) (pane-row-cache pane) cache))
-    (loop for y below rows for row = (svref cells y) for entry = (svref cache y)
-          collect (if (and entry (= (length (car entry)) cols)
-                           (loop for x below cols always (eq (svref (car entry) x) (svref row x))))
-                      (cdr entry)
-                      (cdr (setf (svref cache y) (cons (copy-seq row) (cell-runs row nil nil 0 cols))))))))
+  "PANE's rows as styled runs. A row keeps its runs while its cells are unchanged,
+also when scrolling moves it, and the list is reused while the terminal is unchanged."
+  (let* ((vt (pane-vt pane)) (cells (terminal-cells vt)) (memo (pane-lines-memo pane)))
+    (if (and memo (eql (first memo) (terminal-revision vt)) (eq (second memo) cells))
+        (cddr memo)
+        (let ((cols (terminal-cols vt)) (old (or (pane-row-cache pane) (make-hash-table :test 'eq)))
+              (new (make-hash-table :test 'eq)))
+          (setf (pane-row-cache pane) new)
+          (cddr (setf (pane-lines-memo pane)
+                      (list* (terminal-revision vt) cells
+                             (loop for y below (terminal-rows vt) for row = (svref cells y) for entry = (gethash row old)
+                                   collect (cdr (setf (gethash row new)
+                                                      (if (and entry (= (length (car entry)) cols)
+                                                               (loop for x below cols always (eq (svref (car entry) x) (svref row x))))
+                                                          entry
+                                                          (cons (copy-seq row) (cell-runs row nil nil 0 cols)))))))))))))
 (defvar *content-rects* nil "Pane content rectangles memoized for one scene build.")
 (defun pane-content-rect (view pane)
   "PANE's visible application cells within the viewport, as half-open (x0 y0 x1 y1)."
@@ -3274,15 +3282,29 @@ window clips it, a growing one shows the ground around it."
                   (shown-rect view (pane-id pane)))))
         (multiple-value-bind (viewport pane gaps width height) (workspace-geometry view)
           (declare (ignore pane width height))
-          (list :view-id (view-id view) :status (status-text view)
-                :style (option (view-daemon view) :status-style '(0 30 47))
-                :viewport-insets viewport :split-gaps gaps
-                :decorations (ground-fragments view (append (ground-fill view) (scene-decorations view)))
-                :overlays (ground-fragments view
+          (destructuring-bind (decorations overlays) (scene-chrome view)
+            (list :view-id (view-id view) :status (status-text view)
+                  :style (option (view-daemon view) :status-style '(0 30 47))
+                  :viewport-insets viewport :split-gaps gaps
+                  :decorations decorations :overlays overlays
+                  :exit-text (option (view-daemon view) :viewer-exit-text nil))))))
+(defun scene-chrome (view)
+  "The scene's decorations and overlays. They change only with the workspace,
+the view, or a pane's label, status or size, so they are rebuilt only then."
+  (let ((key (list* (daemon-revision (view-daemon view)) (view-revision view)
+                    (loop for pane in (view-panes view) for vt = (pane-vt pane)
+                          collect (list (pane-id pane) (pane-label pane) (pane-status pane)
+                                        (terminal-cols vt) (terminal-rows vt)))))
+        (memo (view-chrome-memo view)))
+    (if (and memo (equal (first memo) key))
+        (rest memo)
+        (rest (setf (view-chrome-memo view)
+                    (list key
+                          (ground-fragments view (append (ground-fill view) (scene-decorations view)))
+                          (ground-fragments view
                             (append (scene-decorations view t) (transition-overlays view)
                                     (window-hover-overlays view) (window-drag-overlays view) (popup-overlays view)
-                                    (hook-failure-overlays view)))
-                :exit-text (option (view-daemon view) :viewer-exit-text nil)))))
+                                    (hook-failure-overlays view)))))))))
 (defun checked-startup-viewport (viewport)
   (when viewport
     (unless (and (listp viewport) (= (length viewport) 4)
@@ -3308,6 +3330,33 @@ application's screen, so it is not held."
                (gethash 2026 (terminal-modes (pane-vt pane)))
                (pane-mid-frame-p pane)))
         (visible-panes view)))
+(defun scene-delta (wire scene)
+  "SCENE as WIRE's client needs it after the last scene it was sent: pane rows
+it already holds, in place or scrolled, become (:ROWS START COUNT) of its last
+rows, and decorations or overlays it already holds become :SAME."
+  (let ((sent (wire-sent-rows wire)) (shown nil))
+    (dolist (pane (seventh scene))
+      (let* ((id (first pane)) (cell (nthcdr 10 pane))
+             (rows (coerce (first cell) 'simple-vector)) (prior (gethash id sent)))
+        (push id shown)
+        (when prior
+          (let ((index (make-hash-table :test 'eq)) (out nil))
+            (loop for row across prior for j from 0 do (unless (gethash row index) (setf (gethash row index) j)))
+            (loop for row across rows for i from 0
+                  for j = (if (and (< i (length prior)) (equal row (svref prior i))) i (gethash row index))
+                  for last = (first out) do
+                    (cond ((null j) (push row out))
+                          ((and (consp last) (eq (first last) :rows) (= (+ (second last) (third last)) j))
+                           (incf (third last)))
+                          (t (push (list :rows j 1) out))))
+            (setf (first cell) (nreverse out))))
+        (setf (gethash id sent) rows)))
+    (maphash (lambda (id rows) (declare (ignore rows)) (unless (member id shown) (remhash id sent))) sent)
+    (let ((metadata (eighth scene)))
+      (dolist (key '(:decorations :overlays) scene)
+        (let ((value (getf metadata key)) (prior (getf (wire-sent-chrome wire) key :none)))
+          (setf (getf (wire-sent-chrome wire) key) value)
+          (when (equal value prior) (setf (getf metadata key) :same)))))))
 (defun publish-scene (view wire)
   (setf (wire-deferred wire) nil)
   (when (scene-mid-frame-p view) (return-from publish-scene))
@@ -3347,7 +3396,7 @@ application's screen, so it is not held."
                  (store-images (pane-graphics pane))))
       (let ((scene (scene-data view)))
         (setf (first scene) (wire-version wire))
-        (send-packet wire 12 (encode-scene scene)))
+        (send-packet wire 12 (encode-scene (scene-delta wire scene))))
       (setf (wire-awaiting-scene wire) (now))
       (setf (wire-revision wire) stamp)
       (let ((period (frame-seconds view)) (due (wire-frame-due wire)))
@@ -3406,7 +3455,8 @@ application's screen, so it is not held."
       (18
        (multiple-value-bind (target spec) (colour-report (bytes-text data))
          (unless target (error "Invalid colour report"))
-         (setf (gethash target (daemon-colours daemon)) spec)))
+         (setf (gethash target (daemon-colours daemon)) spec)
+         (incf (daemon-revision daemon))))
       (2 (input-key view data))
       (4 (setf (view-input-read-bytes view) nil) (input-mouse view (bytes-text data)))
       (16
@@ -4318,6 +4368,8 @@ extension code; otherwise the active worker's binary does, so recovery keeps it.
 (defun views-after (views previous)
   (let ((tail (member previous views)))
     (if tail (append (rest tail) (ldiff views (rest tail))) views)))
+(defvar *fresh-contexts* nil
+  "View contexts SCHEDULE-HOOKS just built, for the work it schedules before anything changes them.")
 (defun schedule-view-work (daemon worker kind)
   (let ((registry (daemon-registry daemon)))
     (dolist (view (views-after (daemon-views daemon)
@@ -4330,8 +4382,9 @@ extension code; otherwise the active worker's binary does, so recovery keeps it.
         (let ((layoutp (member kind '(:initialize :layout)))
               (id (when (eq kind :hook) (pop (view-hooks view)))))
           (handler-case
-              (let ((context (context-data view)) (state (view-layout-state view))
-                    (token (layout-token view)))
+              (let ((context (or (and *fresh-contexts* (gethash view *fresh-contexts*)) (context-data view)))
+                    (state (view-layout-state view)) (token (layout-token view)))
+                (when (and *fresh-contexts* (eq kind :initialize)) (remhash view *fresh-contexts*))
                 (case kind
                   (:initialize
                    ;; Retry a failed initializer only after its declared reads
@@ -4400,6 +4453,7 @@ extension code; otherwise the active worker's binary does, so recovery keeps it.
                 (let ((origin (command-request-origin request)))
                   (handler-case (dispatch-command-request request)
                     (error (e)
+                      (when *fresh-contexts* (clrhash *fresh-contexts*))
                       (fail-command request e)
                       (when (origin-current-p origin)
                         (handler-case (replay-input (command-origin-view origin))
@@ -4412,23 +4466,25 @@ extension code; otherwise the active worker's binary does, so recovery keeps it.
   ;; Collect detached snapshots even while another callback owns the worker.
   ;; Pending owners remain FIFO when dependencies change again before dispatch.
   (resume-hooks daemon)
-  (dolist (view (daemon-views daemon))
-    (when (and (view-extension-initialized view) (not (view-quarantined view)))
-      (handler-case
-          (let ((context (context-data view)) (previous (view-hook-context view)))
-            (unless (equal context previous)
-              (let ((changed (loop for key in ekko/extensions:*context-keys*
-                                   unless (and previous (equal (getf context key) (getf previous key))) collect key)))
-                (dolist (component (getf (daemon-registry daemon) :components))
-                  (let ((id (getf component :id)))
-                    (when (and (getf component :hook)
-                               (not (hook-paused-p daemon id))
-                               (or (null previous) (intersection changed (getf component :reads)))
-                               (not (member id (view-hooks view) :test #'equal)))
-                      (setf (view-hooks view) (append (view-hooks view) (list id)))))))
-              (setf (view-hook-context view) context)))
-        (error (e) (note-error view e)))))
-  (schedule-work daemon))
+  (let ((*fresh-contexts* (make-hash-table :test 'eq)))
+    (dolist (view (daemon-views daemon))
+      (when (and (view-extension-initialized view) (not (view-quarantined view)))
+        (handler-case
+            (let ((context (context-data view)) (previous (view-hook-context view)))
+              (setf (gethash view *fresh-contexts*) context)
+              (unless (equal context previous)
+                (let ((changed (loop for key in ekko/extensions:*context-keys*
+                                     unless (and previous (equal (getf context key) (getf previous key))) collect key)))
+                  (dolist (component (getf (daemon-registry daemon) :components))
+                    (let ((id (getf component :id)))
+                      (when (and (getf component :hook)
+                                 (not (hook-paused-p daemon id))
+                                 (or (null previous) (intersection changed (getf component :reads)))
+                                 (not (member id (view-hooks view) :test #'equal)))
+                        (setf (view-hooks view) (append (view-hooks view) (list id)))))))
+                (setf (view-hook-context view) context)))
+          (error (e) (note-error view e)))))
+    (schedule-work daemon)))
 
 (defun valid-decoration-text-p (text)
   (and (stringp text)
@@ -6777,7 +6833,7 @@ Terminal attachment: raw mode, alternate screen, input and paint loops.
   (transport :unknown) probe-deadline awaiting-scene
   (uploads (make-hash-table))
   (drawn (make-hash-table :test 'equal))
-  (row-cache (make-array 0)) (row-cache-cols 0) (row-cache-rows 0)
+  shown spare (host-style :unknown) host-cursor (held-rows (make-hash-table)) held-chrome
   (ids (ekko/client:make-attachment :max-mappings 4096 :max-id 4294967294))
   (input-state :ground) (input (make-array 0 :element-type '(unsigned-byte 8) :adjustable t :fill-pointer 0))
   (input-read-bytes (octets 0)) (input-generation 0)
@@ -6924,68 +6980,142 @@ Terminal attachment: raw mode, alternate screen, input and paint loops.
     (ekko/scene:make-rect (* left cw) (* top ch)
                          (* (- cols left right) cw) (* (- rows top bottom) ch))))
 
-(defun clip-text-run (text x left right)
-  "Clip a run on cell boundaries; combining marks stay with an accepted base."
-  (if (and (plusp (length text)) (plusp (ekko/text:display-width (char text 0)))
-           (<= left x) (<= (+ x (ekko/text:display-width text)) right))
-      (values x text)
-      (let ((cursor x) (start nil) (accepted nil) (characters nil))
-        (loop for character across text for width = (ekko/text:display-width character) do
-          (cond ((zerop width) (when accepted (push character characters)))
-                ((and (<= left cursor) (<= (+ cursor width) right))
-                 (unless start (setf start cursor))
-                 (setf accepted t)
-                 (push character characters))
-                (t (setf accepted nil)))
-          (incf cursor width))
-        (values start (when start (coerce (nreverse characters) 'string))))))
+(defvar *plain-style* (list 0))
+(defstruct (screen (:constructor %make-screen (cols rows glyphs styles)))
+  "One frame as the host terminal shows it: per cell a character, a string
+for a cluster with combining marks, or NIL for the right half of a wide glyph,
+and the SGR codes it is drawn with."
+  (cols 0 :type fixnum) (rows 0 :type fixnum)
+  (glyphs #() :type simple-vector) (styles #() :type simple-vector))
+(defun make-screen (cols rows)
+  (%make-screen cols rows (make-array (* cols rows) :initial-element #\Space)
+                (make-array (* cols rows) :initial-element *plain-style*)))
+(defun screen-cut (glyphs start end row-start row-end)
+  "Blank the halves of wide glyphs that drawing over [START, END) cuts off."
+  (declare (type simple-vector glyphs) (type fixnum start end row-start row-end) (optimize speed))
+  (when (and (> start row-start) (null (svref glyphs start)))
+    (setf (svref glyphs (1- start)) #\Space))
+  (when (and (< end row-end) (null (svref glyphs end)))
+    (setf (svref glyphs end) #\Space)))
+(defun screen-text (screen x y text style left right)
+  "Draw TEXT from cell X of row Y, keeping only glyphs wholly inside [LEFT, RIGHT).
+Combining marks stay with an accepted base and are dropped after a clipped one."
+  (declare (type fixnum x y left right) (type string text) (optimize speed))
+  (let* ((cols (screen-cols screen)) (glyphs (screen-glyphs screen)) (styles (screen-styles screen))
+         (row-start (* y cols)) (row-end (+ row-start cols)) (cursor x) (last -1))
+    (declare (type fixnum cols row-start row-end cursor last))
+    (when (and (<= 0 y) (< y (screen-rows screen)))
+      (setf left (max 0 left) right (min cols right))
+      (loop for char across text
+            for code of-type fixnum = (char-code char)
+            for width of-type fixnum = (if (<= 32 code 126) 1 (ekko/text:display-width char)) do
+        (cond ((zerop width)
+               (when (>= last 0)
+                 (let ((glyph (svref glyphs last)))
+                   (setf (svref glyphs last)
+                         (concatenate 'string (if (characterp glyph) (string glyph) glyph) (string char))))))
+              ((and (<= left cursor) (<= (+ cursor width) right))
+               (setf last (+ row-start cursor))
+               (screen-cut glyphs last (+ last width) row-start row-end)
+               (setf (svref glyphs last) char (svref styles last) style)
+               (when (= width 2) (setf (svref glyphs (1+ last)) nil (svref styles (1+ last)) style)))
+              (t (setf last -1)))
+        (incf cursor width)))))
+(defun screen-blank (screen rect)
+  (let ((cols (screen-cols screen)) (glyphs (screen-glyphs screen)) (styles (screen-styles screen)))
+    (declare (type fixnum cols))
+    (let ((x0 (max 0 (ekko/scene:rect-x rect))) (x1 (min cols (ekko/scene:rect-right rect))))
+      (declare (type fixnum x0 x1))
+      (when (< x0 x1)
+        (loop for y of-type fixnum from (max 0 (ekko/scene:rect-y rect))
+                below (min (screen-rows screen) (ekko/scene:rect-bottom rect)) do
+          (let* ((row-start (* y cols)) (start (+ row-start x0)) (end (+ row-start x1)))
+            (screen-cut glyphs start end row-start (+ row-start cols))
+            (fill glyphs #\Space :start start :end end)
+            (fill styles *plain-style* :start start :end end)))))))
+(defun compose-screen (screen panes metadata)
+  "Draw a scene into SCREEN: each pane's window ground and content in order, then decorations and overlays."
+  (let* ((cols (screen-cols screen)) (rows (screen-rows screen))
+         (viewport (scene-content-rect cols rows metadata)))
+    (fill (screen-glyphs screen) #\Space)
+    (fill (screen-styles screen) *plain-style*)
+    (dolist (pane panes)
+      (destructuring-bind (id x y width height label status cursor-x cursor-y visible lines placements outer) pane
+        (declare (ignore id label status cursor-x cursor-y visible placements))
+        (let ((background (apply #'visible-rect viewport outer))
+              (content (visible-rect viewport x y width height)))
+          (when background (screen-blank screen background))
+          (when content
+            (loop for runs in lines for row from y
+                  when (and (<= (ekko/scene:rect-y content) row) (< row (ekko/scene:rect-bottom content))) do
+                    (loop for (column text attributes) in runs
+                          do (screen-text screen (+ x column) row text attributes
+                                          (ekko/scene:rect-x content) (ekko/scene:rect-right content))))))))
+    (dolist (decoration (append (getf metadata :decorations) (getf metadata :overlays)) screen)
+      (destructuring-bind (x y text sgr) decoration
+        (when (and (integerp x) (integerp y) (stringp text) (<= 0 x) (< x cols) (<= 0 y) (< y rows))
+          (screen-text screen x y text sgr 0 cols))))))
 (defun visible-rect (viewport x y width height)
   (and (plusp width) (plusp height)
        (ekko/scene:rect-intersection (ekko/scene:make-rect x y width height) viewport)))
-(defvar *row-sink* (make-sink))
-(defun scene-text-rows (cols rows focus panes &optional metadata)
-  "Each screen row's complete terminal output, as UTF-8 octets."
-  (declare (ignore focus))
-  (let* ((sink *row-sink*) (viewport (scene-content-rect cols rows metadata))
-         (decorations (make-array rows :initial-element nil))
-         (layers (loop for pane in panes collect
-                   (destructuring-bind (id x y width height label status cursor-x cursor-y visible lines placements outer) pane
-                     (declare (ignore id label status cursor-x cursor-y visible placements))
-                     (list (apply #'visible-rect viewport outer) (visible-rect viewport x y width height)
-                           x y (coerce lines 'vector))))))
-    (dolist (decoration (reverse (append (getf metadata :decorations) (getf metadata :overlays))))
-      (destructuring-bind (x y text sgr) decoration
-        (declare (ignore sgr))
-        (when (and (integerp x) (integerp y) (stringp text) (<= 0 x) (< x cols) (<= 0 y) (< y rows))
-          (push decoration (aref decorations y)))))
-    (flet ((cursor (row column)
-             (sink-byte sink 27) (sink-byte sink 91) (sink-decimal sink row) (sink-byte sink 59)
-             (sink-decimal sink column) (sink-byte sink 72))
-           (sgr (codes)
-             (sink-byte sink 27) (sink-byte sink 91)
-             (loop for (code . more) on codes
-                   do (if (typep code '(signed-byte 62)) (sink-decimal sink code) (sink-text sink (princ-to-string code)))
-                      (when more (sink-byte sink 59)))
-             (sink-byte sink 109))
-           (spaces (count) (loop repeat count do (sink-byte sink 32))))
-      (let ((result (make-array rows)))
-        (dotimes (row rows result)
-          (setf (sink-fill sink) 0)
-          (sgr '(0)) (cursor (1+ row) 1) (spaces cols)
-          (loop for (background content x y lines) in layers do
-            (when (and background (<= (ekko/scene:rect-y background) row) (< row (ekko/scene:rect-bottom background)))
-              (sgr '(0)) (cursor (1+ row) (1+ (ekko/scene:rect-x background))) (spaces (ekko/scene:rect-width background)))
-            (when (and content (<= (ekko/scene:rect-y content) row) (< row (ekko/scene:rect-bottom content))
-                       (< -1 (- row y) (length lines)))
-              (dolist (run (aref lines (- row y)))
-                (destructuring-bind (column text attributes) run
-                  (multiple-value-bind (start clipped)
-                      (clip-text-run text (+ x column) (ekko/scene:rect-x content) (ekko/scene:rect-right content))
-                    (when start
-                      (cursor (1+ row) (1+ start)) (sgr attributes) (sink-text sink clipped)))))))
-          (loop for (x y text sgr) in (aref decorations row)
-                do (cursor (1+ y) (1+ x)) (sgr sgr) (sink-text sink text) (sgr '(0)))
-          (setf (aref result row) (sink-octets sink)))))))
+(defvar *paint-sink* (make-sink))
+(defun paint-cells (viewer screen)
+  "The bytes that turn what the host shows into SCREEN, or NIL when it already
+does. Only changed cells are written; a short unchanged gap on the same row is
+rewritten rather than skipped with a cursor move."
+  (let* ((old (viewer-shown viewer)) (sink *paint-sink*)
+         (cols (screen-cols screen)) (rows (screen-rows screen))
+         (fresh (not (and old (= cols (screen-cols old)) (= rows (screen-rows old)))))
+         (glyphs (screen-glyphs screen)) (styles (screen-styles screen))
+         (old-glyphs (if fresh #() (screen-glyphs old))) (old-styles (if fresh #() (screen-styles old)))
+         (pen (viewer-host-style viewer)) (cx -1) (cy -1))
+    (declare (type fixnum cols rows cx cy) (type simple-vector glyphs styles old-glyphs old-styles))
+    (setf (sink-fill sink) 0)
+    (flet ((same-style-p (a b) (or (eq a b) (equal a b)))
+           (glyph (g) (if (characterp g) (sink-char sink g) (sink-text sink g))))
+      (dotimes (y rows)
+        (let ((base (* y cols)) (x 0))
+          (declare (type fixnum base x))
+          (loop while (< x cols) do
+            (let ((i (+ base x)))
+              (declare (type fixnum i))
+              (if (and (not fresh)
+                       (let ((a (svref glyphs i)) (b (svref old-glyphs i)))
+                         (or (eql a b) (and (stringp a) (stringp b) (string= a b))))
+                       (same-style-p (svref styles i) (svref old-styles i)))
+                  (incf x)
+                  (progn
+                    (when (and (null (svref glyphs i)) (plusp x)) (decf x) (decf i))
+                    (unless (and (= cy y) (= cx x))
+                      (if (and (= cy y) (< cx x) (<= (- x cx) 3)
+                               (loop for j from (+ base cx) below i
+                                     always (and (characterp (svref glyphs j)) (same-style-p (svref styles j) pen))))
+                          (loop for j from (+ base cx) below i do (sink-char sink (svref glyphs j)))
+                          (progn (sink-byte sink 27) (sink-byte sink 91) (sink-decimal sink (1+ y)) (sink-byte sink 59)
+                                 (sink-decimal sink (1+ x)) (sink-byte sink 72))))
+                    (let ((style (svref styles i)))
+                      (unless (same-style-p style pen)
+                        (sink-byte sink 27) (sink-byte sink 91)
+                        (unless (eql (first style) 0) (sink-byte sink 48) (when style (sink-byte sink 59)))
+                        (loop for (code . more) on style
+                              do (if (typep code '(signed-byte 62)) (sink-decimal sink code) (sink-text sink (princ-to-string code)))
+                                 (when more (sink-byte sink 59)))
+                        (sink-byte sink 109)
+                        (setf pen style)))
+                    (glyph (svref glyphs i))
+                    (incf x (if (and (< (1+ x) cols) (null (svref glyphs (1+ i)))) 2 1))
+                    (setf cx (if (< x cols) x -1) cy y))))))))
+    (setf (viewer-host-style viewer) pen)
+    (rotatef (viewer-shown viewer) (viewer-spare viewer))
+    (setf (viewer-shown viewer) screen)
+    (when (plusp (sink-fill sink)) (sink-octets sink))))
+(defun scene-screen (viewer cols rows)
+  "A screen of COLS x ROWS to draw the next frame into, reusing the one the host no longer shows."
+  (let ((spare (viewer-spare viewer)))
+    (setf (viewer-spare viewer) nil)
+    (if (and spare (= cols (screen-cols spare)) (= rows (screen-rows spare)))
+        spare
+        (make-screen cols rows))))
 
 (defun overlay-image-crops (crop overlays cw ch &optional occlusions)
   "Subtract opaque cell spans from a pixel crop, preserving source offsets."
@@ -7016,7 +7146,6 @@ Terminal attachment: raw mode, alternate screen, input and paint loops.
     (when (probe-local-transport viewer) (return-from render-scene))
     (destructuring-bind (version cols rows cw ch focus panes &optional metadata) scene
       (unless (= version +wire-version+) (error "Incompatible scene version"))
-      (terminal-write viewer (format nil "~C[?2026h~C[?25l" esc esc))
       (dolist (pane panes)
         (dolist (placement (nth 11 pane))
           (let* ((key (list (first pane) (first placement)))
@@ -7026,49 +7155,49 @@ Terminal attachment: raw mode, alternate screen, input and paint loops.
             (loop for fragment in (overlay-image-crops crop (getf metadata :overlays) cw ch (mapcar (lambda (p) (nth 12 p)) (rest (member pane panes))))
                   for index from 0 do
                     (setf (gethash (append key (list index)) wanted) (list asset fragment))))))
-      (maphash (lambda (key old)
-                 (let ((new (gethash key wanted)))
-                   (unless (and new (= (second old) (first (first new))))
-                     (delete-outer viewer (first old))
-                     (remhash key (viewer-drawn viewer)))))
-               (viewer-drawn viewer))
-      ;; Each cached row includes clearing and rendition, so shorter lines
-      ;; erase old characters without a full-screen clear that deletes images.
-      (let ((current (scene-text-rows cols rows focus panes metadata)))
-        (when (or (/= cols (viewer-row-cache-cols viewer))
-                  (/= rows (viewer-row-cache-rows viewer)))
-          (setf (viewer-row-cache viewer) (make-array 0)))
-        (dotimes (index rows)
-          (unless (and (< index (length (viewer-row-cache viewer)))
-                       (equalp (aref current index) (aref (viewer-row-cache viewer) index)))
-            (queue-bytes (viewer-io viewer) (aref current index))))
-        (setf (viewer-row-cache viewer) current
-              (viewer-row-cache-cols viewer) cols (viewer-row-cache-rows viewer) rows))
-      (maphash
-       (lambda (key spec)
-         (let ((old (gethash key (viewer-drawn viewer)))
-               (asset (first spec)) (crop (second spec)))
-           (if old
-               (unless (and (equal (third old) crop) (= (fourth old) cw) (= (fifth old) ch))
-                 (place-outer viewer (first old) crop cw ch)
-                 (setf (third old) crop (fourth old) cw (fifth old) ch))
-               (let ((id (ekko/client:allocate-outer-id (viewer-ids viewer) (first key) 1 (second key) 0 (third key))))
-                 (upload-outer viewer id asset crop cw ch)
-                 (setf (gethash key (viewer-drawn viewer)) (list id (first asset) crop cw ch))))))
-       wanted)
-      (let* ((active (find focus panes :key #'first))
-             (cx (when active (+ (second active) (nth 7 active))))
-             (cy (when active (+ (third active) (nth 8 active))))
-             (viewport (scene-content-rect cols rows metadata)))
-        (when (and active (nth 9 active) (null (getf metadata :overlays))
-                   (<= (ekko/scene:rect-x viewport) cx) (< cx (ekko/scene:rect-right viewport))
-                   (<= (ekko/scene:rect-y viewport) cy) (< cy (ekko/scene:rect-bottom viewport))
-                   (not (some (lambda (p)
-                                (destructuring-bind (x y w h) (nth 12 p)
-                                  (and (<= x cx) (< cx (+ x w)) (<= y cy) (< cy (+ y h)))))
-                              (rest (member active panes)))))
-          (terminal-write viewer (format nil "~C[~D;~DH~C[?25h" esc (1+ cy) (1+ cx) esc))))
-      (terminal-write viewer (format nil "~C[0m~C[?2026l" esc esc))
+      (let* ((cells (paint-cells viewer (compose-screen (scene-screen viewer cols rows) panes metadata)))
+             (images (or (plusp (hash-table-count wanted)) (plusp (hash-table-count (viewer-drawn viewer)))))
+             (begin (or cells images)))
+        (when begin
+          (terminal-write viewer (format nil "~C[?2026h~:[~;~C[?25l~]" esc (viewer-host-cursor viewer) esc))
+          (setf (viewer-host-cursor viewer) nil))
+        (when cells (queue-bytes (viewer-io viewer) cells))
+        (maphash (lambda (key old)
+                   (let ((new (gethash key wanted)))
+                     (unless (and new (= (second old) (first (first new))))
+                       (delete-outer viewer (first old))
+                       (remhash key (viewer-drawn viewer)))))
+                 (viewer-drawn viewer))
+        (maphash
+         (lambda (key spec)
+           (let ((old (gethash key (viewer-drawn viewer)))
+                 (asset (first spec)) (crop (second spec)))
+             (if old
+                 (unless (and (equal (third old) crop) (= (fourth old) cw) (= (fifth old) ch))
+                   (place-outer viewer (first old) crop cw ch)
+                   (setf (third old) crop (fourth old) cw (fifth old) ch))
+                 (let ((id (ekko/client:allocate-outer-id (viewer-ids viewer) (first key) 1 (second key) 0 (third key))))
+                   (upload-outer viewer id asset crop cw ch)
+                   (setf (gethash key (viewer-drawn viewer)) (list id (first asset) crop cw ch))))))
+         wanted)
+        (let* ((active (find focus panes :key #'first))
+               (cx (when active (+ (second active) (nth 7 active))))
+               (cy (when active (+ (third active) (nth 8 active))))
+               (viewport (scene-content-rect cols rows metadata))
+               (cursor (when (and active (nth 9 active) (null (getf metadata :overlays))
+                                  (<= (ekko/scene:rect-x viewport) cx) (< cx (ekko/scene:rect-right viewport))
+                                  (<= (ekko/scene:rect-y viewport) cy) (< cy (ekko/scene:rect-bottom viewport))
+                                  (not (some (lambda (p)
+                                               (destructuring-bind (x y w h) (nth 12 p)
+                                                 (and (<= x cx) (< cx (+ x w)) (<= y cy) (< cy (+ y h)))))
+                                             (rest (member active panes)))))
+                         (list cx cy)))
+               (shown (viewer-host-cursor viewer)))
+          (cond ((equal cursor shown))
+                (cursor (terminal-write viewer (format nil "~C[~D;~DH~:[~C[?25h~;~]" esc (1+ cy) (1+ cx) shown esc)))
+                (t (terminal-write viewer (format nil "~C[?25l" esc))))
+          (setf (viewer-host-cursor viewer) cursor)
+          (when begin (terminal-write viewer (format nil "~C[?2026l" esc)))))
       (let ((live (make-hash-table :test 'equal)))
         (dolist (pane panes)
           (dolist (placement (nth 11 pane))
@@ -7154,6 +7283,27 @@ Terminal attachment: raw mode, alternate screen, input and paint loops.
         ;; The backlog outlived one bounded pass: the poll loop resumes the
         ;; drain as more bytes land, bounded by a hard deadline.
         (setf (viewer-binding-drain-deadline viewer) (+ (now) 2)))))
+(defun resolve-scene (viewer scene)
+  "SCENE with the rows and chrome the daemon left out taken from the last one."
+  (let ((held (viewer-held-rows viewer)) (now-held (make-hash-table)))
+    (dolist (pane (seventh scene))
+      (let ((cell (nthcdr 10 pane)) (prior (gethash (first pane) held)) (rows nil))
+        (dolist (item (first cell))
+          (if (and (consp item) (eq (first item) :rows))
+              (destructuring-bind (start count) (rest item)
+                (unless (and prior (typep start 'fixnum) (typep count 'fixnum) (<= 0 start) (plusp count)
+                             (<= (+ start count) (length prior)))
+                  (error "Scene refers to rows it never sent"))
+                (loop for j from start below (+ start count) do (push (svref prior j) rows)))
+              (push item rows)))
+        (setf rows (nreverse rows) (first cell) rows
+              (gethash (first pane) now-held) (coerce rows 'simple-vector))))
+    (setf (viewer-held-rows viewer) now-held)
+    (let ((metadata (eighth scene)))
+      (dolist (key '(:decorations :overlays) scene)
+        (if (eq (getf metadata key) :same)
+            (setf (getf metadata key) (getf (viewer-held-chrome viewer) key))
+            (setf (getf (viewer-held-chrome viewer) key) (getf metadata key)))))))
 (defun receive-view (viewer packet)
   (case (aref packet 0)
     (24 (accept-input-binding viewer (subseq packet 1)))
@@ -7167,7 +7317,7 @@ Terminal attachment: raw mode, alternate screen, input and paint loops.
                                          :size (* (u32 packet 13) (u32 packet 17) (/ (u32 packet 21) 8)))
                        (subseq packet 25))))))
     (12 (when (viewer-awaiting-scene viewer) (error "Overlapping scenes"))
-        (let* ((scene (decode-scene (subseq packet 1)))
+        (let* ((scene (resolve-scene viewer (decode-scene (subseq packet 1))))
                (exit-text (getf (nth 7 scene) :exit-text)))
           (unless (or (null exit-text)
                       (and (stringp exit-text) (<= (length exit-text) 512)
@@ -11521,6 +11671,34 @@ def slow_hook(binary):
                 "hook_failures": state.get("hook-failures"), "banner_after": after}
 
 
+PAINT = ("sleep 1; printf '\\033[2J\\033[H'; i=1; while [ $i -le 30 ]; do "
+         "printf '\\033[%d;1H\\033[3%dm%02d \u4e2d\u6587 e\\314\\201 ' $i $((i % 8)) $i; sleep 0.02; i=$((i+1)); done; "
+         "printf '\\033[0m\\033[5;5Hx\\033[6;4H\\033[44m wide-cut \\033[0m'; sleep 0.05; "
+         "printf '\\033[2;1H\\033[35m02\\033[0m\\033[3;1H\\033[2K\\033[7;3H\\033[5P\\033[8;3H\\033[4@'; sleep 0.05; "
+         "printf '\\033[30;1H\\n\\n\\n\\033[1;7mdone\\033[0m'; exec sleep 600")
+
+
+def cells(term, cols, rows):
+    return [[(c.data, c.fg, c.bg, c.bold, c.reverse, c.underscore)
+             for c in (term.screen.buffer[y][x] for x in range(cols))] for y in range(rows)]
+
+
+def incremental(binary):
+    with Instance(binary, "incremental") as ekko:
+        ekko.ekko("run", "--detached", "sh", "-c", PAINT)
+        first = ekko.attach(120, 40)
+        first.run_for(3.0)
+        painted = cells(first, 120, 39)
+        first.close()
+        second = ekko.attach(120, 40)
+        second.run_for(1.5)
+        fresh = cells(second, 120, 39)
+        second.close()
+        differences = [[x, y, painted[y][x], fresh[y][x]] for y in range(39) for x in range(120)
+                       if painted[y][x] != fresh[y][x]]
+        return {"frames": len(first.frames), "differences": len(differences), "first": differences[:3]}
+
+
 def advanced(pair):
     return None not in pair and pair[1] > pair[0]
 
@@ -11533,6 +11711,7 @@ CHECKS = {
     "pane-colours": (pane_colours, lambda r: r["answered"]),
     "mouse-flood": (mouse_flood, lambda r: r["repeats"] == 0 and r["app_motion"] == r["cells"] >= 60),
     "reflow": (reflow, lambda r: all(r["intact"])),
+    "incremental": (incremental, lambda r: r["frames"] >= 10 and r["differences"] == 0),
     "no-autowrap": (no_autowrap, lambda r: r["rows"][0] == r["expected"][0] and r["rows"][1].rstrip() == r["expected"][1]),
     "full-desktop": (full_desktop, lambda r: r["windows"] == 16 and r["chrome_spans"] > 0 and not r["hook_failures"]),
     "refused-answer": (refused_answer, lambda r: r["probe"] == ["probe 3"] and not r["hook_failures"]),
@@ -11729,9 +11908,17 @@ def fixture(mode, log_path, width=512, height=512, fps=5, frame_path=None):
         log.write("ready\n")
         while True:
             now = time.monotonic()
-            if mode in ("text", "graphics") and now >= next_frame:
+            if mode in ("text", "graphics", "spinner", "redraw") and now >= next_frame:
                 if mode == "text":
                     os.write(1, (f"line {frame:08d} " + "text workload " * 5 + "\r\n").encode())
+                elif mode == "spinner":
+                    os.write(1, ESC + b"[1;1H" + b"|/-\\"[frame % 4:frame % 4 + 1])
+                elif mode == "redraw":
+                    cols, rows = os.get_terminal_size(0)
+                    lines = [(f"{y:3d} " + "full redraw workload " * 8)[:cols] for y in range(rows)]
+                    lines[rows // 2] = f"frame {frame:08d}".ljust(cols)
+                    os.write(1, ESC + b"[?2026h" + b"".join(ESC + f"[{y + 1};1H{line}".encode()
+                                                          for y, line in enumerate(lines)) + ESC + b"[?2026l")
                 else:
                     raw = struct.pack(">Q", time.monotonic_ns()) + pixels[8:]
                     if os.environ.get("EKKO_PERF_TRANSPORT") == "shared":
@@ -11749,7 +11936,7 @@ def fixture(mode, log_path, width=512, height=512, fps=5, frame_path=None):
                         os.write(1, ESC + b"_G" + header + f"m={more};".encode()
                                  + payload[offset:offset + 4096] + ESC + b"\\")
                 frame += 1
-                next_frame = now + (0.05 if mode == "text" else 1 / fps)
+                next_frame = now + {"text": 0.05, "graphics": 1 / fps}.get(mode, 1 / 30)
             ready, _, _ = select.select([0], [], [], 0.005)
             if ready:
                 pending += os.read(0, 65536)
@@ -11811,9 +11998,11 @@ class Receiver:
 def process_stats(pid):
     stat = Path(f"/proc/{pid}/stat").read_text().rsplit(")", 1)[1].split()
     status = dict(line.split(":", 1) for line in Path(f"/proc/{pid}/status").read_text().splitlines())
+    io = dict(line.split(": ", 1) for line in Path(f"/proc/{pid}/io").read_text().splitlines())
     return {"cpu_seconds": (int(stat[11]) + int(stat[12])) / os.sysconf("SC_CLK_TCK"),
             "voluntary_context_switches": int(status["voluntary_ctxt_switches"]),
-            "rss_bytes": int(stat[21]) * os.sysconf("SC_PAGE_SIZE")}
+            "rss_bytes": int(stat[21]) * os.sysconf("SC_PAGE_SIZE"),
+            "written_bytes": int(io["wchar"])}
 
 
 def distribution(samples):
@@ -11844,11 +12033,13 @@ def stop_private_daemon(binary, env):
         os.close(fd)
 
 
-def benchmark(binary, mode, seconds, direct=False, width=512, height=512, fps=5, frame_path=None):
+def benchmark(binary, mode, seconds, direct=False, width=512, height=512, fps=5, frame_path=None, config=None):
     with tempfile.TemporaryDirectory(prefix="ekko-perf-") as directory:
         log = Path(directory) / "input.log"
         env = dict(os.environ, XDG_RUNTIME_DIR=directory, XDG_CONFIG_HOME=directory, EKKO_INSTANCE="perf")
         env.pop("EKKO_CONFIG", None)
+        if config:
+            env["EKKO_CONFIG"] = str(config)
         master, slave = pty.openpty()
         fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", 40, 120, 960, 640))
         command = [sys.executable, str(Path(__file__).resolve()), "--fixture", mode, str(log),
@@ -11900,7 +12091,7 @@ def benchmark(binary, mode, seconds, direct=False, width=512, height=512, fps=5,
                 now = time.monotonic()
                 if now - started > seconds + 15:
                     raise RuntimeError("Input did not drain")
-                if mode != "idle" and now >= next_probe and now - started < seconds and not pending:
+                if mode not in ("idle", "spinner", "redraw") and now >= next_probe and now - started < seconds and not pending:
                     filler = b"x" * 16384 if mode == "paste" else b""
                     pending = str(time.monotonic_ns()).encode() + b":" + filler + b"\n"
                     if mode == "paste" and not direct:
@@ -11930,6 +12121,7 @@ def benchmark(binary, mode, seconds, direct=False, width=512, height=512, fps=5,
                       "frame_to_terminal_receipt": distribution(receiver.frames),
                       "processes": {name: {"cpu_percent_one_core": 100 * (after[name]["cpu_seconds"] - values["cpu_seconds"]) / elapsed,
                                             "voluntary_context_switches": after[name]["voluntary_context_switches"] - values["voluntary_context_switches"],
+                                            "written_bytes_per_second": (after[name]["written_bytes"] - values["written_bytes"]) / elapsed,
                                             "rss_bytes_start": values["rss_bytes"], "rss_bytes_end": after[name]["rss_bytes"]}
                                     for name, values in before.items()}}
             for key in ("allocated_bytes", "gc_seconds"):
@@ -11955,8 +12147,9 @@ def main():
     parser = argparse.ArgumentParser(prog="ekko-performance", description=__doc__)
     parser.add_argument("binary", help=argparse.SUPPRESS)
     parser.add_argument("--seconds", type=float, default=3)
-    parser.add_argument("--workload", choices=["idle", "text", "graphics", "paste"],
-                        help="Measure one workload instead of all four")
+    parser.add_argument("--workload", choices=["idle", "text", "graphics", "paste", "spinner", "redraw"],
+                        help="Measure one workload instead of idle, text, graphics and paste")
+    parser.add_argument("--config", type=Path, help="Ekko init.lisp for the private daemon; default: none")
     parser.add_argument("--transport", choices=["inline", "shared"], default="inline",
                         help="Graphics producer transport; shared uses local raw snapshots")
     parser.add_argument("--direct", action="store_true", help="Run fixture directly in a PTY as transport baseline")
@@ -11983,7 +12176,8 @@ def main():
                                    "frame_file": str(args.graphics_frame) if args.graphics_frame else None},
                       "notes": "Synthetic PTY receiver; excludes Kitty rendering/display. RSS is sampled, not peak. CPU window excludes final drain. Allocation/GC are daemon-only when available.",
                       "workloads": [benchmark(args.binary, mode, args.seconds, args.direct, width, height,
-                                               args.graphics_fps, args.graphics_frame)
+                                               args.graphics_fps, args.graphics_frame,
+                                               args.config.resolve() if args.config else None)
                                     for mode in ([args.workload] if args.workload else ["idle", "text", "graphics", "paste"])]}, indent=2))
 
 

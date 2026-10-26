@@ -5,7 +5,7 @@
 ;; One daemon owns one workspace: every pane, view and component lives there.
 (defstruct pane id daemon pid io vt (graphics (make-store)) argv label status floating
   (launch-kind :command) (creation-position 0) name pty-size sync-until
-  (output-bytes 0) (application-focused nil) row-cache mouse-report)
+  (output-bytes 0) (application-focused nil) row-cache lines-memo mouse-report)
 (defstruct store-state entries)
 (defstruct pane-view pane-id (x 0) (y 0) (cols 0) (rows 0)
   (outer-x 0) (outer-y 0) (outer-cols 0) (outer-rows 0)
@@ -23,6 +23,7 @@
   (notice "") error geometry-contributions contributions decorations pane-notes
   component-state hook-context hooks (layout-state (make-layout-state))
   layout-placements (camera-x 0) (camera-y 0) motions tweens glows ghosts slides redecorated popup-ghost animating
+  chrome-memo
   initialized extension-initialized initialization-failure quarantined)
 (defstruct command-origin daemon view epoch target-pane-id peer config-generation layout)
 (defstruct command-request origin name event snapshot)

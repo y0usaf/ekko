@@ -565,16 +565,22 @@
     (when attr (push (list start (get-output-stream-string chars) attr) runs))
     (nreverse runs)))
 (defun pane-lines (pane)
-  "PANE's rows as styled runs, reusing a row's runs while its cells are unchanged."
-  (let* ((vt (pane-vt pane)) (cells (terminal-cells vt)) (cols (terminal-cols vt)) (rows (terminal-rows vt))
-         (cache (pane-row-cache pane)))
-    (unless (and cache (= (length cache) rows))
-      (setf cache (make-array rows :initial-element nil) (pane-row-cache pane) cache))
-    (loop for y below rows for row = (svref cells y) for entry = (svref cache y)
-          collect (if (and entry (= (length (car entry)) cols)
-                           (loop for x below cols always (eq (svref (car entry) x) (svref row x))))
-                      (cdr entry)
-                      (cdr (setf (svref cache y) (cons (copy-seq row) (cell-runs row nil nil 0 cols))))))))
+  "PANE's rows as styled runs. A row keeps its runs while its cells are unchanged,
+also when scrolling moves it, and the list is reused while the terminal is unchanged."
+  (let* ((vt (pane-vt pane)) (cells (terminal-cells vt)) (memo (pane-lines-memo pane)))
+    (if (and memo (eql (first memo) (terminal-revision vt)) (eq (second memo) cells))
+        (cddr memo)
+        (let ((cols (terminal-cols vt)) (old (or (pane-row-cache pane) (make-hash-table :test 'eq)))
+              (new (make-hash-table :test 'eq)))
+          (setf (pane-row-cache pane) new)
+          (cddr (setf (pane-lines-memo pane)
+                      (list* (terminal-revision vt) cells
+                             (loop for y below (terminal-rows vt) for row = (svref cells y) for entry = (gethash row old)
+                                   collect (cdr (setf (gethash row new)
+                                                      (if (and entry (= (length (car entry)) cols)
+                                                               (loop for x below cols always (eq (svref (car entry) x) (svref row x))))
+                                                          entry
+                                                          (cons (copy-seq row) (cell-runs row nil nil 0 cols)))))))))))))
 (defvar *content-rects* nil "Pane content rectangles memoized for one scene build.")
 (defun pane-content-rect (view pane)
   "PANE's visible application cells within the viewport, as half-open (x0 y0 x1 y1)."
@@ -712,15 +718,29 @@ window clips it, a growing one shows the ground around it."
                   (shown-rect view (pane-id pane)))))
         (multiple-value-bind (viewport pane gaps width height) (workspace-geometry view)
           (declare (ignore pane width height))
-          (list :view-id (view-id view) :status (status-text view)
-                :style (option (view-daemon view) :status-style '(0 30 47))
-                :viewport-insets viewport :split-gaps gaps
-                :decorations (ground-fragments view (append (ground-fill view) (scene-decorations view)))
-                :overlays (ground-fragments view
+          (destructuring-bind (decorations overlays) (scene-chrome view)
+            (list :view-id (view-id view) :status (status-text view)
+                  :style (option (view-daemon view) :status-style '(0 30 47))
+                  :viewport-insets viewport :split-gaps gaps
+                  :decorations decorations :overlays overlays
+                  :exit-text (option (view-daemon view) :viewer-exit-text nil))))))
+(defun scene-chrome (view)
+  "The scene's decorations and overlays. They change only with the workspace,
+the view, or a pane's label, status or size, so they are rebuilt only then."
+  (let ((key (list* (daemon-revision (view-daemon view)) (view-revision view)
+                    (loop for pane in (view-panes view) for vt = (pane-vt pane)
+                          collect (list (pane-id pane) (pane-label pane) (pane-status pane)
+                                        (terminal-cols vt) (terminal-rows vt)))))
+        (memo (view-chrome-memo view)))
+    (if (and memo (equal (first memo) key))
+        (rest memo)
+        (rest (setf (view-chrome-memo view)
+                    (list key
+                          (ground-fragments view (append (ground-fill view) (scene-decorations view)))
+                          (ground-fragments view
                             (append (scene-decorations view t) (transition-overlays view)
                                     (window-hover-overlays view) (window-drag-overlays view) (popup-overlays view)
-                                    (hook-failure-overlays view)))
-                :exit-text (option (view-daemon view) :viewer-exit-text nil)))))
+                                    (hook-failure-overlays view)))))))))
 (defun checked-startup-viewport (viewport)
   (when viewport
     (unless (and (listp viewport) (= (length viewport) 4)
@@ -746,6 +766,33 @@ application's screen, so it is not held."
                (gethash 2026 (terminal-modes (pane-vt pane)))
                (pane-mid-frame-p pane)))
         (visible-panes view)))
+(defun scene-delta (wire scene)
+  "SCENE as WIRE's client needs it after the last scene it was sent: pane rows
+it already holds, in place or scrolled, become (:ROWS START COUNT) of its last
+rows, and decorations or overlays it already holds become :SAME."
+  (let ((sent (wire-sent-rows wire)) (shown nil))
+    (dolist (pane (seventh scene))
+      (let* ((id (first pane)) (cell (nthcdr 10 pane))
+             (rows (coerce (first cell) 'simple-vector)) (prior (gethash id sent)))
+        (push id shown)
+        (when prior
+          (let ((index (make-hash-table :test 'eq)) (out nil))
+            (loop for row across prior for j from 0 do (unless (gethash row index) (setf (gethash row index) j)))
+            (loop for row across rows for i from 0
+                  for j = (if (and (< i (length prior)) (equal row (svref prior i))) i (gethash row index))
+                  for last = (first out) do
+                    (cond ((null j) (push row out))
+                          ((and (consp last) (eq (first last) :rows) (= (+ (second last) (third last)) j))
+                           (incf (third last)))
+                          (t (push (list :rows j 1) out))))
+            (setf (first cell) (nreverse out))))
+        (setf (gethash id sent) rows)))
+    (maphash (lambda (id rows) (declare (ignore rows)) (unless (member id shown) (remhash id sent))) sent)
+    (let ((metadata (eighth scene)))
+      (dolist (key '(:decorations :overlays) scene)
+        (let ((value (getf metadata key)) (prior (getf (wire-sent-chrome wire) key :none)))
+          (setf (getf (wire-sent-chrome wire) key) value)
+          (when (equal value prior) (setf (getf metadata key) :same)))))))
 (defun publish-scene (view wire)
   (setf (wire-deferred wire) nil)
   (when (scene-mid-frame-p view) (return-from publish-scene))
@@ -785,7 +832,7 @@ application's screen, so it is not held."
                  (store-images (pane-graphics pane))))
       (let ((scene (scene-data view)))
         (setf (first scene) (wire-version wire))
-        (send-packet wire 12 (encode-scene scene)))
+        (send-packet wire 12 (encode-scene (scene-delta wire scene))))
       (setf (wire-awaiting-scene wire) (now))
       (setf (wire-revision wire) stamp)
       (let ((period (frame-seconds view)) (due (wire-frame-due wire)))
@@ -844,7 +891,8 @@ application's screen, so it is not held."
       (18
        (multiple-value-bind (target spec) (colour-report (bytes-text data))
          (unless target (error "Invalid colour report"))
-         (setf (gethash target (daemon-colours daemon)) spec)))
+         (setf (gethash target (daemon-colours daemon)) spec)
+         (incf (daemon-revision daemon))))
       (2 (input-key view data))
       (4 (setf (view-input-read-bytes view) nil) (input-mouse view (bytes-text data)))
       (16

@@ -225,7 +225,7 @@ owned files and negotiates file delivery with the outer terminal; hosts without
 local-file access receive inline frames. No frame-rate or resolution cap is imposed.
 Set `TERMINAL_BROWSER_FRAMES=inline` to compare the older transport.
 
-IPC is now **version 18** for viewers and controls. Older versions are rejected
+IPC is now **version 19** for viewers and controls. Older versions are rejected
 explicitly. Existing daemons keep their executable: a new instance name does not
 upgrade a shared daemon. To upgrade, run `stop` — it identifies the running
 daemon by its socket pidfile or `/proc` and ends it with SIGTERM even when the

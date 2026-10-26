@@ -346,6 +346,34 @@ def slow_hook(binary):
                 "hook_failures": state.get("hook-failures"), "banner_after": after}
 
 
+PAINT = ("sleep 1; printf '\\033[2J\\033[H'; i=1; while [ $i -le 30 ]; do "
+         "printf '\\033[%d;1H\\033[3%dm%02d \u4e2d\u6587 e\\314\\201 ' $i $((i % 8)) $i; sleep 0.02; i=$((i+1)); done; "
+         "printf '\\033[0m\\033[5;5Hx\\033[6;4H\\033[44m wide-cut \\033[0m'; sleep 0.05; "
+         "printf '\\033[2;1H\\033[35m02\\033[0m\\033[3;1H\\033[2K\\033[7;3H\\033[5P\\033[8;3H\\033[4@'; sleep 0.05; "
+         "printf '\\033[30;1H\\n\\n\\n\\033[1;7mdone\\033[0m'; exec sleep 600")
+
+
+def cells(term, cols, rows):
+    return [[(c.data, c.fg, c.bg, c.bold, c.reverse, c.underscore)
+             for c in (term.screen.buffer[y][x] for x in range(cols))] for y in range(rows)]
+
+
+def incremental(binary):
+    with Instance(binary, "incremental") as ekko:
+        ekko.ekko("run", "--detached", "sh", "-c", PAINT)
+        first = ekko.attach(120, 40)
+        first.run_for(3.0)
+        painted = cells(first, 120, 39)
+        first.close()
+        second = ekko.attach(120, 40)
+        second.run_for(1.5)
+        fresh = cells(second, 120, 39)
+        second.close()
+        differences = [[x, y, painted[y][x], fresh[y][x]] for y in range(39) for x in range(120)
+                       if painted[y][x] != fresh[y][x]]
+        return {"frames": len(first.frames), "differences": len(differences), "first": differences[:3]}
+
+
 def advanced(pair):
     return None not in pair and pair[1] > pair[0]
 
@@ -358,6 +386,7 @@ CHECKS = {
     "pane-colours": (pane_colours, lambda r: r["answered"]),
     "mouse-flood": (mouse_flood, lambda r: r["repeats"] == 0 and r["app_motion"] == r["cells"] >= 60),
     "reflow": (reflow, lambda r: all(r["intact"])),
+    "incremental": (incremental, lambda r: r["frames"] >= 10 and r["differences"] == 0),
     "no-autowrap": (no_autowrap, lambda r: r["rows"][0] == r["expected"][0] and r["rows"][1].rstrip() == r["expected"][1]),
     "full-desktop": (full_desktop, lambda r: r["windows"] == 16 and r["chrome_spans"] > 0 and not r["hook_failures"]),
     "refused-answer": (refused_answer, lambda r: r["probe"] == ["probe 3"] and not r["hook_failures"]),
