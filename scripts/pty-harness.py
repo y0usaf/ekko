@@ -374,6 +374,50 @@ def incremental(binary):
         return {"frames": len(first.frames), "differences": len(differences), "first": differences[:3]}
 
 
+VT = ("\\033[41m\\033cR"
+      "\\033[2;1H\\033(0lqqk\\033(B"
+      "\\033[3;1H\\033)0\\016lqk\\017x"
+      "\\033[4;1HAB\\033[3b"
+      "\\033[5;1HABCD\\r\\033[4hXY\\033[4l"
+      "\\033[3g\\033[1;5H\\033H\\033[1;9H\\033H\\033[6;1H\\tT\\tU\\033[7;12H\\033[2ZV\\033[8;1H\\033[2IW"
+      "\\033[9;1Habc\\033[4m\\033[K\\033[0m"
+      "\\033[10;1H\\033[38:2::255:0:0mX\\033[0m"
+      "\\033[11;1H\\033[1;31m\\0337\\033[0mplain\\0338RED\\033[0m"
+      "\\033[12;20r\\033[?6h\\033[1;1HO\\033[?6l\\033[r"
+      "\\033[13;1HMAIN\\033[?1049h\\033[2;2H\\0337alt\\0338\\033[?1049lAFTER")
+
+
+def vt(binary):
+    with Instance(binary, "vt") as ekko:
+        ekko.ekko("run", "--detached", "sh", "-c", f"sleep 1.5; printf '{VT}'; exec sleep 600")
+        term = ekko.attach(120, 30)
+        term.run_for(3.0)
+        pane = json.loads(ekko.ekko("status").stdout)["panes"][0]
+        x, y = pane["x"], pane["y"]
+
+        def row(k):
+            return term.screen.display[y + k][x:x + 16].rstrip()
+
+        def cell(k, c):
+            return term.screen.buffer[y + k][x + c]
+
+        cases = {
+            "ris": [[row(0), cell(0, 0).bg, cell(0, 5).bg], ["R", "default", "default"]],
+            "dec-graphics": [row(1), "\u250c\u2500\u2500\u2510"],
+            "shift-out": [row(2), "\u250c\u2500\u2510x"],
+            "rep": [row(3), "ABBBB"],
+            "insert": [row(4), "XYABCD"],
+            "tab-stops": [[row(5), row(6), row(7)], ["    T   U", "    V", "        W"]],
+            "erase-attributes": [[row(8), cell(8, 3).underscore], ["abc", False]],
+            "colon-sgr": [cell(9, 0).fg, "ff0000"],
+            "decsc-rendition": [[row(10), cell(10, 0).fg, cell(10, 0).bold], ["REDin", "red", True]],
+            "origin": [row(11), "O"],
+            "decsc-alternate": [row(12), "MAINAFTER"],
+        }
+        term.close()
+        return {"failed": [name for name, (got, want) in cases.items() if got != want], "cases": cases}
+
+
 def advanced(pair):
     return None not in pair and pair[1] > pair[0]
 
@@ -388,6 +432,7 @@ CHECKS = {
     "reflow": (reflow, lambda r: all(r["intact"])),
     "incremental": (incremental, lambda r: r["frames"] >= 10 and r["differences"] == 0),
     "no-autowrap": (no_autowrap, lambda r: r["rows"][0] == r["expected"][0] and r["rows"][1].rstrip() == r["expected"][1]),
+    "vt": (vt, lambda r: not r["failed"]),
     "full-desktop": (full_desktop, lambda r: r["windows"] == 16 and r["chrome_spans"] > 0 and not r["hook_failures"]),
     "refused-answer": (refused_answer, lambda r: r["probe"] == ["probe 3"] and not r["hook_failures"]),
     "slow-hook": (slow_hook, lambda r: r["paused"] and r["banner"] and r["probe"] == ["slow 2"]

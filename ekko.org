@@ -803,7 +803,8 @@ The VT parser and screen model, plus its public accessors.
   ;; can transfer exactly the rows that exist, including blank rows.
   (materialized-rows 1) (main-materialized-rows 1)
   (erase-display-history nil)
-  (rendition '(0)) (modes (make-hash-table)) (keyboards '(0))
+  (rendition '(0)) (modes (make-hash-table)) (keyboards (list 0))
+  (charsets (list nil nil)) (shift 0) (cursor-saves (vector nil nil)) (insert nil) (tabs :default) (last-char nil)
   (parser :ground) (buffer (make-array 0 :element-type '(unsigned-byte 8)
                                      :adjustable t :fill-pointer 0))
   (utf-code 0) (utf-left 0) (utf-min 0) (revision 0) (title nil)
@@ -958,15 +959,13 @@ The VT parser and screen model, plus its public accessors.
         for item = (subseq text start end)
         collect (if (zerop (length item)) 0 (or (parse-integer item :junk-allowed t) 0))
         while end))
-(defun clear-range-with-rendition (vt start end rendition)
+(defun clear-range (vt start end &optional (rendition (canonical-rendition vt (erase-rendition vt))))
   (let ((cell (list " " rendition)) (cols (terminal-cols vt)) (cells (terminal-cells vt)))
     (loop for y from (floor start cols) while (< (* y cols) end)
           do (fill (svref cells y) cell :start (max 0 (- start (* y cols))) :end (min cols (- end (* y cols))))))
   (incf (terminal-revision vt)))
-(defun clear-range (vt start end)
-  (clear-range-with-rendition vt start end (terminal-rendition vt)))
 (defun erase-rendition (vt)
-  ;; Zellij's ED2 replacement character has default attributes and inherits
+  ;; Erased cells, as in xterm and Zellij, have default attributes and inherit
   ;; only the pending background color, if one is set.
   (let ((codes (rest (terminal-rendition vt)))
         (background nil))
@@ -1005,10 +1004,7 @@ MATERIALIZED-ROWS carries that distinction."
       (dotimes (row (terminal-materialized-rows vt))
         (remember-row vt (svref cells row))
         (setf (svref cells row) (make-array (terminal-cols vt))))))
-  (clear-range-with-rendition vt 0 (* (terminal-cols vt) (terminal-rows vt))
-                              (if (terminal-erase-display-history vt)
-                                  (erase-rendition vt)
-                                  (terminal-rendition vt)))
+  (clear-range vt 0 (* (terminal-cols vt) (terminal-rows vt)))
   (setf (terminal-materialized-rows vt) (terminal-rows vt))
   (when (terminal-erase-display-history vt)
     (setf (terminal-top vt) 0
@@ -1065,10 +1061,19 @@ MATERIALIZED-ROWS carries that distinction."
     (when (<= width cols)
       (ensure-materialized-rows vt (1+ (terminal-y vt)))
       (let ((row (svref (terminal-cells vt) (terminal-y vt))) (index (terminal-x vt)))
+        (when (terminal-insert vt)
+          (replace row row :start1 (+ index width) :start2 index :end2 (- cols width)))
         (setf (svref row index) (if (< (char-code char) 128) (ascii-cell vt (char-code char))
                                     (list (string char) (terminal-rendition vt))))
         (when (= width 2) (setf (svref row (1+ index)) (list "" (terminal-rendition vt)))))
+      (setf (terminal-last-char vt) char)
       (incf (terminal-x vt) width) (incf (terminal-revision vt)))))
+(defparameter *dec-graphics*
+  (map 'string #'code-char
+       '(#x20 #x25c6 #x2592 #x2409 #x240c #x240d #x240a #xb0 #xb1 #x2424 #x240b #x2518 #x2510 #x250c
+         #x2514 #x253c #x23ba #x23bb #x2500 #x23bc #x23bd #x251c #x2524 #x2534 #x252c #x2502 #x2264
+         #x2265 #x3c0 #x2260 #xa3 #xb7))
+  "DEC Special Graphics for the bytes _ through ~, as xterm draws them.")
 (defun text-byte (vt byte emit)
   (cond
     ((plusp (terminal-utf-left vt))
@@ -1082,7 +1087,10 @@ MATERIALIZED-ROWS carries that distinction."
                                     (code-char code) #\Replacement_Character) emit))))
          (progn (setf (terminal-utf-left vt) 0)
                 (put-character vt #\Replacement_Character emit) (text-byte vt byte emit))))
-    ((< byte 128) (put-character vt (code-char byte) emit))
+    ((< byte 128) (put-character vt (if (and (<= 95 byte 126) (nth (terminal-shift vt) (terminal-charsets vt)))
+                                         (char *dec-graphics* (- byte 95))
+                                         (code-char byte))
+                                 emit))
     ((<= #xc2 byte #xdf) (setf (terminal-utf-left vt) 1 (terminal-utf-code vt) (logand byte 31) (terminal-utf-min vt) #x80))
     ((<= #xe0 byte #xef) (setf (terminal-utf-left vt) 2 (terminal-utf-code vt) (logand byte 15) (terminal-utf-min vt) #x800))
     ((<= #xf0 byte #xf4) (setf (terminal-utf-left vt) 3 (terminal-utf-code vt) (logand byte 7) (terminal-utf-min vt) #x10000))
@@ -1112,6 +1120,71 @@ MATERIALIZED-ROWS carries that distinction."
                (setf (svref state (slot key)) nil)))
             ((member code '(1 2 3 4 5 7 8 9 21 53)) (setf (svref state (slot code)) (list code))))))
       (cons 0 (loop for group across state append group)))))
+(defun sgr-parameters (buffer end)
+  "BUFFER's SGR parameters with ITU T.416 colon subparameters rewritten to the ; form."
+  (loop with text = (map 'string #'code-char (subseq buffer 0 end))
+        for start = 0 then (1+ stop) for stop = (position #\; text :start start)
+        for subs = (parameters (subseq text start stop) #\:)
+        append (if (rest subs)
+                   (destructuring-bind (code &optional mode &rest values) subs
+                     (case code
+                       ((38 48 58) (case mode
+                                     (5 (when values (list code 5 (first values))))
+                                     (2 (cond ((>= (length values) 4) (list* code 2 (subseq values 1 4)))
+                                              ((= (length values) 3) (list* code 2 values))))))
+                       (4 (list (if (eql mode 0) 24 4)))
+                       (t (list code))))
+                   subs)
+        while stop))
+(defun save-cursor (vt)
+  (setf (svref (terminal-cursor-saves vt) (if (eq (terminal-screen vt) :main) 0 1))
+        (list (terminal-x vt) (terminal-y vt) (terminal-rendition vt) (copy-list (terminal-charsets vt))
+              (terminal-shift vt) (gethash 6 (terminal-modes vt)))))
+(defun restore-cursor (vt)
+  (destructuring-bind (&optional (x 0) (y 0) (rendition '(0)) (charsets (list nil nil)) (shift 0) origin)
+      (svref (terminal-cursor-saves vt) (if (eq (terminal-screen vt) :main) 0 1))
+    (setf (terminal-x vt) (min x (1- (terminal-cols vt))) (terminal-y vt) (min y (1- (terminal-rows vt)))
+          (terminal-rendition vt) (canonical-rendition vt rendition)
+          (terminal-charsets vt) (copy-list charsets) (terminal-shift vt) shift
+          (gethash 6 (terminal-modes vt)) origin)
+    (ensure-materialized-rows vt (1+ (terminal-y vt)))))
+(defun tab-stops (vt)
+  (let ((tabs (terminal-tabs vt)))
+    (if (eq tabs :default) (loop for x from 8 below (terminal-cols vt) by 8 collect x) tabs)))
+(defun tab (vt count)
+  (let* ((cols (terminal-cols vt)) (tabs (terminal-tabs vt)) (x (min (terminal-x vt) (1- cols))))
+    (dotimes (i (min (abs count) cols))
+      (loop do (incf x (signum count))
+            until (or (<= x 0) (>= x (1- cols))
+                      (if (eq tabs :default) (zerop (mod x 8)) (member x tabs)))))
+    (setf (terminal-x vt) (max 0 (min (1- cols) x)))))
+(defun soft-reset (vt)
+  (dolist (mode '(1 6 7 25)) (remhash mode (terminal-modes vt)))
+  (setf (terminal-rendition vt) (canonical-rendition vt '(0)) (terminal-visible vt) t
+        (terminal-insert vt) nil (terminal-charsets vt) (list nil nil) (terminal-shift vt) 0
+        (terminal-cursor-saves vt) (vector nil nil)
+        (terminal-top vt) 0 (terminal-bottom vt) (1- (terminal-rows vt)))
+  (incf (terminal-revision vt)))
+(defun reset-terminal (vt emit)
+  (when (eq (terminal-screen vt) :alternate)
+    (setf (terminal-cells vt) (or (terminal-main-cells vt) (blank-cells (terminal-cols vt) (terminal-rows vt)))
+          (terminal-main-cells vt) nil (terminal-screen vt) :main)
+    (funcall emit :screen :main))
+  (when (gethash 2026 (terminal-modes vt)) (funcall emit :sync nil))
+  (clrhash (terminal-modes vt))
+  (soft-reset vt)
+  (setf (terminal-keyboards vt) (list 0) (terminal-tabs vt) :default (terminal-last-char vt) nil)
+  (clear-range vt 0 (* (terminal-cols vt) (terminal-rows vt)))
+  (setf (terminal-x vt) 0 (terminal-y vt) 0
+        (terminal-materialized-rows vt) 1
+        (terminal-main-materialized-rows vt) 1)
+  (funcall emit :reset nil))
+(defun align-screen (vt)
+  (let ((cell (list "E" (canonical-rendition vt '(0)))))
+    (loop for row across (terminal-cells vt) do (fill row cell)))
+  (setf (terminal-top vt) 0 (terminal-bottom vt) (1- (terminal-rows vt)) (terminal-x vt) 0 (terminal-y vt) 0)
+  (ensure-materialized-rows vt (terminal-rows vt))
+  (incf (terminal-revision vt)))
 (defun csi-parameters (buffer start end)
   "The ; separated integers of BUFFER between START and END, read as PARAMETERS reads text."
   (loop for from = start then (1+ to)
@@ -1131,9 +1204,11 @@ MATERIALIZED-ROWS carries that distinction."
          (args (csi-parameters buffer (if private 1 0) end))
          (n (max 1 (first args))) (cols (terminal-cols vt)) (rows (terminal-rows vt))
          (cursor (+ (* cols (terminal-y vt)) (min (terminal-x vt) (1- cols))))
+         (origin (gethash 6 (terminal-modes vt)))
+         (top (if origin (terminal-top vt) 0)) (bottom (if origin (terminal-bottom vt) (1- rows)))
          (esc (code-char 27)))
     (case final
-      ((#\H #\f) (setf (terminal-y vt) (min (1- rows) (1- n))
+      ((#\H #\f) (setf (terminal-y vt) (min bottom (+ top (1- n)))
                           (terminal-x vt) (min (1- cols) (max 0 (1- (or (second args) 1)))))
                       (ensure-materialized-rows vt (1+ (terminal-y vt))))
       (#\A (setf (terminal-y vt) (max 0 (- (terminal-y vt) n))))
@@ -1148,7 +1223,7 @@ MATERIALIZED-ROWS carries that distinction."
       ((#\C #\a) (setf (terminal-x vt) (min (1- cols) (+ (terminal-x vt) n))))
       (#\D (setf (terminal-x vt) (max 0 (- (terminal-x vt) n))))
       (#\G (setf (terminal-x vt) (min (1- cols) (1- n))))
-      (#\d (setf (terminal-y vt) (min (1- rows) (1- n)))
+      (#\d (setf (terminal-y vt) (min bottom (+ top (1- n))))
              (ensure-materialized-rows vt (1+ (terminal-y vt))))
       (#\J (case (first args)
               (0 (clear-range vt cursor (* cols rows)))
@@ -1169,6 +1244,14 @@ MATERIALIZED-ROWS carries that distinction."
              (progn (replace row row :start1 (+ x n) :start2 x :end2 (- cols n))
                     (clear-range vt cursor (+ cursor n))))))
       ((#\S #\T) (scroll-lines vt (if (char= final #\S) n (- n)) emit))
+      (#\b (let ((char (terminal-last-char vt)))
+              (when char (dotimes (i (min n 65535)) (put-character vt char emit)))))
+      (#\I (tab vt n))
+      (#\Z (tab vt (- n)))
+      (#\g (let ((x (min (terminal-x vt) (1- cols))))
+              (case (first args)
+                (0 (setf (terminal-tabs vt) (remove x (tab-stops vt))))
+                (3 (setf (terminal-tabs vt) nil)))))
       ((#\L #\M)
        (when (<= (terminal-top vt) (terminal-y vt) (terminal-bottom vt))
          (let ((old (terminal-top vt)))
@@ -1178,11 +1261,16 @@ MATERIALIZED-ROWS carries that distinction."
       (#\r (let ((bottom (if (plusp (or (second args) 0)) (second args) rows)))
               (when (< n bottom (1+ rows))
                 (setf (terminal-top vt) (1- n) (terminal-bottom vt) (1- bottom)
-                      (terminal-x vt) 0 (terminal-y vt) 0))))
+                      (terminal-x vt) 0 (terminal-y vt) (if origin (1- n) 0)))))
       (#\m (unless private
               (setf (terminal-rendition vt)
-                    (canonical-rendition vt (update-rendition (terminal-rendition vt) args)))))
+                    (canonical-rendition vt (update-rendition (terminal-rendition vt)
+                                                              (if (find 58 buffer :end end)
+                                                                  (sgr-parameters buffer end)
+                                                                  args))))))
       ((#\h #\l)
+       (unless private
+         (when (member 4 args) (setf (terminal-insert vt) (char= final #\h))))
        (when (eql private #\?)
          (dolist (mode args)
            (let ((on (char= final #\h)) (was (gethash mode (terminal-modes vt))))
@@ -1191,6 +1279,7 @@ MATERIALIZED-ROWS carries that distinction."
              ;; atomically; the server holds scene publication for that window.
              (when (and (= mode 2026) (not (eql was on))) (funcall emit :sync on))
              (case mode
+               (6 (setf (terminal-x vt) 0 (terminal-y vt) (if on (terminal-top vt) 0)))
                (25 (setf (terminal-visible vt) on))
                ((47 1047 1049)
                 (cond ((and on (eq (terminal-screen vt) :main))
@@ -1207,19 +1296,32 @@ MATERIALIZED-ROWS carries that distinction."
                              (terminal-x vt) (min (1- cols) (first (terminal-saved vt)))
                              (terminal-y vt) (min (1- rows) (second (terminal-saved vt))))))
                 (funcall emit :screen (terminal-screen vt)) (incf (terminal-revision vt))))))))
-      (#\p (when (and (eql private #\?) (find 36 buffer :end end))
-              (reply emit "~C[?~D;~D$y" esc (first args)
-                     (cond ((member (first args) '(1000 1002 1003 1004 1006 1016 2004 2026))
-                            (if (gethash (first args) (terminal-modes vt)) 1 2)) (t 0)))))
+      (#\p (cond ((eql private #\!) (soft-reset vt))
+                 ((not (find 36 buffer :end end)))
+                 ((eql private #\?)
+                  (let ((mode (first args)))
+                    (flet ((state (on) (if on 1 2)))
+                      (reply emit "~C[?~D;~D$y" esc mode
+                             (case mode
+                               (7 (state (autowrap-p vt)))
+                               (25 (state (terminal-visible vt)))
+                               ((47 1047 1049) (state (eq (terminal-screen vt) :alternate)))
+                               ((1 6 1000 1002 1003 1004 1006 1016 2004 2026)
+                                (state (gethash mode (terminal-modes vt))))
+                               (t 0))))))
+                 ((not private)
+                  (reply emit "~C[~D;~D$y" esc (first args)
+                         (if (eql (first args) 4) (if (terminal-insert vt) 1 2) 0)))))
       (#\u (case private
               (#\? (reply emit "~C[?~Du" esc (first (terminal-keyboards vt))))
               (#\> (when (< (length (terminal-keyboards vt)) 16) (push (first args) (terminal-keyboards vt))))
               (#\< (dotimes (i (min n (1- (length (terminal-keyboards vt))))) (pop (terminal-keyboards vt))))
               (#\= (setf (first (terminal-keyboards vt)) (first args)))
-              (otherwise (setf (terminal-x vt) (first (terminal-saved vt)) (terminal-y vt) (second (terminal-saved vt))))))
-      (#\s (setf (terminal-saved vt) (list (terminal-x vt) (terminal-y vt))))
+              (otherwise (unless private (restore-cursor vt)))))
+      (#\s (unless private (save-cursor vt)))
       (#\n (case (first args) (5 (reply emit "~C[0n" esc))
-                  (6 (reply emit "~C[~D;~DR" esc (1+ (terminal-y vt)) (1+ (min (1- cols) (terminal-x vt)))))))
+                  (6 (reply emit "~C[~D;~DR" esc (max 1 (1+ (- (terminal-y vt) top)))
+                            (1+ (min (1- cols) (terminal-x vt)))))))
       (#\c (reply emit (if (eql private #\>) "~C[>0;1;0c" "~C[?62;22c") esc))
       (#\t (case (first args)
               (14 (reply emit "~C[4;~D;~Dt" esc (* rows (terminal-ch vt)) (* cols (terminal-cw vt))))
@@ -1291,24 +1393,28 @@ MATERIALIZED-ROWS carries that distinction."
            (7 (funcall emit :notify nil))
            (13 (setf (terminal-x vt) 0))
            (8 (setf (terminal-x vt) (max 0 (1- (terminal-x vt)))))
-           (9 (setf (terminal-x vt) (min (1- (terminal-cols vt)) (* 8 (1+ (floor (terminal-x vt) 8))))))
+           (9 (tab vt 1))
+           (14 (setf (terminal-shift vt) 1))
+           (15 (setf (terminal-shift vt) 0))
            (otherwise (when (>= byte 32) (unless (= byte 127) (text-byte vt byte emit))))))
         (:escape
          (reset-parser)
          (case byte
            (91 (setf (terminal-parser vt) :csi)) (93 (setf (terminal-parser vt) :osc))
            (95 (setf (terminal-parser vt) :apc)) ((80 94 88) (setf (terminal-parser vt) :discard))
-           ((40 41 42 43 35) (setf (terminal-parser vt) :charset))
-           (55 (setf (terminal-saved vt) (list (terminal-x vt) (terminal-y vt))))
-           (56 (setf (terminal-x vt) (first (terminal-saved vt)) (terminal-y vt) (second (terminal-saved vt))))
+           ((35 37 40 41 42 43) (vector-push-extend byte (terminal-buffer vt)) (setf (terminal-parser vt) :charset))
+           (55 (save-cursor vt))
+           (56 (restore-cursor vt))
+           (72 (setf (terminal-tabs vt) (adjoin (min (terminal-x vt) (1- (terminal-cols vt))) (tab-stops vt))))
            (68 (newline vt emit)) (69 (setf (terminal-x vt) 0) (newline vt emit))
            (77 (if (= (terminal-y vt) (terminal-top vt)) (scroll-lines vt -1 emit) (setf (terminal-y vt) (max 0 (1- (terminal-y vt))))))
-           (99 (clear-range vt 0 (* (terminal-cols vt) (terminal-rows vt)))
-               (setf (terminal-x vt) 0 (terminal-y vt) 0
-                     (terminal-materialized-rows vt) 1
-                     (terminal-main-materialized-rows vt) 1)
-               (funcall emit :reset nil))))
-        (:charset (reset-parser))
+           (99 (reset-terminal vt emit))))
+        (:charset
+         (let ((intermediate (aref (terminal-buffer vt) 0)))
+           (reset-parser)
+           (case intermediate
+             ((40 41) (setf (nth (- intermediate 40) (terminal-charsets vt)) (= byte 48)))
+             (35 (when (= byte 56) (align-screen vt))))))
         (:csi
          (cond ((= byte 27) (setf (terminal-parser vt) :escape (fill-pointer (terminal-buffer vt)) 0))
                ((<= 64 byte 126)
@@ -11345,7 +11451,7 @@ END = b"\x1b[?2026l"
 TICKS = "i=0; while :; do i=$((i+1)); printf 'tick %d lorem ipsum dolor sit amet\\n' $i; sleep 0.1; done"
 FILL = "i=0; while [ $i -lt 60 ]; do printf '\\033[1;34mline %03d\\033[0m lorem ipsum dolor sit amet\\n' $i; i=$((i+1)); done; exec sleep 600"
 COLOURS = {b"10": b"rgb:fefe/fafa/f1f1", b"11": b"rgb:2020/1f1f/2626",
-           **{b"4;%d" % i: b"rgb:%04x/0000/ffff" % i for i in range(16)}}
+           ,**{b"4;%d" % i: b"rgb:%04x/0000/ffff" % i for i in range(16)}}
 
 
 class Term:
@@ -11699,6 +11805,50 @@ def incremental(binary):
         return {"frames": len(first.frames), "differences": len(differences), "first": differences[:3]}
 
 
+VT = ("\\033[41m\\033cR"
+      "\\033[2;1H\\033(0lqqk\\033(B"
+      "\\033[3;1H\\033)0\\016lqk\\017x"
+      "\\033[4;1HAB\\033[3b"
+      "\\033[5;1HABCD\\r\\033[4hXY\\033[4l"
+      "\\033[3g\\033[1;5H\\033H\\033[1;9H\\033H\\033[6;1H\\tT\\tU\\033[7;12H\\033[2ZV\\033[8;1H\\033[2IW"
+      "\\033[9;1Habc\\033[4m\\033[K\\033[0m"
+      "\\033[10;1H\\033[38:2::255:0:0mX\\033[0m"
+      "\\033[11;1H\\033[1;31m\\0337\\033[0mplain\\0338RED\\033[0m"
+      "\\033[12;20r\\033[?6h\\033[1;1HO\\033[?6l\\033[r"
+      "\\033[13;1HMAIN\\033[?1049h\\033[2;2H\\0337alt\\0338\\033[?1049lAFTER")
+
+
+def vt(binary):
+    with Instance(binary, "vt") as ekko:
+        ekko.ekko("run", "--detached", "sh", "-c", f"sleep 1.5; printf '{VT}'; exec sleep 600")
+        term = ekko.attach(120, 30)
+        term.run_for(3.0)
+        pane = json.loads(ekko.ekko("status").stdout)["panes"][0]
+        x, y = pane["x"], pane["y"]
+
+        def row(k):
+            return term.screen.display[y + k][x:x + 16].rstrip()
+
+        def cell(k, c):
+            return term.screen.buffer[y + k][x + c]
+
+        cases = {
+            "ris": [[row(0), cell(0, 0).bg, cell(0, 5).bg], ["R", "default", "default"]],
+            "dec-graphics": [row(1), "\u250c\u2500\u2500\u2510"],
+            "shift-out": [row(2), "\u250c\u2500\u2510x"],
+            "rep": [row(3), "ABBBB"],
+            "insert": [row(4), "XYABCD"],
+            "tab-stops": [[row(5), row(6), row(7)], ["    T   U", "    V", "        W"]],
+            "erase-attributes": [[row(8), cell(8, 3).underscore], ["abc", False]],
+            "colon-sgr": [cell(9, 0).fg, "ff0000"],
+            "decsc-rendition": [[row(10), cell(10, 0).fg, cell(10, 0).bold], ["REDin", "red", True]],
+            "origin": [row(11), "O"],
+            "decsc-alternate": [row(12), "MAINAFTER"],
+        }
+        term.close()
+        return {"failed": [name for name, (got, want) in cases.items() if got != want], "cases": cases}
+
+
 def advanced(pair):
     return None not in pair and pair[1] > pair[0]
 
@@ -11713,6 +11863,7 @@ CHECKS = {
     "reflow": (reflow, lambda r: all(r["intact"])),
     "incremental": (incremental, lambda r: r["frames"] >= 10 and r["differences"] == 0),
     "no-autowrap": (no_autowrap, lambda r: r["rows"][0] == r["expected"][0] and r["rows"][1].rstrip() == r["expected"][1]),
+    "vt": (vt, lambda r: not r["failed"]),
     "full-desktop": (full_desktop, lambda r: r["windows"] == 16 and r["chrome_spans"] > 0 and not r["hook_failures"]),
     "refused-answer": (refused_answer, lambda r: r["probe"] == ["probe 3"] and not r["hook_failures"]),
     "slow-hook": (slow_hook, lambda r: r["paused"] and r["banner"] and r["probe"] == ["slow 2"]

@@ -8,7 +8,7 @@ This is not complete Kitty or xterm compatibility. Source pins are in
 | Operation | Runtime behavior | Evidence / limits |
 | --- | --- | --- |
 | PTYs and lifecycle | Supported controlling terminals, resize, process groups, persistent daemon | Packaged runtime test; shell Ctrl-C, Ctrl-Z and fg; client death/reconnect |
-| Text | Basic UTF-8 cells, rendition, cursor, margins, scrolling, erase/insert/delete, alternate screen | Mixed shell/graphics integration and SGR regressions; bounded main-screen scrollback; no full grapheme handling or complete xterm/terminfo claim |
+| Text | UTF-8 cells, rendition including colon SGR, cursor save/restore per screen, margins and origin mode, scrolling, erase (background colour only)/insert/delete, insert mode, tab stops, REP, DEC Special Graphics through G0/G1 and SO/SI, RIS/DECSTR/DECALN, DECRQM, alternate screen | pty-harness `vt` scenario; mixed shell/graphics integration and SGR regressions; bounded main-screen scrollback; no grapheme clustering (ZWJ/VS16 emoji advance by codepoint width), cursor shape, OSC 8 links or complete xterm/terminfo claim |
 | Graphics framing | Incremental APC with 16 KiB string limit; direct chunks up to 32 MiB total | Fragmented actual PTY producer; oversized controls discarded through termination |
 | Encoding/compression | Base64, raw RGB/RGBA (`f=24/32`), optional `o=z` | Canonical base64 validation and exact bounded decoded length; 8192-pixel dimension and 32 MiB decoded-image limits |
 | Native placement | `a=T`, plus basic transmit/put; pane-local image ID; one placement per image | Benchmark uses `p=1,C=1`; general multi-placement semantics are incomplete |
