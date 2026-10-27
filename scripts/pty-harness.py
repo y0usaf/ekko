@@ -418,6 +418,23 @@ def vt(binary):
         return {"failed": [name for name, (got, want) in cases.items() if got != want], "cases": cases}
 
 
+def wide_wrap(binary):
+    with Instance(binary, "wide-wrap") as ekko:
+        script = ("sleep 1.5; set -- $(stty size); cols=$2; "
+                  "printf '\\033[41m\\033[1;%sHZ' $cols; sleep 0.2; "
+                  "printf '\\033[0m\\033[1;%sH中' $cols; exec sleep 600")
+        ekko.ekko("run", "--detached", "sh", "-c", script)
+        term = ekko.attach(120, 30)
+        term.run_for(3.0)
+        pane = json.loads(ekko.ekko("status").stdout)["panes"][0]
+        x, y = pane["x"], pane["y"]
+        padding = term.screen.buffer[y][x + pane["cols"] - 1]
+        result = {"padding": [padding.data, padding.bg],
+                  "next": term.screen.buffer[y + 1][x].data}
+        term.close()
+        return result
+
+
 CLUSTERS = ("sleep 1; printf 'a \\342\\230\\200\\357\\270\\217 b \\360\\237\\221\\250\\342\\200\\215\\360\\237\\221\\251 c END'; "
             "exec sleep 600")
 
@@ -451,6 +468,7 @@ CHECKS = {
     "no-autowrap": (no_autowrap, lambda r: r["rows"][0] == r["expected"][0] and r["rows"][1].rstrip() == r["expected"][1]),
     "vt": (vt, lambda r: not r["failed"]),
     "clusters": (clusters, lambda r: r["end"] == [13]),
+    "wide-wrap": (wide_wrap, lambda r: r["padding"] == [" ", "red"] and r["next"] == "中"),
     "full-desktop": (full_desktop, lambda r: r["windows"] == 16 and r["chrome_spans"] > 0 and not r["hook_failures"]),
     "refused-answer": (refused_answer, lambda r: r["probe"] == ["probe 3"] and not r["hook_failures"]),
     "slow-hook": (slow_hook, lambda r: r["paused"] and r["banner"] and r["probe"] == ["slow 2"]

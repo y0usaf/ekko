@@ -46,7 +46,7 @@
       (:colour (let ((spec (gethash value (daemon-colours (pane-daemon pane)))))
                  (when spec (pane-input pane (text-bytes (format nil "~C]~A;~A~C\\" #\Esc value spec #\Esc))))))
       (:graphics (accept-command graphics value vt (lambda (k v) (pane-event pane k v))))
-      (:scroll (destructuring-bind (top bottom amount) value
+      (:scroll (multiple-value-bind (top bottom amount) (ekko/vt:scroll-region value)
                  (scroll-images graphics (terminal-screen vt) top bottom amount (terminal-cw vt) (terminal-ch vt))))
       (:screen (when (eq value :main) (clear-screen graphics :alternate)))
       (:sync
@@ -565,22 +565,18 @@
     (when attr (push (list start (get-output-stream-string chars) attr) runs))
     (nreverse runs)))
 (defun pane-lines (pane)
-  "PANE's rows as styled runs. A row keeps its runs while its cells are unchanged,
-also when scrolling moves it, and the list is reused while the terminal is unchanged."
   (let* ((vt (pane-vt pane)) (cells (terminal-cells vt)) (memo (pane-lines-memo pane)))
     (if (and memo (eql (first memo) (terminal-revision vt)) (eq (second memo) cells))
         (cddr memo)
-        (let ((cols (terminal-cols vt)) (old (or (pane-row-cache pane) (make-hash-table :test 'eq)))
+        (let ((old (or (pane-row-cache pane) (make-hash-table :test 'eq)))
               (new (make-hash-table :test 'eq)))
           (setf (pane-row-cache pane) new)
           (cddr (setf (pane-lines-memo pane)
-                      (list* (terminal-revision vt) cells
-                             (loop for y below (terminal-rows vt) for row = (svref cells y) for entry = (gethash row old)
-                                   collect (cdr (setf (gethash row new)
-                                                      (if (and entry (= (length (car entry)) cols)
-                                                               (loop for x below cols always (eq (svref (car entry) x) (svref row x))))
-                                                          entry
-                                                          (cons (copy-seq row) (cell-runs row nil nil 0 cols)))))))))))))
+                     (list* (terminal-revision vt) cells
+                            (loop for row across cells for entry = (gethash row old)
+                                  collect (cdr (setf (gethash row new)
+                                                    (if (and entry (= (car entry) (ekko/vt:row-revision row))) entry
+                                                        (cons (ekko/vt:row-revision row) (ekko/vt:packed-row-runs vt row)))))))))))))
 (defvar *content-rects* nil "Pane content rectangles memoized for one scene build.")
 (defun pane-content-rect (view pane)
   "PANE's visible application cells within the viewport, as half-open (x0 y0 x1 y1)."
