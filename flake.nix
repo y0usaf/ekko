@@ -5,8 +5,28 @@
     url = "github:zenbu-labs/terminal-browser/cce10b6131d15bf46a3e4b8dc827e0544ff7fc65";
     flake = false;
   };
-  outputs = { self, nixpkgs, terminal-browser }:
+  inputs.cudaterm-data = {
+    url = "github:y0usaf/cudaterm/c1acd3202c27275a8d8061ed7547dd45eb42637d";
+    flake = false;
+  };
+  outputs = { self, nixpkgs, terminal-browser, cudaterm-data }:
     let
+      textWidthData = pkgs: pkgs.runCommand "ekko-cudaterm-width-data" {
+        nativeBuildInputs = [ (pkgs.python3.withPackages (p: [ p.unicodedata2 ])) pkgs.gnutar pkgs.gzip ];
+        unifont = pkgs.fetchurl {
+          url = "mirror://gnu/unifont/unifont-17.0.05/unifont-17.0.05.tar.gz";
+          hash = "sha256-8ofP+ybiJyOqNuZoSGmw8/87+4IsSwEAi9hHkR7BtjE=";
+        };
+      } ''
+        tar -xzf $unifont --strip-components=3 \
+          unifont-17.0.05/font/precompiled/unifont-combining-17.0.05.txt
+        mkdir -p $out
+        substitute ${cudaterm-data}/tools/build_widths.py build-widths.py \
+          --replace-fail 'import unicodedata' 'import unicodedata2 as unicodedata'
+        python build-widths.py \
+          --combining unifont-combining-17.0.05.txt --out $out/widths.bin \
+          --offsets-out $out/offsets.bin --version-out $out/unicode-version.txt
+      '';
       systems = [ "x86_64-linux" ];
       forEachSystem = f: nixpkgs.lib.genAttrs systems (system: f nixpkgs.legacyPackages.${system});
     in {
@@ -50,7 +70,7 @@
               (pkgs.lib.fileset.fileFilter (file: file.hasExt "lisp" || file.hasExt "c") ./src)
               ./scripts/build.sh ./scripts/build.lisp
               ./scripts/smoke.sh
-              ./scripts/generate-text-width.py ./scripts/text-width-oracle.rs
+              ./scripts/generate-text-width.py
             ];
           };
           nativeBuildInputs = [ pkgs.sbcl ];
@@ -168,29 +188,23 @@
           touch $out
         '';
         text-width = pkgs.runCommand "ekko-text-width" {
-          nativeBuildInputs = [ pkgs.python3 pkgs.rustc pkgs.sbcl pkgs.gnutar pkgs.stdenv.cc ];
-          unicodeWidthCrate = pkgs.fetchurl {
-            url = "https://static.crates.io/crates/unicode-width/unicode-width-0.1.10.crate";
-            sha256 = "c0edd1e5b14653f783770bce4a4dabb4a5108a5370a5f5d8cfe8710c361f6c8b";
-          };
+          nativeBuildInputs = [ pkgs.python3 pkgs.sbcl ];
+          widthData = textWidthData pkgs;
         } ''
-          mkdir crate
-          tar -xf $unicodeWidthCrate -C crate
-          python ${./scripts/generate-text-width.py} \
-            crate/unicode-width-0.1.10 --rustc rustc --output generated.lisp
+          python ${./scripts/generate-text-width.py} $widthData ${cudaterm-data}/data \
+            --output generated.lisp --info-output original-info
           cmp generated.lisp ${./src/text-width.lisp}
-          rustc --crate-name unicode_width --crate-type lib --edition=2018 \
-            crate/unicode-width-0.1.10/src/lib.rs -o libunicode_width.rlib
-          rustc ${./scripts/text-width-oracle.rs} \
-            --extern unicode_width=$PWD/libunicode_width.rlib -o rust-oracle
-          ./rust-oracle > rust-widths
           sbcl --noinform --non-interactive --load ${./src/text-width.lisp} \
-            --eval '(loop for cp from 0 to #x10ffff do
-                      (unless (<= #xd800 cp #xdfff)
-                        (format t "~D~%" (ekko/text:display-width (code-char cp)))))' \
-            > lisp-widths
-          cmp rust-widths lisp-widths
-          printf 'exhaustive Unicode scalar widths match unicode-width 0.1.10\n' > $out
+            --eval '(with-open-file (widths "lisp-widths" :direction :output :element-type (quote (unsigned-byte 8)))
+                      (with-open-file (info "lisp-info" :direction :output :element-type (quote (unsigned-byte 8)))
+                        (loop for cp from 0 to #x10ffff do
+                          (write-byte (ekko/text:code-info cp) info)
+                          (unless (<= #xd800 cp #xdfff)
+                            (write-byte (ekko/text:display-width (code-char cp)) widths)))))'
+          python -c "from pathlib import Path; w = Path('$widthData/widths.bin').read_bytes(); Path('original-widths').write_bytes(w[:0xd800] + w[0xe000:])"
+          cmp original-widths lisp-widths
+          cmp original-info lisp-info
+          printf 'exhaustive Unicode scalar widths and cluster properties match pinned cudaterm data\n' > $out
         '';
         build = self.packages.${pkgs.system}.default;
         graphics-demo = self.packages.${pkgs.system}.graphics-demo;
