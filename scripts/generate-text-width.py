@@ -133,6 +133,21 @@ FUNCTIONS = '''(declaim (inline code-info))
                   (setf state next)
                   (incf width added)))
        width))))
+(defun map-clusters (function text)
+  "Call FUNCTION with the start, end and final cell width of each cluster in TEXT."
+  (declare (type string text))
+  (let ((state 0) (start 0))
+    (loop for index from 0 below (length text)
+          do (multiple-value-bind (next added attached)
+                 (cluster-step state (char-code (char text index)))
+               (declare (ignore added))
+               (when (and (not attached) (plusp (logand next 3)) (< start index))
+                 (funcall function start index (logand state 3))
+                 (setf start index))
+               (setf state next)))
+    (when (< start (length text))
+      (funcall function start (length text) (logand state 3)))
+    nil))
 '''
 
 
@@ -153,10 +168,13 @@ def main():
         index.append(blocks[block])
     if len(blocks) > 256:
         raise ValueError("Unicode table exceeds the byte-sized block index")
-    license_text = (args.properties / "UNICODE-LICENSE.txt").read_text()
+    license_text = ((args.properties / "UNICODE-LICENSE.txt").read_text()
+                    + "\nGNU Unifont combining metadata source: "
+                    + (args.widths / "unifont-source.txt").read_text()
+                    + "Verbatim upstream COPYING: share/doc/ekko/UNIFONT-COPYING\n")
     license_text = license_text.replace('\\', '\\\\').replace('"', '\\"')
     text = ('(defpackage #:ekko/text (:use #:cl)\n'
-            '  (:export #:display-width #:code-info #:cluster-step #:cluster-state)\n'
+            '  (:export #:display-width #:code-info #:cluster-step #:cluster-state #:map-clusters)\n'
             f'  (:documentation "{license_text}"))\n(in-package #:ekko/text)\n'
             + array("*code-index*", index) + "\n"
             + array("*code-blocks*", data) + "\n" + FUNCTIONS)

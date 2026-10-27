@@ -11,16 +11,19 @@
   };
   outputs = { self, nixpkgs, terminal-browser, cudaterm-data }:
     let
-      textWidthData = pkgs: pkgs.runCommand "ekko-cudaterm-width-data" {
+      textWidthData = pkgs: pkgs.runCommand "ekko-cudaterm-width-data" rec {
         nativeBuildInputs = [ (pkgs.python3.withPackages (p: [ p.unicodedata2 ])) pkgs.gnutar pkgs.gzip ];
+        unifontSource = "mirror://gnu/unifont/unifont-17.0.05/unifont-17.0.05.tar.gz";
         unifont = pkgs.fetchurl {
-          url = "mirror://gnu/unifont/unifont-17.0.05/unifont-17.0.05.tar.gz";
+          url = unifontSource;
           hash = "sha256-8ofP+ybiJyOqNuZoSGmw8/87+4IsSwEAi9hHkR7BtjE=";
         };
       } ''
         tar -xzf $unifont --strip-components=3 \
           unifont-17.0.05/font/precompiled/unifont-combining-17.0.05.txt
         mkdir -p $out
+        tar -xOf $unifont --wildcards '*/COPYING' > $out/UNIFONT-COPYING
+        printf '%s\n' "$unifontSource" > $out/unifont-source.txt
         substitute ${cudaterm-data}/tools/build_widths.py build-widths.py \
           --replace-fail 'import unicodedata' 'import unicodedata2 as unicodedata'
         python build-widths.py \
@@ -62,6 +65,7 @@
         default = pkgs.stdenv.mkDerivation {
           pname = "ekko";
           version = "0.1.0";
+          widthData = textWidthData pkgs;
           src = pkgs.lib.fileset.toSource {
             root = ./.;
             fileset = pkgs.lib.fileset.unions [
@@ -92,6 +96,9 @@
           installPhase = ''
             install -Dm755 ekko $out/bin/ekko
             ln -s ekko $out/bin/ekko-bare
+            install -Dm644 $widthData/UNIFONT-COPYING $out/share/doc/ekko/UNIFONT-COPYING
+            install -m644 $widthData/unifont-source.txt ${cudaterm-data}/data/UNICODE-LICENSE.txt \
+              $out/share/doc/ekko/
           '';
         };
         graphics-demo = pkgs.stdenv.mkDerivation {

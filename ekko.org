@@ -108,16 +108,19 @@ and the dev shell.
   };
   outputs = { self, nixpkgs, terminal-browser, cudaterm-data }:
     let
-      textWidthData = pkgs: pkgs.runCommand "ekko-cudaterm-width-data" {
+      textWidthData = pkgs: pkgs.runCommand "ekko-cudaterm-width-data" rec {
         nativeBuildInputs = [ (pkgs.python3.withPackages (p: [ p.unicodedata2 ])) pkgs.gnutar pkgs.gzip ];
+        unifontSource = "mirror://gnu/unifont/unifont-17.0.05/unifont-17.0.05.tar.gz";
         unifont = pkgs.fetchurl {
-          url = "mirror://gnu/unifont/unifont-17.0.05/unifont-17.0.05.tar.gz";
+          url = unifontSource;
           hash = "sha256-8ofP+ybiJyOqNuZoSGmw8/87+4IsSwEAi9hHkR7BtjE=";
         };
       } ''
         tar -xzf $unifont --strip-components=3 \
           unifont-17.0.05/font/precompiled/unifont-combining-17.0.05.txt
         mkdir -p $out
+        tar -xOf $unifont --wildcards '*/COPYING' > $out/UNIFONT-COPYING
+        printf '%s\n' "$unifontSource" > $out/unifont-source.txt
         substitute ${cudaterm-data}/tools/build_widths.py build-widths.py \
           --replace-fail 'import unicodedata' 'import unicodedata2 as unicodedata'
         python build-widths.py \
@@ -159,6 +162,7 @@ and the dev shell.
         default = pkgs.stdenv.mkDerivation {
           pname = "ekko";
           version = "0.1.0";
+          widthData = textWidthData pkgs;
           src = pkgs.lib.fileset.toSource {
             root = ./.;
             fileset = pkgs.lib.fileset.unions [
@@ -189,6 +193,9 @@ and the dev shell.
           installPhase = ''
             install -Dm755 ekko $out/bin/ekko
             ln -s ekko $out/bin/ekko-bare
+            install -Dm644 $widthData/UNIFONT-COPYING $out/share/doc/ekko/UNIFONT-COPYING
+            install -m644 $widthData/unifont-source.txt ${cudaterm-data}/data/UNICODE-LICENSE.txt \
+              $out/share/doc/ekko/
           '';
         };
         graphics-demo = pkgs.stdenv.mkDerivation {
@@ -815,6 +822,7 @@ The VT parser and screen model, plus its public accessors.
 (defconstant +tail+ #x2000000)
 (defconstant +style-shift+ 26)
 (defconstant +cluster-base+ #x110000)
+(defconstant +node-state-shift+ 45)
 (declaim (inline row-cols row-revision row-wrap cell-glyph cell-style cell-wide-p cell-tail-p touch-row))
 (defun row-cols (row) (declare (type cell-row row)) (- (length row) 2))
 (defun row-revision (row) (declare (type cell-row row)) (aref row (1- (length row))))
@@ -896,8 +904,8 @@ The VT parser and screen model, plus its public accessors.
       (dotimes (id (terminal-cluster-count vt))
         (when (= (sbit live id) 1)
           (let* ((node (aref clusters id)) (parent (mapped-glyph (logand node +glyph-mask+)))
-                 (key (logior parent (logandc2 node +glyph-mask+))))
-            (setf (aref cluster-map id) nc (aref new-clusters nc) key
+                 (key (logior parent (ash (ldb (byte 21 24) node) 24))))
+            (setf (aref cluster-map id) nc (aref new-clusters nc) (logior key (ash (ash node (- +node-state-shift+)) +node-state-shift+))
                   (aref new-lengths nc) (aref (terminal-cluster-lengths vt) id)
                   (gethash key cluster-table) nc)
             (incf nc))))
@@ -938,10 +946,14 @@ The VT parser and screen model, plus its public accessors.
         ((< glyph +cluster-base+) (string (code-char glyph)))
         (t (let* ((length (glyph-length vt glyph)) (text (make-string length)) (index (1- length)))
              (loop while (>= glyph +cluster-base+) for node = (aref (terminal-clusters vt) (- glyph +cluster-base+))
-                   do (setf (char text index) (code-char (ash node -24))
+                   do (setf (char text index) (code-char (ldb (byte 21 24) node))
                             glyph (logand node +glyph-mask+)) (decf index))
              (setf (char text 0) (if (zerop glyph) #\Space (code-char glyph)))
              text))))
+(defun glyph-state (vt glyph)
+  (if (< glyph +cluster-base+)
+      (ekko/text:cluster-step 0 (if (zerop glyph) 32 glyph))
+      (ash (aref (terminal-clusters vt) (- glyph +cluster-base+)) (- +node-state-shift+))))
 (defun intern-cluster (vt parent code)
   (let ((key (logior parent (ash code 24))))
     (multiple-value-bind (id found) (gethash key (terminal-cluster-table vt))
@@ -955,7 +967,8 @@ The VT parser and screen model, plus its public accessors.
                 (terminal-cluster-lengths vt)
                 (replace (make-array (* 2 (max 1 id)) :element-type '(unsigned-byte 32) :initial-element 0)
                          (terminal-cluster-lengths vt))))
-        (setf (aref (terminal-clusters vt) id) key
+        (setf (aref (terminal-clusters vt) id)
+              (logior key (ash (ekko/text:cluster-step (glyph-state vt parent) code) +node-state-shift+))
               (aref (terminal-cluster-lengths vt) id) (1+ (glyph-length vt parent))
               (gethash key (terminal-cluster-table vt)) id)
         (incf (terminal-cluster-count vt)))
@@ -966,15 +979,30 @@ The VT parser and screen model, plus its public accessors.
       (let ((cell (aref row x)))
         (setf (svref out x) (list (if (cell-tail-p cell) "" (glyph-text vt (cell-glyph cell)))
                                 (svref (terminal-styles vt) (cell-style cell))))))))
+(defun glyph-root (vt glyph)
+  (loop while (>= glyph +cluster-base+)
+        do (setf glyph (logand (aref (terminal-clusters vt) (- glyph +cluster-base+)) +glyph-mask+)))
+  (if (zerop glyph) 32 glyph))
 (defun packed-row-runs (vt row)
   (declare (type terminal vt) (type cell-row row))
-  (let ((runs nil) (start 0) (style -1) (chars (make-string-output-stream)))
+  (let ((runs nil) (start 0) (style -1) (state 0) (apart nil) (chars (make-string-output-stream)))
     (dotimes (x (row-cols row))
-      (let* ((cell (aref row x)) (id (cell-style cell)))
-        (unless (= style id)
+      (let* ((cell (aref row x)) (id (cell-style cell)) (glyph (cell-glyph cell))
+             (tail (cell-tail-p cell))
+             (own (and (not tail) (glyph-state vt glyph)))
+             (narrower (and own (/= (logand own 3) (if (cell-wide-p cell) 2 1))))
+             (split (and (not tail) (>= style 0)
+                         (or apart narrower
+                             (and (>= glyph 128)
+                                  (nth-value 2 (ekko/text:cluster-step state (glyph-root vt glyph))))))))
+        (when (or (/= style id) split)
           (when (>= style 0) (push (list start (get-output-stream-string chars) (svref (terminal-styles vt) style)) runs))
           (setf start x style id))
-        (unless (cell-tail-p cell) (write-string (glyph-text vt (cell-glyph cell)) chars))))
+        (unless tail
+          (write-string (glyph-text vt (if (and narrower (> (logand own 3) (if (cell-wide-p cell) 2 1)))
+                                           (glyph-root vt glyph) glyph))
+                        chars)
+          (setf state own apart narrower))))
     (when (>= style 0) (push (list start (get-output-stream-string chars) (svref (terminal-styles vt) style)) runs))
     (nreverse runs)))
 (defun break-pair (row x blank)
@@ -1185,38 +1213,73 @@ The VT parser and screen model, plus its public accessors.
     (when (cell-wide-p (aref row (1- cols))) (setf (aref row (1- cols)) blank))
     (setf (row-wrap row) 0)
     (touch-row vt row)))
+(defun append-character (vt row x cell code promote emit)
+  (let ((cols (terminal-cols vt)) (pen (terminal-pen vt)))
+    (setf cell (logior (logandc2 cell +glyph-mask+) (intern-cluster vt (cell-glyph cell) code)))
+    (when (and promote (> cols 1) (or (autowrap-p vt) (< (terminal-x vt) (1- cols))))
+      (if (= x (1- cols))
+          (let ((fresh (= (terminal-y vt) (terminal-bottom vt))))
+            (setf (aref row x) pen)
+            (wrap-mark row :pad) (touch-row vt row)
+            (setf (terminal-x vt) 0) (newline vt emit)
+            (setf row (svref (terminal-cells vt) (terminal-y vt)) x 0)
+            (unless fresh
+              (if (terminal-insert vt) (insert-cells vt 2)
+                  (progn (break-pair row 0 pen) (break-pair row 1 pen)))))
+          (if (terminal-insert vt)
+              (let ((cursor (terminal-x vt)))
+                (setf (terminal-x vt) (1+ x)) (insert-cells vt 1) (setf (terminal-x vt) cursor))
+              (break-pair row (1+ x) pen)))
+      (setf cell (logior cell +wide+)
+            (aref row (1+ x)) (logior (logandc2 cell (logior +glyph-mask+ +wide+)) +tail+)
+            (terminal-x vt) (min (+ x 2) (if (autowrap-p vt) cols (1- cols))))
+      (when (= (+ x 2) cols) (setf (row-wrap row) 0)))
+    (setf (aref row x) cell)
+    (touch-row vt row)))
 (defun put-character (vt char emit)
   (declare (type terminal vt) (type character char) (optimize (speed 3) (safety 2)))
-  (let* ((code (char-code char)) (width (character-width char)) (cols (terminal-cols vt)))
-    (declare (type fixnum code width cols))
+  (let* ((code (char-code char)) (info (ekko/text:code-info code))
+         (width (logand info 3)) (cols (terminal-cols vt)))
+    (declare (type fixnum code info width cols))
     (ensure-materialized-rows vt (1+ (terminal-y vt)))
-    (when (zerop width)
+    (unless (< code 127)
       (let* ((row (svref (terminal-cells vt) (terminal-y vt)))
              (x (max 0 (min (1- cols) (1- (terminal-x vt))))))
         (when (and (plusp x) (cell-tail-p (aref row x))) (decf x))
-        (let ((cell (aref row x)))
-          (setf (aref row x) (logior (logandc2 cell +glyph-mask+)
-                                    (intern-cluster vt (cell-glyph cell) code))))
-        (touch-row vt row))
-      (return-from put-character))
+        (let* ((cell (aref row x)) (glyph (cell-glyph cell))
+               (state (logior (logandc2 (glyph-state vt glyph) 3) (if (cell-wide-p cell) 2 1)))
+               (adjacent (= (terminal-x vt) (+ x (if (cell-wide-p cell) 2 1))))
+               (allowed (or (autowrap-p vt) (< (terminal-x vt) (1- cols)))))
+          (when (or (terminal-join-blocked vt) (< cols 2)) (setf state (logandc2 state 32)))
+          (when (and (plusp width) (not (logtest info 32))
+                     (not (and adjacent allowed (plusp glyph))))
+            (setf state 0))
+          (multiple-value-bind (next added attach) (ekko/text:cluster-step state code)
+            (declare (ignore next))
+            (when attach
+              (append-character vt row x cell code (plusp added) emit)
+              (return-from put-character))
+            (setf width added)))))
+    (when (zerop width) (return-from put-character))
+    (when (and (= width 2) (or (= cols 1) (and (not (autowrap-p vt)) (>= (terminal-x vt) (1- cols)))))
+      (setf code #xfffd width 1))
     (when (> (+ (terminal-x vt) width) cols)
       (if (autowrap-p vt)
           (progn (let ((row (svref (terminal-cells vt) (terminal-y vt))))
                    (wrap-mark row (if (< (terminal-x vt) cols) :pad :wrap))
                    (touch-row vt row))
                  (setf (terminal-x vt) 0) (newline vt emit))
-          (setf (terminal-x vt) (max 0 (- cols width)))))
-    (when (<= width cols)
-      (when (terminal-insert vt) (insert-cells vt width))
-      (let* ((row (svref (terminal-cells vt) (terminal-y vt))) (x (terminal-x vt)) (pen (terminal-pen vt)))
-        (break-pair row x pen)
-        (when (= width 2) (break-pair row (1+ x) pen))
-        (setf (aref row x) (logior code pen (if (= width 2) +wide+ 0)))
-        (when (= width 2) (setf (aref row (1+ x)) (logior +tail+ pen)))
-        (when (= (+ x width) cols) (setf (row-wrap row) 0))
-        (touch-row vt row))
-      (setf (terminal-last-char vt) char (terminal-join-blocked vt) nil)
-      (incf (terminal-x vt) width))))
+          (setf (terminal-x vt) (1- cols))))
+    (when (terminal-insert vt) (insert-cells vt width))
+    (let* ((row (svref (terminal-cells vt) (terminal-y vt))) (x (terminal-x vt)) (pen (terminal-pen vt)))
+      (break-pair row x pen)
+      (when (= width 2) (break-pair row (1+ x) pen))
+      (setf (aref row x) (logior code pen (if (= width 2) +wide+ 0)))
+      (when (= width 2) (setf (aref row (1+ x)) (logior +tail+ pen)))
+      (when (= (+ x width) cols) (setf (row-wrap row) 0))
+      (touch-row vt row))
+    (setf (terminal-last-char vt) (code-char code) (terminal-join-blocked vt) nil
+          (terminal-x vt) (min (+ (terminal-x vt) width) (if (autowrap-p vt) cols (1- cols))))))
 (defparameter *dec-graphics*
   (map 'string #'code-char
        '(#x20 #x25c6 #x2592 #x2409 #x240c #x240d #x240a #xb0 #xb1 #x2424 #x240b #x2518 #x2510 #x250c
@@ -1322,7 +1385,8 @@ The VT parser and screen model, plus its public accessors.
   (when (gethash 2026 (terminal-modes vt)) (funcall emit :sync nil))
   (clrhash (terminal-modes vt))
   (soft-reset vt)
-  (setf (terminal-keyboards vt) (list 0) (terminal-tabs vt) :default (terminal-last-char vt) nil)
+  (setf (terminal-keyboards vt) (list 0) (terminal-tabs vt) :default (terminal-last-char vt) nil
+        (terminal-join-blocked vt) nil)
   (clear-range vt 0 (* (terminal-cols vt) (terminal-rows vt)))
   (setf (terminal-x vt) 0 (terminal-y vt) 0
         (terminal-materialized-rows vt) 1
@@ -1357,7 +1421,11 @@ The VT parser and screen model, plus its public accessors.
          (cursor (+ (* cols (terminal-y vt)) (min (terminal-x vt) (1- cols))))
          (origin (gethash 6 (terminal-modes vt)))
          (top (if origin (terminal-top vt) 0)) (bottom (if origin (terminal-bottom vt) (1- rows)))
-         (esc (code-char 27)))
+         (esc (code-char 27))
+         (quiet (or (find-if (lambda (b) (<= 32 b 47)) buffer :end end)
+                    (find private "<>=") (and private (char= final #\u)))))
+    (unless (or quiet (find final "mnct")) (setf (terminal-join-blocked vt) t))
+    (unless (or quiet (find final "mnchlb")) (setf (terminal-x vt) (min (terminal-x vt) (1- cols))))
     (case final
       ((#\H #\f) (setf (terminal-y vt) (min bottom (+ top (1- n)))
                           (terminal-x vt) (min (1- cols) (max 0 (1- (or (second args) 1)))))
@@ -1549,6 +1617,7 @@ The VT parser and screen model, plus its public accessors.
     (loop for index from 0 below (length bytes) for byte = (aref bytes index) do
       (case (terminal-parser vt)
         (:ground
+         (when (and (< byte 32) (/= byte 27)) (setf (terminal-join-blocked vt) t))
          (case byte
            (27 (setf (terminal-parser vt) :escape))
            ((10 11 12) (newline vt emit))
@@ -1560,6 +1629,7 @@ The VT parser and screen model, plus its public accessors.
            (15 (setf (terminal-shift vt) 0))
            (otherwise (when (>= byte 32) (unless (= byte 127) (text-byte vt byte emit))))))
         (:escape
+         (unless (= byte 91) (setf (terminal-join-blocked vt) t))
          (reset-parser)
          (case byte
            (91 (setf (terminal-parser vt) :csi)) (93 (setf (terminal-parser vt) :osc))
@@ -3367,23 +3437,31 @@ The daemon's single-workspace server core and PTY sizing.
                   (setf (pane-mouse-report pane) report)
                   (pane-input pane (text-bytes report))))))))
       (when up (setf (view-drag view) nil)))))
+(defun copy-cell-width (cells x)
+  (cond ((zerop (length (first (aref cells x)))) 0)
+        ((and (< (1+ x) (length cells)) (zerop (length (first (aref cells (1+ x)))))) 2)
+        (t 1)))
 (defun cell-runs (cells &optional selected-start selected-end (offset 0) (end (length cells))
                                 (selection-sgr '(27 48 5 238)))
   "One styled-row formatter for both live output and frozen selection."
-  (let ((runs nil) (start 0) (attr nil) (index 0) (chars (make-string-output-stream)))
+  (let ((runs nil) (start 0) (attr nil) (index 0) (state 0) (apart nil) (chars (make-string-output-stream)))
     (loop for position from offset below end for cell = (aref cells position) for x from 0
-          for text = (if (and (= position (1- end)) (plusp (length (first cell)))
-                              (= 2 (ekko/vt:character-width (char (first cell) 0))))
-                         " " (first cell))
+          for width = (copy-cell-width cells position)
+          for text = (if (> (+ position width) end) " " (first cell))
+          for own = (and (plusp (length text)) (ekko/text:cluster-state text))
+          for narrower = (and own (/= (logand own 3) width))
           for style = (if (and selected-start selected-end
                                (< index selected-end) (> (+ index (length text)) selected-start))
                           (ekko/vt:update-rendition (second cell) selection-sgr)
                           (second cell)) do
-      (unless (equal attr style)
+      (when (or (not (equal attr style))
+                (and own attr (or apart narrower
+                                  (nth-value 2 (ekko/text:cluster-step state (char-code (char text 0)))))))
         (when attr (push (list start (get-output-stream-string chars) attr) runs))
         (setf start x attr style))
-      (write-string text chars)
-      (incf index (length text)))
+      (write-string (if (and narrower (> (logand own 3) width)) (subseq text 0 1) text) chars)
+      (incf index (length text))
+      (when own (setf state own apart narrower)))
     (when attr (push (list start (get-output-stream-string chars) attr) runs))
     (nreverse runs)))
 (defun pane-lines (pane)
@@ -3426,44 +3504,39 @@ The daemon's single-workspace server core and PTY sizing.
          (rects (append (mapcar (lambda (pane) (pane-content-rect view pane)) panes)
                         (loop for pane in occluders
                               collect (destructuring-bind (ox oy w h) (shown-rect view (pane-id pane))
-                                        (list ox oy (+ ox w) (+ oy h)))))))
-    (flet ((free-p (x width)
-             (and (<= 0 x) (<= (+ x width) cols) (<= 0 y) (< y (view-rows view))
-                  (notany (lambda (rect) (rect-hit-p rect x y width)) rects))))
-      (if (and (plusp (length text)) (plusp (ekko/vt:character-width (char text 0)))
-               (free-p x (ekko/text:display-width text)))
-          (list (list* x y (copy-seq text) sgr (when alpha (list alpha))))
-          (let ((cursor x) (run-x nil) (run-width 0) (run nil) (out nil))
-            (flet ((flush ()
-                     (when run
-                       (push (list* run-x y (coerce (nreverse run) 'string) (copy-list sgr) (when alpha (list alpha))) out)
-                       (setf run nil run-x nil run-width 0))))
-              (loop for char across text
-                    for width = (ekko/vt:character-width char) do
-                      ;; Combining marks do not claim a new cell. Keep them with an
-                      ;; accepted base glyph, and drop leading marks so a clipped
-                      ;; span cannot affect an unrelated cell.
-                      (cond
-                        ((zerop width) (when run (push char run)))
-                        ((free-p cursor width)
-                         (unless (and run-x (= cursor (+ run-x run-width))) (flush))
-                         (unless run-x (setf run-x cursor))
-                         (push char run) (incf run-width width))
-                        (t (flush)))
-                      (incf cursor width))
-              (flush))
-            (nreverse out))))))
+                                        (list ox oy (+ ox w) (+ oy h))))))
+         (cursor x) (run-x nil) (run-start nil) (run-end 0) (out nil))
+    (labels ((free-p (width)
+               (and (<= 0 cursor) (<= (+ cursor width) cols) (<= 0 y) (< y (view-rows view))
+                    (notany (lambda (rect) (rect-hit-p rect cursor y width)) rects)))
+             (flush ()
+               (when run-start
+                 (push (list* run-x y (subseq text run-start run-end) (copy-list sgr) (when alpha (list alpha))) out)
+                 (setf run-start nil run-x nil))))
+      (ekko/text:map-clusters
+       (lambda (start end width)
+         (when (plusp width)
+           (if (free-p width)
+               (progn (unless run-start (setf run-x cursor run-start start)) (setf run-end end))
+               (flush)))
+         (incf cursor width)) text)
+      (flush))
+    (nreverse out)))
 (defun span-pieces (view owner span dx alpha)
-  "SPAN's text as clip-ready pieces in its shown style, a :gradient spread
-across its cells, carrying ALPHA for the ground to fade against."
+  "Return complete clusters styled with the span's cell-position gradient."
   (destructuring-bind (sgr gradient) (if (view-tweens view)
                                          (shown-style view (span-key owner span) (span-style span))
                                          (span-style span))
     (let ((x (+ (getf span :x) dx)) (text (getf span :text)))
-      (if (and gradient (> (length text) 1))
-          (loop with last = (1- (length text)) for char across text for index from 0
-                collect (list :x x :text (string char) :sgr (blend-sgr sgr gradient (/ index last)) :alpha alpha)
-                do (incf x (ekko/vt:character-width char)))
+      (if gradient
+          (let ((column 0) (last (max 1 (1- (ekko/text:display-width text)))) (out nil))
+            (ekko/text:map-clusters
+             (lambda (start end width)
+               (when (plusp width)
+                 (push (list :x (+ x column) :text (subseq text start end)
+                             :sgr (blend-sgr sgr gradient (/ column last)) :alpha alpha) out))
+               (incf column width)) text)
+            (nreverse out))
           (list (list :x x :text text :sgr sgr :alpha alpha))))))
 (defun paint-span (view owner span dx dy alpha pane panes overlay)
   (loop for row from (+ (getf span :y) dy) below (+ (getf span :y) dy (getf span :rows 1))
@@ -5295,12 +5368,18 @@ extension code; otherwise the active worker's binary does, so recovery keeps it.
         (pane-view-copy-top (pane-state view (pane-id pane))) (max 0 (min (pane-view-copy-top (pane-state view (pane-id pane))) (pane-view-copy-cursor (pane-state view (pane-id pane))))))
   (when (>= (pane-view-copy-cursor (pane-state view (pane-id pane))) (+ (pane-view-copy-top (pane-state view (pane-id pane))) (pane-view-rows (pane-state view (pane-id pane)))))
     (setf (pane-view-copy-top (pane-state view (pane-id pane))) (1+ (- (pane-view-copy-cursor (pane-state view (pane-id pane))) (pane-view-rows (pane-state view (pane-id pane))))))))
-(defun clip-copy-text (text cols)
-  (let ((width 0) (end 0))
-    (loop for c across text for n = (ekko/vt:character-width c) do
-      (when (> (+ width n) cols) (return))
-      (incf width n) (incf end))
-    (subseq text 0 end)))
+(defun clip-copy-text (text cols &optional cells)
+  (let ((end 0))
+    (if cells
+        (loop for x below (min cols (length cells))
+              while (<= (+ x (copy-cell-width cells x)) cols)
+              do (incf end (length (first (aref cells x)))))
+        (ekko/text:map-clusters
+         (lambda (start stop width)
+           (declare (ignore start))
+           (when (> width cols) (return-from clip-copy-text (subseq text 0 end)))
+           (decf cols width) (setf end stop)) text))
+    (subseq text 0 (min end (length text)))))
 (defun search-copy (view pane)
   (when (and (pane-view-copy-lines (pane-state view (pane-id pane))) (plusp (length (pane-view-search-text (pane-state view (pane-id pane))))))
     (let* ((lines (pane-view-copy-lines (pane-state view (pane-id pane))))
@@ -6319,7 +6398,7 @@ Copy-mode selection, clipboard integration and paste handling.
   (or (< (first a) (first b)) (and (= (first a) (first b)) (<= (rest a) (rest b)))))
 
 (defun copy-row-range (view pane row text)
-  "Return string indices, including whole wide glyphs and combining marks."
+  "Return string indices intersecting the selected cells, including whole clusters."
   (let* ((state (pane-state view (pane-id pane)))
          (a (pane-view-copy-anchor state)) (b (pane-view-copy-end state))
          (forward (and a b (copy-point-before-p a b)))
@@ -6327,14 +6406,20 @@ Copy-mode selection, clipboard integration and paste handling.
     (when (and lo hi (<= (first lo) row (first hi)))
       (let ((left (if (= row (first lo)) (rest lo) 0))
             (right (if (= row (first hi)) (1+ (rest hi)) most-positive-fixnum))
-            (column 0) (start nil) (end nil))
-        (loop for c across text for i from 0 for width = (ekko/vt:character-width c) do
-          (when (if (zerop width) (and end (= end i))
-                    (and (< column right) (> (+ column width) left)))
-            (unless start (setf start i))
-            (setf end (1+ i)))
-          (incf column width))
-        (values (or start 0) (or end 0))))))
+            (start nil) (end nil))
+        (flet ((include-cluster (i j column width)
+                 (when (and (plusp width) (< column right) (> (+ column width) left))
+                   (unless start (setf start i))
+                   (setf end j))))
+          (if (pane-view-copy-cells state)
+              (let ((cells (aref (pane-view-copy-cells state) row)) (index 0))
+                (loop for x below (length cells) for cell across cells do
+                  (include-cluster index (+ index (length (first cell))) x (copy-cell-width cells x))
+                  (incf index (length (first cell)))))
+              (let ((column 0))
+                (ekko/text:map-clusters
+                 (lambda (i j width) (include-cluster i j column width) (incf column width)) text))))
+        (values (min (or start 0) (length text)) (min (or end 0) (length text)))))))
 
 (defun selected-copy-text (view pane)
   (let ((state (pane-state view (pane-id pane))))
@@ -6357,7 +6442,8 @@ Copy-mode selection, clipboard integration and paste handling.
     (loop for row from (pane-view-copy-top state)
           below (min (length (pane-view-copy-lines state))
                      (+ (pane-view-copy-top state) (pane-view-rows state)))
-          for text = (clip-copy-text (aref (pane-view-copy-lines state) row) (pane-view-cols state))
+          for text = (clip-copy-text (aref (pane-view-copy-lines state) row) (pane-view-cols state)
+                                     (when (pane-view-copy-cells state) (aref (pane-view-copy-cells state) row)))
           collect
           (multiple-value-bind (left right)
               (if (pane-view-copy-pointer state)
@@ -7252,29 +7338,21 @@ and the SGR codes it is drawn with."
   (when (and (< end row-end) (null (svref glyphs end)))
     (setf (svref glyphs end) #\Space)))
 (defun screen-text (screen x y text style left right)
-  "Draw TEXT from cell X of row Y, keeping only glyphs wholly inside [LEFT, RIGHT).
-Combining marks stay with an accepted base and are dropped after a clipped one."
+  "Draw complete clusters from TEXT wholly inside the half-open cell range."
   (declare (type fixnum x y left right) (type string text) (optimize speed))
   (let* ((cols (screen-cols screen)) (glyphs (screen-glyphs screen)) (styles (screen-styles screen))
-         (row-start (* y cols)) (row-end (+ row-start cols)) (cursor x) (last -1))
-    (declare (type fixnum cols row-start row-end cursor last))
+         (row-start (* y cols)) (row-end (+ row-start cols)) (cursor x))
     (when (and (<= 0 y) (< y (screen-rows screen)))
       (setf left (max 0 left) right (min cols right))
-      (loop for char across text
-            for code of-type fixnum = (char-code char)
-            for width of-type fixnum = (if (<= 32 code 126) 1 (ekko/text:display-width char)) do
-        (cond ((zerop width)
-               (when (>= last 0)
-                 (let ((glyph (svref glyphs last)))
-                   (setf (svref glyphs last)
-                         (concatenate 'string (if (characterp glyph) (string glyph) glyph) (string char))))))
-              ((and (<= left cursor) (<= (+ cursor width) right))
-               (setf last (+ row-start cursor))
-               (screen-cut glyphs last (+ last width) row-start row-end)
-               (setf (svref glyphs last) char (svref styles last) style)
-               (when (= width 2) (setf (svref glyphs (1+ last)) nil (svref styles (1+ last)) style)))
-              (t (setf last -1)))
-        (incf cursor width)))))
+      (ekko/text:map-clusters
+       (lambda (start end width)
+         (when (and (plusp width) (<= left cursor) (<= (+ cursor width) right))
+           (let ((index (+ row-start cursor)))
+             (screen-cut glyphs index (+ index width) row-start row-end)
+             (setf (svref glyphs index) (if (= end (1+ start)) (char text start) (subseq text start end))
+                   (svref styles index) style)
+             (when (= width 2) (setf (svref glyphs (1+ index)) nil (svref styles (1+ index)) style))))
+         (incf cursor width)) text))))
 (defun screen-blank (screen rect)
   (let ((cols (screen-cols screen)) (glyphs (screen-glyphs screen)) (styles (screen-styles screen)))
     (declare (type fixnum cols))
@@ -8161,7 +8239,7 @@ Cudaterm-compatible scalar widths and incremental clusters (generated by
 
 #+begin_src lisp :tangle src/text-width.lisp :mkdirp yes
 (defpackage #:ekko/text (:use #:cl)
-  (:export #:display-width #:code-info #:cluster-step #:cluster-state)
+  (:export #:display-width #:code-info #:cluster-step #:cluster-state #:map-clusters)
   (:documentation "UNICODE LICENSE V3
 
 COPYRIGHT AND PERMISSION NOTICE
@@ -8201,6 +8279,9 @@ Except as contained in this notice, the name of a copyright holder shall
 not be used in advertising or otherwise to promote the sale, use or other
 dealings in these Data Files or Software without prior written
 authorization of the copyright holder.
+
+GNU Unifont combining metadata source: mirror://gnu/unifont/unifont-17.0.05/unifont-17.0.05.tar.gz
+Verbatim upstream COPYING: share/doc/ekko/UNIFONT-COPYING
 "))
 (in-package #:ekko/text)
 (defparameter *code-index*
@@ -8444,6 +8525,21 @@ authorization of the copyright holder.
                   (setf state next)
                   (incf width added)))
        width))))
+(defun map-clusters (function text)
+  "Call FUNCTION with the start, end and final cell width of each cluster in TEXT."
+  (declare (type string text))
+  (let ((state 0) (start 0))
+    (loop for index from 0 below (length text)
+          do (multiple-value-bind (next added attached)
+                 (cluster-step state (char-code (char text index)))
+               (declare (ignore added))
+               (when (and (not attached) (plusp (logand next 3)) (< start index))
+                 (funcall function start index (logand state 3))
+                 (setf start index))
+               (setf state next)))
+    (when (< start (length text))
+      (funcall function start (length text) (logand state 3)))
+    nil))
 #+end_src
 
 ** src/extensions.lisp
@@ -11815,7 +11911,7 @@ CHECKS = {
     "incremental": (incremental, lambda r: r["frames"] >= 10 and r["differences"] == 0),
     "no-autowrap": (no_autowrap, lambda r: r["rows"][0] == r["expected"][0] and r["rows"][1].rstrip() == r["expected"][1]),
     "vt": (vt, lambda r: not r["failed"]),
-    "clusters": (clusters, lambda r: r["end"] == [13]),
+    "clusters": (clusters, lambda r: r["end"] == [12]),
     "wide-wrap": (wide_wrap, lambda r: r["padding"] == [" ", "red"] and r["next"] == "中"),
     "full-desktop": (full_desktop, lambda r: r["windows"] == 16 and r["chrome_spans"] > 0 and not r["hook_failures"]),
     "refused-answer": (refused_answer, lambda r: r["probe"] == ["probe 3"] and not r["hook_failures"]),
@@ -11972,6 +12068,21 @@ FUNCTIONS = '''(declaim (inline code-info))
                   (setf state next)
                   (incf width added)))
        width))))
+(defun map-clusters (function text)
+  "Call FUNCTION with the start, end and final cell width of each cluster in TEXT."
+  (declare (type string text))
+  (let ((state 0) (start 0))
+    (loop for index from 0 below (length text)
+          do (multiple-value-bind (next added attached)
+                 (cluster-step state (char-code (char text index)))
+               (declare (ignore added))
+               (when (and (not attached) (plusp (logand next 3)) (< start index))
+                 (funcall function start index (logand state 3))
+                 (setf start index))
+               (setf state next)))
+    (when (< start (length text))
+      (funcall function start (length text) (logand state 3)))
+    nil))
 '''
 
 
@@ -11992,10 +12103,13 @@ def main():
         index.append(blocks[block])
     if len(blocks) > 256:
         raise ValueError("Unicode table exceeds the byte-sized block index")
-    license_text = (args.properties / "UNICODE-LICENSE.txt").read_text()
+    license_text = ((args.properties / "UNICODE-LICENSE.txt").read_text()
+                    + "\nGNU Unifont combining metadata source: "
+                    + (args.widths / "unifont-source.txt").read_text()
+                    + "Verbatim upstream COPYING: share/doc/ekko/UNIFONT-COPYING\n")
     license_text = license_text.replace('\\', '\\\\').replace('"', '\\"')
     text = ('(defpackage #:ekko/text (:use #:cl)\n'
-            '  (:export #:display-width #:code-info #:cluster-step #:cluster-state)\n'
+            '  (:export #:display-width #:code-info #:cluster-step #:cluster-state #:map-clusters)\n'
             f'  (:documentation "{license_text}"))\n(in-package #:ekko/text)\n'
             + array("*code-index*", index) + "\n"
             + array("*code-blocks*", data) + "\n" + FUNCTIONS)

@@ -1,5 +1,5 @@
 (defpackage #:ekko/text (:use #:cl)
-  (:export #:display-width #:code-info #:cluster-step #:cluster-state)
+  (:export #:display-width #:code-info #:cluster-step #:cluster-state #:map-clusters)
   (:documentation "UNICODE LICENSE V3
 
 COPYRIGHT AND PERMISSION NOTICE
@@ -39,6 +39,9 @@ Except as contained in this notice, the name of a copyright holder shall
 not be used in advertising or otherwise to promote the sale, use or other
 dealings in these Data Files or Software without prior written
 authorization of the copyright holder.
+
+GNU Unifont combining metadata source: mirror://gnu/unifont/unifont-17.0.05/unifont-17.0.05.tar.gz
+Verbatim upstream COPYING: share/doc/ekko/UNIFONT-COPYING
 "))
 (in-package #:ekko/text)
 (defparameter *code-index*
@@ -282,3 +285,18 @@ authorization of the copyright holder.
                   (setf state next)
                   (incf width added)))
        width))))
+(defun map-clusters (function text)
+  "Call FUNCTION with the start, end and final cell width of each cluster in TEXT."
+  (declare (type string text))
+  (let ((state 0) (start 0))
+    (loop for index from 0 below (length text)
+          do (multiple-value-bind (next added attached)
+                 (cluster-step state (char-code (char text index)))
+               (declare (ignore added))
+               (when (and (not attached) (plusp (logand next 3)) (< start index))
+                 (funcall function start index (logand state 3))
+                 (setf start index))
+               (setf state next)))
+    (when (< start (length text))
+      (funcall function start (length text) (logand state 3)))
+    nil))

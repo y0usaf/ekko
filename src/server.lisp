@@ -545,23 +545,31 @@
                   (setf (pane-mouse-report pane) report)
                   (pane-input pane (text-bytes report))))))))
       (when up (setf (view-drag view) nil)))))
+(defun copy-cell-width (cells x)
+  (cond ((zerop (length (first (aref cells x)))) 0)
+        ((and (< (1+ x) (length cells)) (zerop (length (first (aref cells (1+ x)))))) 2)
+        (t 1)))
 (defun cell-runs (cells &optional selected-start selected-end (offset 0) (end (length cells))
                                 (selection-sgr '(27 48 5 238)))
   "One styled-row formatter for both live output and frozen selection."
-  (let ((runs nil) (start 0) (attr nil) (index 0) (chars (make-string-output-stream)))
+  (let ((runs nil) (start 0) (attr nil) (index 0) (state 0) (apart nil) (chars (make-string-output-stream)))
     (loop for position from offset below end for cell = (aref cells position) for x from 0
-          for text = (if (and (= position (1- end)) (plusp (length (first cell)))
-                              (= 2 (ekko/vt:character-width (char (first cell) 0))))
-                         " " (first cell))
+          for width = (copy-cell-width cells position)
+          for text = (if (> (+ position width) end) " " (first cell))
+          for own = (and (plusp (length text)) (ekko/text:cluster-state text))
+          for narrower = (and own (/= (logand own 3) width))
           for style = (if (and selected-start selected-end
                                (< index selected-end) (> (+ index (length text)) selected-start))
                           (ekko/vt:update-rendition (second cell) selection-sgr)
                           (second cell)) do
-      (unless (equal attr style)
+      (when (or (not (equal attr style))
+                (and own attr (or apart narrower
+                                  (nth-value 2 (ekko/text:cluster-step state (char-code (char text 0)))))))
         (when attr (push (list start (get-output-stream-string chars) attr) runs))
         (setf start x attr style))
-      (write-string text chars)
-      (incf index (length text)))
+      (write-string (if (and narrower (> (logand own 3) width)) (subseq text 0 1) text) chars)
+      (incf index (length text))
+      (when own (setf state own apart narrower)))
     (when attr (push (list start (get-output-stream-string chars) attr) runs))
     (nreverse runs)))
 (defun pane-lines (pane)
@@ -604,44 +612,39 @@
          (rects (append (mapcar (lambda (pane) (pane-content-rect view pane)) panes)
                         (loop for pane in occluders
                               collect (destructuring-bind (ox oy w h) (shown-rect view (pane-id pane))
-                                        (list ox oy (+ ox w) (+ oy h)))))))
-    (flet ((free-p (x width)
-             (and (<= 0 x) (<= (+ x width) cols) (<= 0 y) (< y (view-rows view))
-                  (notany (lambda (rect) (rect-hit-p rect x y width)) rects))))
-      (if (and (plusp (length text)) (plusp (ekko/vt:character-width (char text 0)))
-               (free-p x (ekko/text:display-width text)))
-          (list (list* x y (copy-seq text) sgr (when alpha (list alpha))))
-          (let ((cursor x) (run-x nil) (run-width 0) (run nil) (out nil))
-            (flet ((flush ()
-                     (when run
-                       (push (list* run-x y (coerce (nreverse run) 'string) (copy-list sgr) (when alpha (list alpha))) out)
-                       (setf run nil run-x nil run-width 0))))
-              (loop for char across text
-                    for width = (ekko/vt:character-width char) do
-                      ;; Combining marks do not claim a new cell. Keep them with an
-                      ;; accepted base glyph, and drop leading marks so a clipped
-                      ;; span cannot affect an unrelated cell.
-                      (cond
-                        ((zerop width) (when run (push char run)))
-                        ((free-p cursor width)
-                         (unless (and run-x (= cursor (+ run-x run-width))) (flush))
-                         (unless run-x (setf run-x cursor))
-                         (push char run) (incf run-width width))
-                        (t (flush)))
-                      (incf cursor width))
-              (flush))
-            (nreverse out))))))
+                                        (list ox oy (+ ox w) (+ oy h))))))
+         (cursor x) (run-x nil) (run-start nil) (run-end 0) (out nil))
+    (labels ((free-p (width)
+               (and (<= 0 cursor) (<= (+ cursor width) cols) (<= 0 y) (< y (view-rows view))
+                    (notany (lambda (rect) (rect-hit-p rect cursor y width)) rects)))
+             (flush ()
+               (when run-start
+                 (push (list* run-x y (subseq text run-start run-end) (copy-list sgr) (when alpha (list alpha))) out)
+                 (setf run-start nil run-x nil))))
+      (ekko/text:map-clusters
+       (lambda (start end width)
+         (when (plusp width)
+           (if (free-p width)
+               (progn (unless run-start (setf run-x cursor run-start start)) (setf run-end end))
+               (flush)))
+         (incf cursor width)) text)
+      (flush))
+    (nreverse out)))
 (defun span-pieces (view owner span dx alpha)
-  "SPAN's text as clip-ready pieces in its shown style, a :gradient spread
-across its cells, carrying ALPHA for the ground to fade against."
+  "Return complete clusters styled with the span's cell-position gradient."
   (destructuring-bind (sgr gradient) (if (view-tweens view)
                                          (shown-style view (span-key owner span) (span-style span))
                                          (span-style span))
     (let ((x (+ (getf span :x) dx)) (text (getf span :text)))
-      (if (and gradient (> (length text) 1))
-          (loop with last = (1- (length text)) for char across text for index from 0
-                collect (list :x x :text (string char) :sgr (blend-sgr sgr gradient (/ index last)) :alpha alpha)
-                do (incf x (ekko/vt:character-width char)))
+      (if gradient
+          (let ((column 0) (last (max 1 (1- (ekko/text:display-width text)))) (out nil))
+            (ekko/text:map-clusters
+             (lambda (start end width)
+               (when (plusp width)
+                 (push (list :x (+ x column) :text (subseq text start end)
+                             :sgr (blend-sgr sgr gradient (/ column last)) :alpha alpha) out))
+               (incf column width)) text)
+            (nreverse out))
           (list (list :x x :text text :sgr sgr :alpha alpha))))))
 (defun paint-span (view owner span dx dy alpha pane panes overlay)
   (loop for row from (+ (getf span :y) dy) below (+ (getf span :y) dy (getf span :rows 1))

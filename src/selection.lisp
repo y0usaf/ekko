@@ -73,7 +73,7 @@
   (or (< (first a) (first b)) (and (= (first a) (first b)) (<= (rest a) (rest b)))))
 
 (defun copy-row-range (view pane row text)
-  "Return string indices, including whole wide glyphs and combining marks."
+  "Return string indices intersecting the selected cells, including whole clusters."
   (let* ((state (pane-state view (pane-id pane)))
          (a (pane-view-copy-anchor state)) (b (pane-view-copy-end state))
          (forward (and a b (copy-point-before-p a b)))
@@ -81,14 +81,20 @@
     (when (and lo hi (<= (first lo) row (first hi)))
       (let ((left (if (= row (first lo)) (rest lo) 0))
             (right (if (= row (first hi)) (1+ (rest hi)) most-positive-fixnum))
-            (column 0) (start nil) (end nil))
-        (loop for c across text for i from 0 for width = (ekko/vt:character-width c) do
-          (when (if (zerop width) (and end (= end i))
-                    (and (< column right) (> (+ column width) left)))
-            (unless start (setf start i))
-            (setf end (1+ i)))
-          (incf column width))
-        (values (or start 0) (or end 0))))))
+            (start nil) (end nil))
+        (flet ((include-cluster (i j column width)
+                 (when (and (plusp width) (< column right) (> (+ column width) left))
+                   (unless start (setf start i))
+                   (setf end j))))
+          (if (pane-view-copy-cells state)
+              (let ((cells (aref (pane-view-copy-cells state) row)) (index 0))
+                (loop for x below (length cells) for cell across cells do
+                  (include-cluster index (+ index (length (first cell))) x (copy-cell-width cells x))
+                  (incf index (length (first cell)))))
+              (let ((column 0))
+                (ekko/text:map-clusters
+                 (lambda (i j width) (include-cluster i j column width) (incf column width)) text))))
+        (values (min (or start 0) (length text)) (min (or end 0) (length text)))))))
 
 (defun selected-copy-text (view pane)
   (let ((state (pane-state view (pane-id pane))))
@@ -111,7 +117,8 @@
     (loop for row from (pane-view-copy-top state)
           below (min (length (pane-view-copy-lines state))
                      (+ (pane-view-copy-top state) (pane-view-rows state)))
-          for text = (clip-copy-text (aref (pane-view-copy-lines state) row) (pane-view-cols state))
+          for text = (clip-copy-text (aref (pane-view-copy-lines state) row) (pane-view-cols state)
+                                     (when (pane-view-copy-cells state) (aref (pane-view-copy-cells state) row)))
           collect
           (multiple-value-bind (left right)
               (if (pane-view-copy-pointer state)

@@ -467,7 +467,7 @@ CHECKS = {
     "incremental": (incremental, lambda r: r["frames"] >= 10 and r["differences"] == 0),
     "no-autowrap": (no_autowrap, lambda r: r["rows"][0] == r["expected"][0] and r["rows"][1].rstrip() == r["expected"][1]),
     "vt": (vt, lambda r: not r["failed"]),
-    "clusters": (clusters, lambda r: r["end"] == [13]),
+    "clusters": (clusters, lambda r: r["end"] == [12]),
     "wide-wrap": (wide_wrap, lambda r: r["padding"] == [" ", "red"] and r["next"] == "中"),
     "full-desktop": (full_desktop, lambda r: r["windows"] == 16 and r["chrome_spans"] > 0 and not r["hook_failures"]),
     "refused-answer": (refused_answer, lambda r: r["probe"] == ["probe 3"] and not r["hook_failures"]),
