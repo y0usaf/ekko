@@ -452,6 +452,23 @@ def clusters(binary):
         return {"end": found, "row": "".join(row[pane["x"]:pane["x"] + 16])}
 
 
+def lock_key(binary):
+    with Instance(binary, "lock") as ekko:
+        ekko.ekko("run", "--detached", "sh", "-c", "exec sleep 600")
+        term = ekko.attach()
+        term.run_for(2.0)
+        delays = []
+        for _ in range(6):
+            term.run_for(0.4)
+            seen, sent = len(term.frames), term.now()
+            os.write(term.master, b"\x07")
+            while term.now() - sent < 2 and len(term.frames) == seen:
+                term.pump(2 - (term.now() - sent))
+            delays.append(round(term.frames[seen][0] - sent, 3) if len(term.frames) > seen else None)
+        term.close()
+        return {"repaint_after_ctrl_g": delays}
+
+
 def advanced(pair):
     return None not in pair and pair[1] > pair[0]
 
@@ -471,6 +488,7 @@ CHECKS = {
     "wide-wrap": (wide_wrap, lambda r: r["padding"] == [" ", "red"] and r["next"] == "中"),
     "full-desktop": (full_desktop, lambda r: r["windows"] == 16 and r["chrome_spans"] > 0 and not r["hook_failures"]),
     "refused-answer": (refused_answer, lambda r: r["probe"] == ["probe 3"] and not r["hook_failures"]),
+    "lock-key": (lock_key, lambda r: None not in r["repaint_after_ctrl_g"] and max(r["repaint_after_ctrl_g"]) < 0.2),
     "slow-hook": (slow_hook, lambda r: r["paused"] and r["banner"] and r["probe"] == ["slow 2"]
                   and not r["hook_failures"] and not r["banner_after"]),
 }
