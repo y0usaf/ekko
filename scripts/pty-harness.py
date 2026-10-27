@@ -418,6 +418,23 @@ def vt(binary):
         return {"failed": [name for name, (got, want) in cases.items() if got != want], "cases": cases}
 
 
+CLUSTERS = ("sleep 1; printf 'a \\342\\230\\200\\357\\270\\217 b \\360\\237\\221\\250\\342\\200\\215\\360\\237\\221\\251 c END'; "
+            "exec sleep 600")
+
+
+def clusters(binary):
+    with Instance(binary, "clusters") as ekko:
+        ekko.ekko("run", "--detached", "sh", "-c", CLUSTERS)
+        term = ekko.attach(120, 30)
+        term.run_for(2.5)
+        pane = json.loads(ekko.ekko("status").stdout)["panes"][0]
+        line = term.screen.buffer[pane["y"]]
+        row = [line[x].data for x in range(term.screen.columns)]
+        term.close()
+        found = [x - pane["x"] for x in range(len(row) - 2) if row[x:x + 3] == ["E", "N", "D"]]
+        return {"end": found, "row": "".join(row[pane["x"]:pane["x"] + 16])}
+
+
 def advanced(pair):
     return None not in pair and pair[1] > pair[0]
 
@@ -433,6 +450,7 @@ CHECKS = {
     "incremental": (incremental, lambda r: r["frames"] >= 10 and r["differences"] == 0),
     "no-autowrap": (no_autowrap, lambda r: r["rows"][0] == r["expected"][0] and r["rows"][1].rstrip() == r["expected"][1]),
     "vt": (vt, lambda r: not r["failed"]),
+    "clusters": (clusters, lambda r: r["end"] == [13]),
     "full-desktop": (full_desktop, lambda r: r["windows"] == 16 and r["chrome_spans"] > 0 and not r["hook_failures"]),
     "refused-answer": (refused_answer, lambda r: r["probe"] == ["probe 3"] and not r["hook_failures"]),
     "slow-hook": (slow_hook, lambda r: r["paused"] and r["banner"] and r["probe"] == ["slow 2"]

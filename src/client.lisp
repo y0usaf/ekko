@@ -244,7 +244,9 @@ Combining marks stay with an accepted base and are dropped after a clipped one."
 (defun paint-cells (viewer screen)
   "The bytes that turn what the host shows into SCREEN, or NIL when it already
 does. Only changed cells are written; a short unchanged gap on the same row is
-rewritten rather than skipped with a cursor move."
+rewritten rather than skipped with a cursor move. Only printable ASCII moves the
+host cursor by a width every terminal agrees on, so the cell after any other
+glyph is placed with a cursor move."
   (let* ((old (viewer-shown viewer)) (sink *paint-sink*)
          (cols (screen-cols screen)) (rows (screen-rows screen))
          (fresh (not (and old (= cols (screen-cols old)) (= rows (screen-rows old)))))
@@ -254,6 +256,7 @@ rewritten rather than skipped with a cursor move."
     (declare (type fixnum cols rows cx cy) (type simple-vector glyphs styles old-glyphs old-styles))
     (setf (sink-fill sink) 0)
     (flet ((same-style-p (a b) (or (eq a b) (equal a b)))
+           (plain-p (g) (and (characterp g) (<= 32 (char-code g) 126)))
            (glyph (g) (if (characterp g) (sink-char sink g) (sink-text sink g))))
       (dotimes (y rows)
         (let ((base (* y cols)) (x 0))
@@ -271,7 +274,7 @@ rewritten rather than skipped with a cursor move."
                     (unless (and (= cy y) (= cx x))
                       (if (and (= cy y) (< cx x) (<= (- x cx) 3)
                                (loop for j from (+ base cx) below i
-                                     always (and (characterp (svref glyphs j)) (same-style-p (svref styles j) pen))))
+                                     always (and (plain-p (svref glyphs j)) (same-style-p (svref styles j) pen))))
                           (loop for j from (+ base cx) below i do (sink-char sink (svref glyphs j)))
                           (progn (sink-byte sink 27) (sink-byte sink 91) (sink-decimal sink (1+ y)) (sink-byte sink 59)
                                  (sink-decimal sink (1+ x)) (sink-byte sink 72))))
@@ -286,7 +289,9 @@ rewritten rather than skipped with a cursor move."
                         (setf pen style)))
                     (glyph (svref glyphs i))
                     (incf x (if (and (< (1+ x) cols) (null (svref glyphs (1+ i)))) 2 1))
-                    (setf cx (if (< x cols) x -1) cy y))))))))
+                    (if (and (< x cols) (plain-p (svref glyphs i)))
+                        (setf cx x cy y)
+                        (setf cx -1 cy -1)))))))))
     (setf (viewer-host-style viewer) pen)
     (rotatef (viewer-shown viewer) (viewer-spare viewer))
     (setf (viewer-shown viewer) screen)

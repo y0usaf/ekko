@@ -7168,7 +7168,9 @@ Combining marks stay with an accepted base and are dropped after a clipped one."
 (defun paint-cells (viewer screen)
   "The bytes that turn what the host shows into SCREEN, or NIL when it already
 does. Only changed cells are written; a short unchanged gap on the same row is
-rewritten rather than skipped with a cursor move."
+rewritten rather than skipped with a cursor move. Only printable ASCII moves the
+host cursor by a width every terminal agrees on, so the cell after any other
+glyph is placed with a cursor move."
   (let* ((old (viewer-shown viewer)) (sink *paint-sink*)
          (cols (screen-cols screen)) (rows (screen-rows screen))
          (fresh (not (and old (= cols (screen-cols old)) (= rows (screen-rows old)))))
@@ -7178,6 +7180,7 @@ rewritten rather than skipped with a cursor move."
     (declare (type fixnum cols rows cx cy) (type simple-vector glyphs styles old-glyphs old-styles))
     (setf (sink-fill sink) 0)
     (flet ((same-style-p (a b) (or (eq a b) (equal a b)))
+           (plain-p (g) (and (characterp g) (<= 32 (char-code g) 126)))
            (glyph (g) (if (characterp g) (sink-char sink g) (sink-text sink g))))
       (dotimes (y rows)
         (let ((base (* y cols)) (x 0))
@@ -7195,7 +7198,7 @@ rewritten rather than skipped with a cursor move."
                     (unless (and (= cy y) (= cx x))
                       (if (and (= cy y) (< cx x) (<= (- x cx) 3)
                                (loop for j from (+ base cx) below i
-                                     always (and (characterp (svref glyphs j)) (same-style-p (svref styles j) pen))))
+                                     always (and (plain-p (svref glyphs j)) (same-style-p (svref styles j) pen))))
                           (loop for j from (+ base cx) below i do (sink-char sink (svref glyphs j)))
                           (progn (sink-byte sink 27) (sink-byte sink 91) (sink-decimal sink (1+ y)) (sink-byte sink 59)
                                  (sink-decimal sink (1+ x)) (sink-byte sink 72))))
@@ -7210,7 +7213,9 @@ rewritten rather than skipped with a cursor move."
                         (setf pen style)))
                     (glyph (svref glyphs i))
                     (incf x (if (and (< (1+ x) cols) (null (svref glyphs (1+ i)))) 2 1))
-                    (setf cx (if (< x cols) x -1) cy y))))))))
+                    (if (and (< x cols) (plain-p (svref glyphs i)))
+                        (setf cx x cy y)
+                        (setf cx -1 cy -1)))))))))
     (setf (viewer-host-style viewer) pen)
     (rotatef (viewer-shown viewer) (viewer-spare viewer))
     (setf (viewer-shown viewer) screen)
@@ -11849,6 +11854,23 @@ def vt(binary):
         return {"failed": [name for name, (got, want) in cases.items() if got != want], "cases": cases}
 
 
+CLUSTERS = ("sleep 1; printf 'a \\342\\230\\200\\357\\270\\217 b \\360\\237\\221\\250\\342\\200\\215\\360\\237\\221\\251 c END'; "
+            "exec sleep 600")
+
+
+def clusters(binary):
+    with Instance(binary, "clusters") as ekko:
+        ekko.ekko("run", "--detached", "sh", "-c", CLUSTERS)
+        term = ekko.attach(120, 30)
+        term.run_for(2.5)
+        pane = json.loads(ekko.ekko("status").stdout)["panes"][0]
+        line = term.screen.buffer[pane["y"]]
+        row = [line[x].data for x in range(term.screen.columns)]
+        term.close()
+        found = [x - pane["x"] for x in range(len(row) - 2) if row[x:x + 3] == ["E", "N", "D"]]
+        return {"end": found, "row": "".join(row[pane["x"]:pane["x"] + 16])}
+
+
 def advanced(pair):
     return None not in pair and pair[1] > pair[0]
 
@@ -11864,6 +11886,7 @@ CHECKS = {
     "incremental": (incremental, lambda r: r["frames"] >= 10 and r["differences"] == 0),
     "no-autowrap": (no_autowrap, lambda r: r["rows"][0] == r["expected"][0] and r["rows"][1].rstrip() == r["expected"][1]),
     "vt": (vt, lambda r: not r["failed"]),
+    "clusters": (clusters, lambda r: r["end"] == [13]),
     "full-desktop": (full_desktop, lambda r: r["windows"] == 16 and r["chrome_spans"] > 0 and not r["hook_failures"]),
     "refused-answer": (refused_answer, lambda r: r["probe"] == ["probe 3"] and not r["hook_failures"]),
     "slow-hook": (slow_hook, lambda r: r["paused"] and r["banner"] and r["probe"] == ["slow 2"]
